@@ -1,0 +1,82 @@
+@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@cloudflare/kumo/styles/tailwind";
+@import "tailwindcss";
+
+.spec-markdown { color: #e0e0e0; background: #161616; padding: 0.5rem 1rem; border-radius: 6px; }
+.spec-markdown h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: #fefefe; border-bottom: 1px solid #3a3a3a; padding-bottom: 0.5rem; }
+.spec-markdown h2 { font-size: 1.2rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: #fefefe; }
+.spec-markdown h3 { font-size: 1.05rem; font-weight: 500; margin: 1rem 0 0.25rem; color: #f4f4f4; }
+.spec-markdown h4 { font-size: 0.9rem; font-weight: 500; margin: 0.75rem 0 0.2rem; color: #f0f0f0; }
+.spec-markdown p { font-size: 0.875rem; line-height: 1.75; color: #e0e0e0; margin: 0.5rem 0; }
+.spec-markdown ul, .spec-markdown ol { font-size: 0.875rem; line-height: 1.7; color: #e0e0e0; padding-left: 1.5rem; margin: 0.35rem 0; }
+.spec-markdown li { margin: 0.25rem 0; color: #e0e0e0; }
+.spec-markdown code { font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace; font-size: 0.75rem; color: #e8e8e8; background: #252525; padding: 0.15em 0.4em; border-radius: 3px; }
+.spec-markdown pre { color: #e0e0e0; background: #1e1e1e; padding: 0.75rem 1rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; border: 1px solid #3a3a3a; }
+.spec-markdown pre code { background: none; padding: 0; font-size: 0.7rem; color: #e0e0e0; }
+.spec-markdown table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 0.75rem 0; }
+.spec-markdown th, .spec-markdown td { border: 1px solid #3a3a3a; padding: 0.5rem 0.75rem; text-align: left; }
+.spec-markdown th { background: #252525; font-weight: 500; color: #f4f4f4; }
+.spec-markdown td { color: #e0e0e0; }
+.spec-markdown hr { border: none; border-top: 1px solid #3a3a3a; margin: 1.5rem 0; }
+.spec-markdown a { color: #64b5f6; text-decoration: none; }
+.spec-markdown a:hover { text-decoration: underline; }
+.spec-markdown strong { color: #fefefe; font-weight: 500; }
+.spec-markdown blockquote { border-left: 2px solid #64b5f6; padding-left: 1rem; margin: 0.5rem 0; color: #d4d4d4; }
+
+.spec-markdown-inline { color: #e0e0e0; background: #1a1a1a; }
+.spec-markdown-inline p { font-size: 0.8125rem; color: #e8e8e8; margin: 0.25rem 0; }
+.spec-markdown-inline h1, .spec-markdown-inline h2, .spec-markdown-inline h3, .spec-markdown-inline h4 { font-size: 0.8125rem; font-weight: 500; color: #f8f8f8; margin: 0.25rem 0; }
+.spec-markdown-inline ul, .spec-markdown-inline ol { font-size: 0.75rem; color: #e8e8e8; padding-left: 1rem; }
+.spec-markdown-inline li { margin: 0.1rem 0; color: #e8e8e8; }
+.spec-markdown-inline code { font-size: 0.7rem; color: #ececec; background: #252525; padding: 0.05em 0.25em; border-radius: 2px; }
+.spec-markdown-inline pre { margin: 0.25rem 0; padding: 0.5rem; background: #1e1e1e; border: 1px solid #3a3a3a; }
+.spec-markdown-inline pre code { font-size: 0.65rem; color: #e0e0e0; }
+.spec-markdown-inline strong { color: #fefefe; }
+.spec-markdown-inline a { color: #64b5f6; }
+
+/* =========================================
+   Liquid Design System Overrides
+   ========================================= */
+
+/* Make Kumo UI Buttons "liquid" (pill-shaped) */
+button[data-kumo-component="Button"],
+a[data-kumo-component="LinkButton"] {
+  border-radius: 9999px !important;
+}
+
+/* Ensure any inset backgrounds/borders inherit the fully rounded radius */
+button[data-kumo-component="Button"] > span[aria-hidden="true"],
+a[data-kumo-component="LinkButton"] > span[aria-hidden="true"] {
+  border-radius: inherit !important;
+}
+
+/* Liquid Background Glow */
+/* Removed body background color/image override to keep original Kumo UI colors */
+
+/* Glass panel & container utility for cards, sidebars, containers */
+.glass-panel,
+.glass-container {
+  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 50%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 70%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* Liquid Active Tab State */
+.liquid-tab-active {
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--color-kumo-brand, #2563eb) 15%, transparent) 100%) !important;
+  border-bottom: 2px solid var(--color-kumo-brand) !important;
+  color: var(--color-kumo-brand) !important;
+}
+
+.liquid-tab-hover:hover {
+  background: color-mix(in srgb, var(--color-kumo-default, #ffffff) 3%, transparent) !important;
+}
+
+/* Kumo UI sidebar override to make it glass */
+div[data-kumo-component="Sidebar"] {
+  background-color: color-mix(in srgb, var(--color-kumo-base, #0d0d0d) 40%, transparent) !important;
+  backdrop-filter: blur(24px) saturate(150%) !important;
+  border-right: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 50%, transparent) !important;
+}

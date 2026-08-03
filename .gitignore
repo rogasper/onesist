@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.output/
+data.db
+data.db-wal
+data.db-shm
+*.db
+src/routeTree.gen.ts
