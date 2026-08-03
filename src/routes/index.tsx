@@ -350,7 +350,7 @@ function DashboardPage() {
           {projects.map((p) => (
             <div
               key={p.id}
-              className="glass-panel rounded-2xl px-5 py-4 group cursor-pointer hover:border-kumo-brand/50 hover:bg-white/5 transition-all"
+              className="glass-panel bg-kumo-subtle rounded-2xl px-5 py-4 group cursor-pointer hover:border-kumo-brand/50 hover:bg-white/5 transition-all"
               onClick={() => navigate({ to: "/projects/$id", params: { id: p.id } })}
             >
               <div className="flex items-center gap-3">
@@ -360,13 +360,14 @@ function DashboardPage() {
                   {p.rootPath && <span className="text-[11px] text-kumo-subtle truncate">{p.rootPath}</span>}
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  <button 
+                  <Button 
+                  variant="ghost"
                     onClick={(e) => handleDeleteClick(e, p.id)} 
-                    className="p-1.5 text-kumo-subtle hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                    className="p-1.5 text-kumo-subtle hover:text-red-400 hover:bg-red-400/10 transition-colors"
                     title="Remove from dashboard"
                   >
                     <Trash size={14} />
-                  </button>
+                  </Button>
                   <Button variant="ghost" size="sm">Open</Button>
                 </div>
               </div>

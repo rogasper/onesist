@@ -2,7 +2,7 @@ import { useRef, useCallback } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import type { ChangeSpec } from "@codemirror/state";
 import {
   FloppyDisk, Check, CheckCircle, XCircle, TextT,
@@ -242,7 +242,8 @@ export function FsdEditor({ content, dirty, saving, mode, onModeChange, onChange
               onCreateEditor={(view) => {
                 editorRef.current = view;
               }}
-              extensions={[markdown({ base: markdownLanguage })]}
+              
+              extensions={[markdown({ base: markdownLanguage }), EditorView.lineWrapping]}
               theme={oneDark}
               height="100%"
               style={{ height: "100%", fontSize: "13px" }}
@@ -251,7 +252,7 @@ export function FsdEditor({ content, dirty, saving, mode, onModeChange, onChange
         )}
         {mode !== "edit" && (
           <div className={`h-full overflow-y-auto ${mode === "split" ? "w-1/2" : "w-full"} bg-kumo-elevated/20`}>
-            <div className="max-w-3xl mx-auto px-8 py-6 spec-markdown text-[13px] leading-relaxed">
+            <div className="max-w-full mx-auto px-8 py-6 spec-markdown text-[13px] leading-relaxed">
               <MarkdownViewer content={content || "*Empty document*"} />
             </div>
           </div>

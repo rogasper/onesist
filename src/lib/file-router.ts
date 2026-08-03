@@ -113,7 +113,20 @@ export function getProjectSummary(rootPath: string): Record<string, number> {
   }
   try {
     const inputDir = path.join(rootPath, "input", "fsd");
-    if (fs.existsSync(inputDir)) summary["fsd"] = fs.readdirSync(inputDir).filter((f) => f.endsWith(".md") && f !== "README.md").length;
+    if (fs.existsSync(inputDir)) {
+      let mdCount = 0;
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (entry.isDirectory() && !entry.name.startsWith(".")) {
+            walk(path.join(dir, entry.name));
+          } else if (entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md") {
+            mdCount++;
+          }
+        }
+      };
+      walk(inputDir);
+      summary["fsd"] = mdCount;
+    }
   } catch {}
   return summary;
 }

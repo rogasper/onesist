@@ -56,7 +56,7 @@ a[data-kumo-component="LinkButton"] > span[aria-hidden="true"] {
 /* Glass panel & container utility for cards, sidebars, containers */
 .glass-panel,
 .glass-container {
-  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 50%, transparent) !important;
+  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 100%, transparent) !important;
   backdrop-filter: blur(16px) saturate(120%) !important;
   -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
   border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 70%, transparent) !important;
@@ -79,4 +79,27 @@ div[data-kumo-component="Sidebar"] {
   background-color: color-mix(in srgb, var(--color-kumo-base, #0d0d0d) 40%, transparent) !important;
   backdrop-filter: blur(24px) saturate(150%) !important;
   border-right: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 50%, transparent) !important;
+}
+
+/* =========================================
+   xterm.js scrollbar fix (xtermjs/xterm.js#512)
+   Keep the scrollbar above the rendered rows so it stays
+   visible and clickable (drag-to-scroll) in xterm 6.x.
+   ========================================= */
+
+.xterm .xterm-scrollable-element > .xterm-scrollbar {
+  position: absolute !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  z-index: 15 !important;
+  pointer-events: auto !important;
+}
+
+.xterm .xterm-scrollable-element > .xterm-visible {
+  z-index: 15 !important;
+}
+
+.xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
+  cursor: pointer !important;
 }

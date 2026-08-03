@@ -9,7 +9,10 @@ interface AgentSession {
   cols: number;
   rows: number;
   sizeFile: string;
+  buffer: string;
 }
+
+const MAX_REPLAY = 64 * 1024;
 
 const sessions = new Map<string, AgentSession>();
 
@@ -32,6 +35,8 @@ function parseCommand(command: string): string[] {
 }
 
 function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 40) {
+  const existing = sessions.get(id);
+  if (existing) killSession(id);
   const cmdParts = parseCommand(command);
   if (cmdParts.length === 0) return null;
 
@@ -101,24 +106,22 @@ while True:
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  const session: AgentSession = { id, proc, cwd, cols, rows, sizeFile };
+  const session: AgentSession = { id, proc, cwd, cols, rows, sizeFile, buffer: "" };
   sessions.set(id, session);
 
-  proc.stdout?.on("data", (chunk: Buffer) => {
-    try {
-      for (const ws of activeSockets) {
-        ws.send(JSON.stringify({ type: "output", id, data: chunk.toString("utf-8") }));
-      }
-    } catch {}
-  });
+  const broadcast = (data: string) => {
+    session.buffer += data;
+    if (session.buffer.length > MAX_REPLAY) {
+      session.buffer = session.buffer.slice(-MAX_REPLAY);
+    }
+    for (const ws of activeSockets) {
+      try { ws.send(JSON.stringify({ type: "output", id, data })); } catch {}
+    }
+  };
 
-  proc.stderr?.on("data", (chunk: Buffer) => {
-    try {
-      for (const ws of activeSockets) {
-        ws.send(JSON.stringify({ type: "output", id, data: chunk.toString("utf-8") }));
-      }
-    } catch {}
-  });
+  proc.stdout?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
+
+  proc.stderr?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
 
   proc.on("close", (code: number | null) => {
     try {
@@ -188,6 +191,16 @@ try {
                   ws.send(JSON.stringify({ type: "ready", id: parsed.id, cwd: s.cwd }));
                 } catch {}
               }, 300);
+            }
+          } else if (parsed.type === "status") {
+            const s = sessions.get(parsed.id);
+            if (s) {
+              if (s.buffer) {
+                ws.send(JSON.stringify({ type: "replay", id: parsed.id, data: s.buffer }));
+              }
+              ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: true }));
+            } else {
+              ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: false }));
             }
           } else if (parsed.type === "input") {
             writeStdin(parsed.id, parsed.data);

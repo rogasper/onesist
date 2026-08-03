@@ -134,10 +134,10 @@ function SpecPage() {
         {/* Row 3: File selector */}
         <div className="flex items-center gap-1.5 text-[11px] overflow-x-auto pb-0.5">
           <button onClick={() => { setSelectedSpec(null); setActiveModule(null); }}
-            className={`px-3 py-1 rounded-full border shrink-0 transition-all ${!selectedSpec ? "border-kumo-brand bg-kumo-brand/20 text-kumo-brand font-medium" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"}`}>Master</button>
+            className={`px-3 py-1 rounded-full bg-kumo-elevated border shrink-0 transition-all ${!selectedSpec ? "border-kumo-brand bg-kumo-brand/20 text-kumo-brand font-medium" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"}`}>Master</button>
           {mdFiles.map((f) => (
             <button key={f.path} onClick={() => { setSelectedSpec(f.path); setActiveModule(null); }}
-              className={`px-3 py-1 rounded-full border shrink-0 transition-all ${selectedSpec === f.path ? "border-kumo-brand bg-kumo-brand/20 text-kumo-brand font-medium" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"}`}>{f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1")}</button>
+              className={`px-3 py-1 rounded-full bg-kumo-elevated border shrink-0 transition-all ${selectedSpec === f.path ? "border-kumo-brand bg-kumo-brand/20 text-kumo-brand font-medium" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"}`}>{f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1")}</button>
           ))}
         </div>
 

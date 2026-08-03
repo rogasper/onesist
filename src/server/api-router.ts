@@ -760,7 +760,7 @@ async function handleProjects(
                 }).run();
               }
               count++;
-            } else if (entry.isDirectory() && entry.name !== "sources" && !entry.name.startsWith(".")) {
+            } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
               walk(full, relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name);
             }
           }
@@ -784,11 +784,14 @@ async function handleProjects(
             // Skip source files that already have a converted Markdown twin —
             // the Markdown session is the editable document.
             const stem = entry.name.replace(/\.[a-z0-9]+$/i, "");
-            if (fs.default.existsSync(pathMod.join(fsdDir(), `${stem}.md`))) {
-              const existingTwin = byPath.get(`input/fsd/sources/${relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name}`);
+            const twinTopLevel = pathMod.join(fsdDir(), `${stem}.md`);
+            const twinSameFolder = pathMod.join(dir, `${stem}.md`);
+            if (fs.default.existsSync(twinTopLevel) || fs.default.existsSync(twinSameFolder)) {
+              const sourceRel = `input/fsd/sources/${relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name}`;
+              const existingTwin = byPath.get(sourceRel);
               if (existingTwin) {
                 db.delete(fsdSessions).where(eq(fsdSessions.id, existingTwin.id)).run();
-                byPath.delete(`input/fsd/sources/${relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name}`);
+                byPath.delete(sourceRel);
                 count++;
               }
               continue;

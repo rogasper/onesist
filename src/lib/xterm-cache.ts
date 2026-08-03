@@ -3,7 +3,7 @@ import type { FitAddon } from "@xterm/addon-fit";
 
 interface CachedTerminal {
   id: string;
-  el: HTMLDivElement;
+  el: HTMLElement;
   term: Terminal;
   fit: FitAddon;
   destroyed: boolean;
@@ -47,7 +47,7 @@ export function getOrCreate(id: string): CachedTerminal | null {
   return cache.get(id) ?? null;
 }
 
-export function register(id: string, term: Terminal, fit: FitAddon, el: HTMLDivElement) {
+export function register(id: string, term: Terminal, fit: FitAddon, el: HTMLElement) {
   const existing = cache.get(id);
   if (existing) {
     existing.term.dispose();

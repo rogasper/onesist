@@ -153,7 +153,7 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
         <Background color="var(--color-kumo-line, #333)" gap={20} size={1} />
         <Controls position="bottom-right" className="!bg-kumo-surface !rounded-lg !border !border-kumo-line" />
         <Panel position="bottom-center">
-          <div className="flex items-center gap-1 rounded-full border border-kumo-line bg-kumo-elevated/90 px-1.5 py-1 shadow-md">
+          <div className="flex items-center gap-1 rounded-full border border-kumo-line bg-kumo-elevated/90 p-1 shadow-md">
             {(Object.keys(LAYOUT_LABELS) as LayoutAlgorithm[]).map((algo) => (
               <Button
                 key={algo}

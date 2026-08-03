@@ -11,6 +11,15 @@
           "bash": "deny"
         }
       },
+      "cheap-plan": {
+        "mode": "primary",
+        "model": "opencode-go/deepseek-v4-flash",
+        "description": "Handles high-level system architecture, planning, and reasoning. just write the plan, no execution just write the plan.",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny"
+        }
+      },
       "execute": {
         "mode": "primary",
         "model": "opencode-go/deepseek-v4-flash",

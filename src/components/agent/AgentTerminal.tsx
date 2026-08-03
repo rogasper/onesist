@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { X } from "@phosphor-icons/react";
+import { X, Square, Play } from "@phosphor-icons/react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -33,18 +33,33 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const panelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
-  const sessionIdRef = useRef("agent-session");
+  const sessionId = `agent-${projectId ?? "default"}`;
+  const sessionIdRef = useRef(sessionId);
+  const boundSidRef = useRef<string | null>(null);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  const [restartTick, setRestartTick] = useState(0);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewText, setReviewText] = useState("");
+  const historyRef = useRef("");
+  const reviewRef = useRef<HTMLDivElement | null>(null);
   const needsReattach = useRef(false);
   const connectingRef = useRef(false);
+  const manualEndRef = useRef(false);
+  const lastSpawnTimeRef = useRef(0);
+  const wheelCleanupRef = useRef<(() => void) | null>(null);
+  const connectedRef = useRef(false);
+  useEffect(() => { connectedRef.current = connected; }, [connected]);
+
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
   useEffect(() => {
     fetch("/api/terminal/port").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.port) setPort(d.port);
     }).catch(() => {});
-    fetch("/api/config/project-root").then((r) => r.ok ? r.json() : null).then((d) => {
+    fetch(`/api/config/project-root${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`).then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.root) setProjectRoot(d.root);
     }).catch(() => {});
-  }, []);
+  }, [projectId]);
 
   // Fetch latest project data to get current defaultAgent (route loader may be stale)
   useEffect(() => {
@@ -57,45 +72,125 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   // Sync agent name from defaultAgent prop
   useEffect(() => { setAgentName(defaultAgent); }, [defaultAgent]);
 
-  // Auto-connect when panel opens
+  // Auto-connect when panel opens; reattach the running session instead of respawning
   useEffect(() => {
     if (!visible || !port || !projectRoot) return;
     if (!agentName) return;
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    const sid = sessionIdRef.current;
+    manualEndRef.current = false;
+
+    // Defensive cleanup: drop any stale/non-open socket and clear stuck flags
+    // (e.g. leftover state from HMR or an interrupted flow).
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.OPEN) {
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+      connectingRef.current = false;
+    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (boundSidRef.current === sid) return;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+      boundSidRef.current = null;
+      connectingRef.current = false;
+    }
     if (connectingRef.current) return;
     connectingRef.current = true;
 
-    const rootParam = projectRoot ? `?root=${encodeURIComponent(projectRoot)}` : "";
-    const ws = new WebSocket(`ws://localhost:${port}/wss${rootParam}`);
+    // Reattach cached terminal (close/reopen or navigation round-trip)
+    if (!termRef.current) {
+      const cached = attach(sid, containerRef.current!);
+      if (cached) {
+        termRef.current = cached.term;
+        fitRef.current = cached.fit;
+        try { cached.fit.fit(); } catch {}
+      }
+    }
+
+    const appendHistory = (data: string) => {
+      const clean = data
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
+        .replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")
+        .replace(/\x1bP[^\x1b]*\x1b\\/g, "")
+        .replace(/\x1b[\x5b\x5d\x50]/g, "");
+      historyRef.current += clean;
+      if (historyRef.current.length > 250000) historyRef.current = historyRef.current.slice(-250000);
+    };
+
+    const ws = new WebSocket(`ws://localhost:${port}/wss`);
     wsRef.current = ws;
 
-    const cmd = buildAgentCommand(agentName as AgentCli, { mode: "new" });
-
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "spawn", id: sessionIdRef.current, command: cmd, cwd: projectRoot || "/tmp" }));
+      boundSidRef.current = sid;
+      ws.send(JSON.stringify({ type: "status", id: sid }));
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.id !== sessionIdRef.current) return;
-        if (msg.type === "ready") {
+        if (msg.id !== sid) return;
+        if (msg.type === "status") {
+          if (msg.exists) {
+            // Agent still running — just attach to the live session
+            setConnected(true);
+            if (!termRef.current) createXterm();
+            requestAnimationFrame(() => {
+              if (fitRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+                const dims = fitRef.current.proposeDimensions();
+                if (dims) {
+                  wsRef.current.send(JSON.stringify({ type: "resize", id: sid, cols: dims.cols, rows: dims.rows }));
+                }
+              }
+            });
+          } else {
+            if (manualEndRef.current) {
+              manualEndRef.current = false;
+              setConnected(false);
+              ws.close();
+              return;
+            }
+            const cmd = buildAgentCommand(agentName as AgentCli, { mode: "new" });
+            lastSpawnTimeRef.current = Date.now();
+            ws.send(JSON.stringify({ type: "spawn", id: sid, command: cmd, cwd: projectRoot || "/tmp" }));
+          }
+        } else if (msg.type === "replay") {
+          if (!termRef.current) createXterm();
+          if (termRef.current) {
+            termRef.current.write(msg.data);
+            appendHistory(msg.data);
+          }
+        } else if (msg.type === "ready") {
           setConnected(true);
-          createXterm();
+          if (!termRef.current) createXterm();
         } else if (msg.type === "output") {
           if (!termRef.current) createXterm();
-          if (termRef.current) termRef.current.write(msg.data);
+          if (termRef.current) {
+            termRef.current.write(msg.data);
+            appendHistory(msg.data);
+          }
         } else if (msg.type === "exit") {
           if (!termRef.current) createXterm();
           if (termRef.current) termRef.current.writeln(`\x1b[33m\nExited (code ${msg.code ?? "?"})\x1b[0m`);
           setConnected(false);
+          setReviewOpen(false);
+          boundSidRef.current = null;
+          connectingRef.current = false;
+          wsRef.current = null;
+          ws.close();
+          // Auto-restart if the process died on its own (not via End session)
+          if (!manualEndRef.current && Date.now() - lastSpawnTimeRef.current > 3000) {
+            setSessionEpoch((e) => e + 1);
+          }
         }
       } catch {}
     };
 
     ws.onclose = () => { setConnected(false); wsRef.current = null; connectingRef.current = false; };
     ws.onerror = () => { setConnected(false); wsRef.current = null; connectingRef.current = false; };
-  }, [visible, port, projectRoot, agentName]);
+  }, [visible, port, projectRoot, agentName, sessionId, sessionEpoch, restartTick]);
 
   const createXterm = () => {
     if (!containerRef.current || termRef.current) return;
@@ -126,7 +221,21 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     } catch {}
 
     term.open(containerRef.current);
-    register(sessionIdRef.current, term, fit, containerRef.current);
+    register(sessionIdRef.current, term, fit, term.element ?? containerRef.current);
+
+    // Wheel up in the TUI (alt buffer, no scrollback) opens the history
+    // review overlay; wheel down is ignored (xterm handles normal-buffer
+    // scrollback itself). preventDefault stops the page from scrolling.
+    const container = containerRef.current;
+    const onWheel = (e: WheelEvent) => {
+      if (!connectedRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.deltaY < 0 && historyRef.current) openReview();
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
+    wheelCleanupRef.current = () => container.removeEventListener("wheel", onWheel);
 
     term.onResize(({ cols, rows }) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -183,6 +292,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         park(sessionIdRef.current);
         termRef.current = null;
         fitRef.current = null;
+        setReviewOpen(false);
       }
     }
   }, [visible, connected]);
@@ -190,15 +300,13 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   useEffect(() => {
     return () => {
       observerRef.current?.disconnect();
+      observerRef.current = null;
       if (wsRef.current) {
-        wsRef.current.send(JSON.stringify({ type: "kill", id: sessionIdRef.current }));
         wsRef.current.onerror = null;
         wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }
-      if (termRef.current) termRef.current.dispose();
-      destroyCache(sessionIdRef.current);
     };
   }, []);
 
@@ -210,6 +318,47 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
   const handleResizeStart = useCallback(() => setDragging(true), []);
   const handleResizeEnd = useCallback(() => setDragging(false), []);
+
+  const handleEndSession = () => {
+    manualEndRef.current = true;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "kill", id: sessionIdRef.current }));
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    boundSidRef.current = null;
+    wheelCleanupRef.current?.();
+    wheelCleanupRef.current = null;
+    if (termRef.current) {
+      termRef.current.dispose();
+      termRef.current = null;
+      fitRef.current = null;
+    }
+    destroyCache(sessionIdRef.current);
+    historyRef.current = "";
+    setReviewText("");
+    setReviewOpen(false);
+    setConnected(false);
+    connectingRef.current = false;
+  };
+
+  const openReview = () => {
+    setReviewText(historyRef.current);
+    setReviewOpen(true);
+  };
+  const closeReview = () => setReviewOpen(false);
+
+  useEffect(() => {
+    if (reviewOpen && reviewRef.current) {
+      reviewRef.current.scrollTop = reviewRef.current.scrollHeight;
+    }
+  }, [reviewOpen, reviewText]);
+
+  const handleReviewScroll = () => {
+    const el = reviewRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 8) setReviewOpen(false);
+  };
 
   useEffect(() => {
     if (!dragging) return;
@@ -246,6 +395,15 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             {connected && <span className="text-[10px] text-green-400/70 font-mono">{agentName}</span>}
           </div>
           <div className="flex items-center gap-1">
+            {connected ? (
+              <button onClick={handleEndSession} title="End agent session" className="text-neutral-500 hover:text-red-400 transition-colors">
+                <Square size={13} />
+              </button>
+            ) : (
+              <button onClick={() => setRestartTick((t) => t + 1)} title="Start agent session" className="text-neutral-400 hover:text-green-400 transition-colors">
+                <Play size={13} />
+              </button>
+            )}
             <button onClick={onClose} className="text-neutral-500 hover:text-neutral-200 transition-colors ml-1">
               <X size={14} />
             </button>
@@ -256,13 +414,25 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         <div style={{ position: "absolute", top: 40, left: 0, right: 0, bottom: 0 }}>
           <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden" }} />
 
+          {reviewOpen && (
+            <div className="absolute inset-0 z-20 flex flex-col bg-[#0d0d0d]">
+              <div className="shrink-0 px-3 py-1.5 border-b border-[#2a2a2a] flex items-center justify-between">
+                <span className="text-[10px] text-neutral-400 font-mono">agent history — scroll to bottom to return to live</span>
+                <button onClick={closeReview} className="text-neutral-500 hover:text-neutral-200 text-[10px]">✕</button>
+              </div>
+              <div ref={reviewRef} onScroll={handleReviewScroll} className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[12px] leading-relaxed text-neutral-300 whitespace-pre-wrap">
+                {reviewText}
+              </div>
+            </div>
+          )}
+
           {!connected && (
             <div style={{ position: "absolute", inset: 0 }}
               className="flex items-center justify-center bg-[#0d0d0d] pointer-events-none z-10">
               <div className="text-neutral-500 text-xs text-center px-4">
-                <span>Connecting to </span>
-                <span className="text-green-400 font-medium">{agentName}</span>
-                <span>...</span>
+                <span>Agent not running — press </span>
+                <span className="text-green-400 font-medium">▶ Start</span>
+                <span> to launch</span>
               </div>
             </div>
           )}

@@ -15,9 +15,9 @@ export const Route = createFileRoute("/projects/$id/erd")({
 
 function ErdPage() {
   const { id } = Route.useParams();
-  const { files, loading: filesLoading } = useFileList("output/erd");
+  const { files, loading: filesLoading } = useFileList("output/erd", id);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const { content: dbmlText, refresh: refreshContent } = useFileContent(selectedFile);
+  const { content: dbmlText, refresh: refreshContent } = useFileContent(selectedFile, id);
   const [localText, setLocalText] = useState("");
   const [parsed, setParsed] = useState<ParsedDbml>({ tables: [], notes: [] });
   const [showEditor, setShowEditor] = useState(false);
@@ -75,8 +75,8 @@ function ErdPage() {
             {files.map((f) => (
               <button key={f.path} onClick={() => setSelectedFile(f.path)}
                 style={selectedFile === f.path ? { borderColor: "var(--color-kumo-brand, #60a5fa)", color: "var(--color-kumo-brand, #60a5fa)" } : {}}
-                className={`text-[11px] px-3 py-1 rounded-full border transition-all shrink-0 font-medium ${
-                  selectedFile === f.path ? "bg-kumo-brand/20" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
+                className={`text-[11px] px-3 py-1 rounded-full bg-kumo-elevated border transition-all shrink-0 font-medium ${
+                  selectedFile === f.path ? "bg-kumo-brand/20" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/50"
                 }`}>{f.name}</button>
             ))}
           </div>

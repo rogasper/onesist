@@ -51,8 +51,6 @@ function FsdPage() {
   const [draftContent, setDraftContent] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [checkResult, setCheckResult] = useState<CompletenessResult | null>(null);
-  const [checking, setChecking] = useState(false);
   const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const initialSelectDone = useRef(false);
 
@@ -92,17 +90,6 @@ function FsdPage() {
   }, [id]);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
-
-  // Load completeness for the active session
-  useEffect(() => {
-    setDraftContent(null);
-    setDirty(false);
-    if (activeSession?.completenessJson) {
-      try { setCheckResult(JSON.parse(activeSession.completenessJson)); } catch { setCheckResult(null); }
-    } else {
-      setCheckResult(null);
-    }
-  }, [activeId]);
 
   const handleScan = useCallback(async () => {
     setScanning(true);
@@ -164,77 +151,14 @@ function FsdPage() {
     setSaving(false);
   }, [id, activeSession, editorContent]);
 
-  const handleCheck = useCallback(async () => {
-    if (!activeSession) return;
-    setChecking(true);
-    try {
-      const res = await fetch(`/api/projects/${id}/fsd/${activeSession.id}/check`, { method: "POST" });
-      if (res.ok) setCheckResult(await res.json());
-    } catch {}
-    setChecking(false);
-  }, [id, activeSession]);
-
   const handleReady = useCallback(async () => {
     if (!activeSession) return;
     const res = await fetch(`/api/projects/${id}/fsd/${activeSession.id}/ready`, { method: "POST" });
     if (res.ok) {
       const updated = await res.json();
       setSessions((p) => p.map((s) => (s.id === updated.id ? updated : s)));
-      if (updated.completeness) setCheckResult(updated.completeness);
     }
   }, [id, activeSession]);
-
-  const handleRunAnalysis = useCallback(async () => {
-    if (!activeSession || running) return;
-    // Skills gate: analysis requires fsd-analyzer + markitdown installed
-    try {
-      const skillRes = await fetch(`/api/projects/${id}/skills`);
-      if (skillRes.ok) {
-        const skillData = await skillRes.json();
-        if (skillData.status !== "ready") {
-          const missing = (skillData.skills ?? [])
-            .filter((s: any) => s.status !== "installed")
-            .map((s: any) => s.name)
-            .join(", ");
-          setToast({ kind: "error", text: `Required skills not installed yet (${missing || "unknown"}). Install them first.` });
-          setTimeout(() => setToast(null), 6000);
-          return;
-        }
-      }
-    } catch {}
-    // Save pending changes first
-    if (dirty) await handleSave();
-    if (activeSession.status !== "ready" && activeSession.status !== "completed") {
-      await handleCheck();
-    }
-    setRunning(true);
-    setShowStream(true);
-    try {
-      await fetch(`/api/agent/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: activeSession.id,
-          command: agentCommand,
-          agentName,
-          mode: "generate",
-          fsdFile: activeSession.markdownPath ?? (activeSession.fsdInputPath ? `input/fsd/${activeSession.fsdInputPath}` : undefined),
-        }),
-      });
-    } catch {}
-  }, [activeSession, running, dirty, handleSave, handleCheck, agentCommand, agentName, id]);
-
-  const handleStopAgent = useCallback(async (sessionId?: string) => {
-    await fetch("/api/agent/stop", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
-    setRunning(false);
-  }, []);
-
-  const handleAgentDone = useCallback(() => { setRunning(false); loadSessions(); }, [loadSessions]);
-  const handleAgentError = useCallback(() => { setRunning(false); }, []);
 
   const handleConvert = useCallback(async () => {
     if (!activeSession) return;
@@ -300,23 +224,6 @@ function FsdPage() {
                 <SealCheck size={12} />
                 {activeSession.status === "ready" ? "Ready" : "Mark Ready"}
               </button>
-              {running ? (
-                <button
-                  onClick={() => handleStopAgent()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-500/80 rounded-full hover:bg-red-500 transition-colors"
-                >
-                  <Stop size={12} />
-                  Stop
-                </button>
-              ) : (
-                <button
-                  onClick={handleRunAnalysis}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-kumo-brand rounded-full hover:opacity-90 transition-opacity"
-                >
-                  <Play size={12} />
-                  Run Analysis
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -371,12 +278,7 @@ function FsdPage() {
           />
         </div>
         <div className="flex-1 flex flex-col min-w-0 gap-3">
-          {showStream && activeSession && (
-            <div className="shrink-0">
-              <AgentStream sessionId={activeSession.id} onDone={handleAgentDone} onError={handleAgentError} />
-            </div>
-          )}
-          <div className="flex-1 rounded-lg border border-kumo-line overflow-hidden flex">
+          <div className="flex-1 rounded-lg border border-kumo-line overflow-hidden flex bg-kumo-elevated">
             {activeSession ? (
               <>
                 <div className="flex-1 flex flex-col min-w-0">
@@ -441,17 +343,6 @@ function FsdPage() {
                     onChange={(v) => { setDraftContent(v); setDirty(true); }}
                     onSave={() => handleSave()}
                   />
-                </div>
-                {/* Completeness panel */}
-                <div className="w-44 shrink-0 border-l border-kumo-line bg-kumo-elevated/30 flex flex-col">
-                  <div className="px-3 py-1.5 border-b border-kumo-line shrink-0 flex items-center justify-between">
-                    <span className="text-[10px] text-kumo-subtle uppercase tracking-wider">Checklist</span>
-                    <button onClick={handleCheck} disabled={checking}
-                      className="text-[9px] px-1.5 py-0.5 rounded border border-kumo-line text-kumo-subtle hover:text-kumo-default disabled:opacity-50">
-                      {checking ? "..." : "Check"}
-                    </button>
-                  </div>
-                  <FsdCompleteness result={checkResult} />
                 </div>
               </>
             ) : (
