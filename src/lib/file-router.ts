@@ -12,7 +12,7 @@ export interface FileEntry {
 
 const TYPE_PATTERNS: Record<string, RegExp[]> = {
   erd: [/\.dbml$/i, /output\/erd\/.*\.md$/i],
-  spec: [/output\/.*spec_api_.*\.md$/i, /output\/spec\/.*\.md$/i],
+  spec: [/output\/.*spec_api_.*\.md$/i, /output\/spec\/.*\.md$/i, /output\/spec\/.*\.ya?ml$/i],
   task: [/output\/task\/.*\.md$/i],
   td: [/output\/td\/.*\.md$/i],
   timeline: [/output\/timeline\.html$/i, /output\/timeline\/.*\.html$/i, /output\/.*(timeline|gantt|roadmap|schedule|sprint[-_]?plan).*\.html$/i],

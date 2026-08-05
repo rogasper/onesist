@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { eventBus } from "~/server/events";
-import { buildGeneratePrompt, buildGapPrompt, buildTdPrompt } from "~/lib/agent-prompts";
+import { buildGeneratePrompt, buildGapPrompt, buildTdPrompt, buildOpenapiPrompt } from "~/lib/agent-prompts";
 import { getProjectRoot } from "~/lib/file-router";
 
 interface AgentRunConfig {
   sessionId: string;
   command: string;
-  mode: "generate" | "gap" | "td";
+  mode: "generate" | "gap" | "td" | "openapi";
   fsdFile?: string;
   agentName: string;
 }
@@ -34,6 +34,8 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
     prompt = buildGapPrompt(fsdFile, agentName);
   } else if (mode === "td") {
     prompt = buildTdPrompt(agentName);
+  } else if (mode === "openapi") {
+    prompt = buildOpenapiPrompt(agentName);
   } else {
     eventBus.emitAgentError(sessionId, "Invalid mode or missing fsdFile");
     return;

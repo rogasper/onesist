@@ -1,13 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@cloudflare/kumo";
-import { BookOpen, MagnifyingGlass, X, ArrowsClockwise } from "@phosphor-icons/react";
+import { BookOpen, MagnifyingGlass, X, ArrowsClockwise, DownloadSimple } from "@phosphor-icons/react";
+import { parse as parseYaml } from "yaml";
+import "swagger-ui-react/swagger-ui.css";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { parseMarkdownToModules } from "~/lib/spec-parser";
 import { SpecSidebar } from "~/components/spec/SpecSidebar";
 import { SpecViewer } from "~/components/spec/SpecViewer";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
+import { AgentStream } from "~/components/agent/AgentStream";
 
 export const Route = createFileRoute("/projects/$id/spec")({
   component: SpecPage,
@@ -15,18 +18,35 @@ export const Route = createFileRoute("/projects/$id/spec")({
 
 function SpecPage() {
   const { id } = Route.useParams();
-  const [viewMode, setViewMode] = useState<"cards" | "document">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "document" | "openapi">("cards");
   const [activeModule, setActiveModule] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncedStats, setSyncedStats] = useState<{ specs: number; endpoints: number } | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [genSessionId, setGenSessionId] = useState<string | null>(null);
+  const [SwaggerUI, setSwaggerUI] = useState<React.ComponentType<any> | null>(null);
+
+  // Swagger UI is browser-only (references DOM at module scope — would crash
+  // SSR), so load it lazily on the client.
+  useEffect(() => {
+    let cancelled = false;
+    void import("swagger-ui-react")
+      .then((m) => { if (!cancelled) setSwaggerUI(() => m.default); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // Try MASTER_SPEC_API.md first, then output/spec/ files
-  const { files } = useFileList("output", id);
+  const { files, refresh: refreshFiles } = useFileList("output", id);
   const { content: masterContent } = useFileContent("MASTER_SPEC_API.md", id);
   const [selectedSpec, setSelectedSpec] = useState<string | null>(null);
   const { content: specContent, refresh: refreshSpec } = useFileContent(selectedSpec, id);
+
+  const openapiFiles = useMemo(() => files.filter((f) => f.ext === ".yaml" || f.ext === ".yml"), [files]);
+  const [selectedOpenapi, setSelectedOpenapi] = useState<string | null>(null);
+  const { content: openapiContent, refresh: refreshOpenapi } = useFileContent(selectedOpenapi, id);
 
   const activeContent = selectedSpec ? specContent : masterContent;
 
@@ -42,9 +62,18 @@ function SpecPage() {
     }
   }, [mdFiles]);
 
+  // Auto-select the master openapi file when present
+  useEffect(() => {
+    if (!selectedOpenapi && openapiFiles.length > 0) {
+      const master = openapiFiles.find((f) => f.name.includes("openapi"));
+      setSelectedOpenapi(master ? master.path : openapiFiles[0].path);
+    }
+  }, [openapiFiles, selectedOpenapi]);
+
   // Live watch
   useFileWatch("spec", (path) => {
     if (path === selectedSpec) refreshSpec();
+    if (path === selectedOpenapi) refreshOpenapi();
   });
 
   // Debounced search
@@ -92,6 +121,74 @@ function SpecPage() {
     setSelectedSpec(path);
   }, []);
 
+  // Status legend parsed from x-status/x-phase in the openapi yaml
+  const legend = useMemo(() => {
+    if (!openapiContent) return { done: 0, inDevelop: 0, phases: {} as Record<string, number> };
+    try {
+      const doc = parseYaml(openapiContent) as any;
+      let done = 0;
+      let inDevelop = 0;
+      const phases: Record<string, number> = {};
+      for (const p of Object.values(doc?.paths ?? {})) {
+        for (const op of Object.values((p ?? {}) as Record<string, any>)) {
+          const s = op?.["x-status"] ?? "in-develop";
+          if (s === "done") done++;
+          else inDevelop++;
+          const ph = op?.["x-phase"];
+          if (ph != null) phases[`Phase ${ph}`] = (phases[`Phase ${ph}`] ?? 0) + 1;
+        }
+      }
+      return { done, inDevelop, phases };
+    } catch {
+      return { done: 0, inDevelop: 0, phases: {} };
+    }
+  }, [openapiContent]);
+
+  const handleGenerateOpenapi = useCallback(async () => {
+    if (generating) return;
+    setGenerating(true);
+    setGenSessionId(null);
+    try {
+      const detectRes = await fetch("/api/agent/detect");
+      const agents = await detectRes.json();
+      const found = (agents ?? []).find((a: any) => a.found);
+      const command = found?.command ?? "opencode";
+      const sid = crypto.randomUUID();
+      const res = await fetch(`/api/agent/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sid, command, agentName: found?.name ?? "opencode", mode: "openapi" }),
+      });
+      if (res.ok) setGenSessionId(sid);
+      else setGenerating(false);
+    } catch {
+      setGenerating(false);
+    }
+  }, [generating]);
+
+  const handleAgentDone = useCallback(() => {
+    setGenerating(false);
+    setGenSessionId(null);
+    refreshFiles();
+    refreshOpenapi();
+  }, [refreshFiles, refreshOpenapi]);
+
+  const handleAgentError = useCallback(() => {
+    setGenerating(false);
+    setGenSessionId(null);
+  }, []);
+
+  const handleDownloadOpenapi = useCallback(() => {
+    if (!openapiContent || !selectedOpenapi) return;
+    const blob = new Blob([openapiContent], { type: "text/yaml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = selectedOpenapi.split("/").pop() ?? "openapi.yaml";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [openapiContent, selectedOpenapi]);
+
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 70px)" }}>
       <div className="mb-3 shrink-0 space-y-2">
@@ -122,6 +219,17 @@ function SpecPage() {
             </Badge>
           )}
           <AppButton
+            onClick={handleGenerateOpenapi}
+            disabled={generating}
+            variant="primary"
+            size="sm"
+            icon={<ArrowsClockwise size={12} className={generating ? "animate-spin" : ""} />}
+            className="rounded-full px-3"
+            title="Generate openapi.yaml dari spec via AI"
+          >
+            {generating ? "Generating…" : "Generate OpenAPI"}
+          </AppButton>
+          <AppButton
             onClick={handleSync}
             disabled={syncing}
             variant="secondary"
@@ -149,16 +257,16 @@ function SpecPage() {
         {/* Row 4: Tabs + Search */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
-            {(["cards", "document"] as const).map((mode) => (
+            {([["cards", "Cards"], ["document", "Document"], ["openapi", "OpenAPI"]] as const).map(([value, label]) => (
               <AppButton
-                key={mode}
+                key={value}
                 variant="chip"
                 size="sm"
-                active={viewMode === mode}
-                onClick={() => setViewMode(mode)}
-                className="px-3 capitalize"
+                active={viewMode === value}
+                onClick={() => setViewMode(value)}
+                className="px-3"
               >
-                {mode}
+                {label}
               </AppButton>
             ))}
           </div>
@@ -184,6 +292,91 @@ function SpecPage() {
 
       {!activeContent ? (
         <div className="flex items-center justify-center flex-1 text-kumo-subtle text-sm">No spec files found</div>
+      ) : viewMode === "openapi" ? (
+        <div className="fixed inset-0 z-50 flex flex-col bg-kumo-recessed">
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-kumo-line shrink-0 bg-kumo-elevated/60 backdrop-blur flex-wrap">
+            <AppButton
+              variant="chip"
+              size="sm"
+              onClick={() => setViewMode("cards")}
+              icon={<X size={12} />}
+              className="px-2.5 shrink-0"
+              title="Keluar fullscreen"
+            >
+              Back
+            </AppButton>
+            {openapiFiles.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto max-w-[40%]">
+                {openapiFiles.map((f) => (
+                  <AppButton key={f.path} variant="chip" size="sm" active={selectedOpenapi === f.path} onClick={() => setSelectedOpenapi(f.path)} className="px-3 shrink-0">
+                    {f.path.replace(/^output\/spec\//, "")}
+                  </AppButton>
+                ))}
+              </div>
+            )}
+            {openapiContent && (
+              <>
+                <span className="flex items-center gap-1.5 text-[11px] text-green-400 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-green-400" /> Done {legend.done}
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] text-amber-400 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" /> In Develop {legend.inDevelop}
+                </span>
+                {Object.entries(legend.phases).map(([ph, n]) => (
+                  <Badge key={ph} variant="neutral" className="text-[10px] shrink-0">{ph}: {n}</Badge>
+                ))}
+              </>
+            )}
+            <div className="ml-auto flex items-center gap-1.5 shrink-0">
+              <AppButton
+                onClick={handleGenerateOpenapi}
+                disabled={generating}
+                variant="primary"
+                size="sm"
+                icon={<ArrowsClockwise size={12} className={generating ? "animate-spin" : ""} />}
+                className="rounded-full px-3"
+                title="Generate openapi.yaml dari spec via AI"
+              >
+                {generating ? "Generating…" : "Generate OpenAPI"}
+              </AppButton>
+              <AppButton
+                onClick={handleDownloadOpenapi}
+                disabled={!openapiContent}
+                variant="secondary"
+                size="sm"
+                icon={<DownloadSimple size={12} />}
+                className="rounded-full px-3"
+                title="Download file openapi.yaml"
+              >
+                Download
+              </AppButton>
+            </div>
+          </div>
+
+          {genSessionId && (
+            <div className="shrink-0 border-b border-kumo-line">
+              <AgentStream sessionId={genSessionId} onDone={handleAgentDone} onError={handleAgentError} />
+            </div>
+          )}
+
+          {openapiFiles.length === 0 ? (
+            <div className="flex items-center justify-center flex-1 text-kumo-subtle text-sm">
+              Belum ada file openapi.yaml — klik "Generate OpenAPI" untuk membuatnya dari spec
+            </div>
+          ) : SwaggerUI ? (
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <SwaggerUI
+                spec={openapiContent ?? ""}
+                deepLinking
+                docExpansion="list"
+                defaultModelsExpandDepth={1}
+                tryItOutEnabled={false}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center flex-1 text-kumo-subtle text-sm">Loading…</div>
+          )}
+        </div>
       ) : viewMode === "document" ? (
         <div className="flex-1 min-h-0 glass-container overflow-hidden">
           <div className="h-full overflow-y-auto">

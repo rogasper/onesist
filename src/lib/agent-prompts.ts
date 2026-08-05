@@ -87,6 +87,51 @@ Also provide recommendations for how to update MASTER files to close the gaps.
 `;
 }
 
+export function buildOpenapiPrompt(agentName: string): string {
+  const dirs = ["output/spec"];
+  const artifacts: string[] = [];
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const root = path.resolve(process.cwd(), "..");
+  const master = readFile(root, "MASTER_SPEC_API.md") || "(not found)";
+  artifacts.push(`### MASTER_SPEC_API.md\n\`\`\`\n${master.slice(0, 6000)}\n\`\`\``);
+  for (const dir of dirs) {
+    try {
+      const files = fs.readdirSync(path.join(root, dir)).filter((f: string) => f.endsWith(".md"));
+      for (const f of files) {
+        const content = fs.readFileSync(path.join(root, dir, f), "utf-8");
+        artifacts.push(`### ${dir}/${f}\n\`\`\`\n${content.slice(0, 6000)}\n\`\`\``);
+      }
+    } catch {}
+  }
+
+  return `Kamu adalah Senior System Analyst. Generate file OpenAPI 3.0 dari artifact spec project.
+
+Project root: ${root}
+Running via: ${agentName}
+
+## Input Spec Artifacts
+
+${artifacts.join("\n\n")}
+
+## Task
+
+1. Tulis ke \`output/spec/openapi.yaml\` — dokumen OpenAPI 3.0 lengkap untuk SEMUA endpoint dari MASTER_SPEC_API.md dan semua file spec (digabung, path unik, jangan duplikat).
+2. Tentukan status tiap endpoint dari isi spec:
+   - Endpoint yang spec-nya lengkap/siap → \`x-status: done\`
+   - Endpoint yang masih dikembangkan/berubah → \`x-status: in-develop\`
+   - Jika spec menyebutkan fase (mis. "Phase 2", "P2", "Fase 3") → tulis \`x-phase: <angka>\`
+3. Setiap operation WAJIB berisi:
+   - \`summary\` (judul singkat endpoint)
+   - \`description\` (rangkuman dari Purpose/Body/Response di spec)
+   - \`tags\`: [Done] jika done, [In Develop] jika in-develop
+   - \`x-status\` dan \`x-phase\` (x-phase boleh dihilangkan jika tidak ada info fase)
+   - \`requestBody\` dan \`parameters\` jika spec menyebut body/query (deskripsi teks, schema boleh kosong {})
+4. \`info.title\`: nama project, \`info.version\`: 1.0.0.
+5. Hanya tulis \`output/spec/openapi.yaml\`. JANGAN modifikasi file markdown atau file lain.
+6. Dashboard di http://localhost:4321 menonton direktori ini — file akan auto-refresh setelah selesai.`;
+}
+
 export function buildTdPrompt(agentName: string): string {
   const dirs = ["output/spec", "output/erd", "output/task"];
   const artifacts: string[] = [];

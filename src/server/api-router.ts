@@ -86,7 +86,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     if (!command || !agentName || !sessionId) {
       return json({ error: "Missing required fields: command, agentName, sessionId" }, 400);
     }
-    runAgent({ sessionId, command, mode: mode as "generate" | "gap" | "td", fsdFile, agentName }).catch(() => {});
+    runAgent({ sessionId, command, mode: mode as "generate" | "gap" | "td" | "openapi", fsdFile, agentName }).catch(() => {});
     return json({ started: true, sessionId });
   }
 

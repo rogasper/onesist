@@ -50,6 +50,9 @@ export default defineConfig({
     port: 4321,
     strictPort: true,
   },
+  optimizeDeps: {
+    include: ["swagger-ui-react"],
+  },
   resolve: {
     alias: {
       "~": path.resolve(__dirname, "./src"),
