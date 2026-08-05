@@ -38,7 +38,7 @@ export function TimelineViewer({ projectId }: { projectId: string }) {
               onClick={() => setSelected(f.path)}
               className={`px-1.5 py-0.5 rounded border shrink-0 transition-colors ${
                 activePath === f.path
-                  ? "border-kumo-brand bg-kumo-brand/15 text-kumo-default font-medium"
+                  ? "liquid-wash border-transparent font-medium"
                   : "border-kumo-line text-kumo-subtle hover:text-kumo-default"
               }`}
             >
@@ -54,7 +54,7 @@ export function TimelineViewer({ projectId }: { projectId: string }) {
           Refresh
         </button>
       </div>
-      <div className="flex-1 min-h-0 rounded-lg border border-kumo-line overflow-hidden bg-white">
+      <div className="flex-1 min-h-0 rounded-lg border border-kumo-line overflow-hidden bg-kumo-elevated">
         {loading ? (
           <div className="flex items-center justify-center h-full text-xs text-kumo-subtle">Loading timeline…</div>
         ) : content ? (

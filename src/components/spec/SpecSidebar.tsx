@@ -1,4 +1,5 @@
 import type { ParsedSpecModule } from "~/lib/spec-parser";
+import { FileRow } from "~/components/ui/FileRow";
 
 interface SpecSidebarProps {
   modules: ParsedSpecModule[];
@@ -22,18 +23,15 @@ export function SpecSidebar({ modules, activeModule, onModuleClick }: SpecSideba
       </div>
       <div className="flex-1 overflow-y-auto py-1">
         {modules.map((mod) => (
-          <button
+          <FileRow
             key={mod.fullName}
+            accent
+            active={activeModule === mod.fullName}
             onClick={() => onModuleClick(mod.fullName)}
-            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 border-l-2 transition-colors ${
-              activeModule === mod.fullName
-                ? "border-kumo-brand bg-kumo-brand/15 text-kumo-default "
-                : "border-transparent text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/80"
-            }`}
+            meta={<span className="text-[10px] text-kumo-subtle shrink-0">{mod.endpoints.length}</span>}
           >
-            <span className="truncate flex-1">{mod.name}</span>
-            <span className="text-[10px] text-kumo-subtle shrink-0">{mod.endpoints.length}</span>
-          </button>
+            <span className="truncate">{mod.name}</span>
+          </FileRow>
         ))}
       </div>
     </div>

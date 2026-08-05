@@ -160,9 +160,9 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
                 type="button"
                 variant="outline"
                 onClick={() => setAlgorithm(algo)}
-                className={`px-2 py-1 text-[10px] rounded border transition-colors ${
+                className={`px-2 py-1 text-[10px] rounded-full transition-colors ${
                   algorithm === algo
-                    ? "border-kumo-brand/40 bg-kumo-brand/15 text-kumo"
+                    ? "liquid-wash border-transparent"
                     : "border-transparent text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated"
                 }`}
               >

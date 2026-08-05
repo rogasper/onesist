@@ -1,5 +1,6 @@
 import { FileText, Plus, TrashSimple } from "@phosphor-icons/react";
 import type { WikiPage } from "~/shared/types";
+import { FileRow } from "~/components/ui/FileRow";
 
 interface WikiSidebarProps {
   pages: WikiPage[];
@@ -55,25 +56,24 @@ function PageItem({
 
   return (
     <div>
-      <div
-        className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-l-2 transition-colors ${
-          activeId === page.id
-            ? "border-kumo-brand bg-kumo-brand/25 text-white"
-            : "border-transparent text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60"
-        }`}
-        style={{ paddingLeft: `${12 + depth * 12}px` }}
+      <FileRow
+        accent
+        depth={depth}
+        icon={<FileText size={12} />}
+        active={activeId === page.id}
         onClick={() => onSelect(page.id)}
+        meta={
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(page.id); }}
+            className="opacity-0 group-hover:opacity-100 text-kumo-subtle hover:text-red-400 transition-all shrink-0"
+            title="Delete page"
+          >
+            <TrashSimple size={11} />
+          </button>
+        }
       >
-        <FileText size={12} className="shrink-0 opacity-50" />
-        <span className="truncate flex-1">{page.title}</span>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(page.id); }}
-          className="opacity-0 group-hover:opacity-100 text-kumo-subtle hover:text-red-400 transition-all shrink-0"
-          title="Delete page"
-        >
-          <TrashSimple size={11} />
-        </button>
-      </div>
+        <span className="truncate">{page.title}</span>
+      </FileRow>
       {children.map((child) => (
         <PageItem
           key={child.id}

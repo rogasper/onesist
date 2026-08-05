@@ -6,6 +6,8 @@ import { useState, useEffect } from "react";
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
 import { useFileContent } from "~/lib/use-file-data";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { AppButton } from "~/components/ui/AppButton";
+import { FileRow } from "~/components/ui/FileRow";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: async ({ params }) => {
@@ -98,34 +100,35 @@ function ProjectLayout() {
             <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
             <h1 className="text-lg font-semibold text-kumo-default">{project.name}</h1>
             {project.company && <Badge variant="neutral" className="text-[11px]">{project.company}</Badge>}
-            <button
+            <AppButton
               onClick={() => setTerminalOpen((p) => !p)}
-              className={`ml-auto flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded transition-colors ${
-                terminalOpen
-                  ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                  : "bg-kumo-elevated border border-kumo-line text-kumo-subtle hover:text-kumo-default"
-              }`}
+              variant="chip"
+              size="sm"
+              active={terminalOpen}
+              activeColor="success"
+              icon={<TerminalIcon size={12} />}
+              className="ml-auto px-3"
             >
-              <TerminalIcon size={12} className={terminalOpen ? "text-green-400" : ""} />
-              <span>Terminal</span>
-            </button>
+              Terminal
+            </AppButton>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 mb-5 border-b border-kumo-line">
+        <div className="flex items-center gap-1 mb-5 flex-wrap">
           {TAB_ITEMS.map((t) => (
-            <button key={t.value}
+            <AppButton
+              key={t.value}
+              variant="chip"
+              size="sm"
+              active={activeTab === t.value}
               onClick={() => {
                 if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id } });
                 else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id } } as any);
               }}
-              className={`px-3 py-1.5 text-xs rounded-t transition-all ${
-                activeTab === t.value
-                  ? "liquid-tab-active font-medium"
-                  : "text-kumo-subtle liquid-tab-hover"
-              }`}>
+              className="px-3"
+            >
               {t.label}
-            </button>
+            </AppButton>
           ))}
         </div>
 
@@ -289,22 +292,15 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                         const isMarkdown = f.path.endsWith(".md");
                         const isActive = activeTabPath === f.path;
                         return (
-                          <button
+                          <FileRow
                             key={f.path}
-                            type="button"
-                            onClick={() => onFileClick(f)}
+                            icon={<File size={10} />}
+                            active={isActive}
                             disabled={!isMarkdown}
-                            className={`flex items-center gap-2 px-3 py-1 my-0.5 mx-1.5 rounded-full text-left truncate transition-all ${
-                              isMarkdown ? "cursor-pointer" : "opacity-50 cursor-default"
-                            } ${
-                              isActive
-                                ? "bg-kumo-brand/20 text-kumo-brand font-medium"
-                                : `border-transparent ${isMarkdown ? "hover:bg-kumo-elevated hover:text-kumo-default text-kumo-subtle" : "text-kumo-subtle"}`
-                            }`}
+                            onClick={() => onFileClick(f)}
                           >
-                            <File size={10} className="shrink-0 text-kumo-subtle" />
-                            <span className="truncate text-[11px]">{f.name}</span>
-                          </button>
+                            <span className="truncate">{f.name}</span>
+                          </FileRow>
                         );
                       })}
                     </div>
@@ -324,15 +320,15 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                 <div key={t.path}
                   className={`group flex items-center gap-1.5 px-3 py-1 text-xs rounded-full cursor-pointer shrink-0 transition-all ${
                     activeTabPath === t.path
-                      ? "border border-kumo-brand/40 bg-kumo-brand/20 text-kumo-brand font-medium"
-                      : "border border-kumo-line/40 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
+                      ? "liquid-wash font-medium"
+                      : "border border-kumo-line/40 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-tint"
                   }`}
                   onClick={() => setActiveTabPath(t.path)}>
                   <span className="max-w-40 truncate">{t.name}</span>
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onTabClose(t.path); }}
-                    className={activeTabPath === t.path ? "text-kumo-brand hover:text-kumo-default opacity-70 group-hover:opacity-100" : "text-kumo-subtle hover:text-kumo-default opacity-60 group-hover:opacity-100"}
+                    className={activeTabPath === t.path ? "text-white/80 hover:text-white opacity-70 group-hover:opacity-100" : "text-kumo-subtle hover:text-kumo-default opacity-60 group-hover:opacity-100"}
                   >
                     <X size={10} weight="bold" />
                   </button>

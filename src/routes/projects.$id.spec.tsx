@@ -7,6 +7,7 @@ import { parseMarkdownToModules } from "~/lib/spec-parser";
 import { SpecSidebar } from "~/components/spec/SpecSidebar";
 import { SpecViewer } from "~/components/spec/SpecViewer";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
+import { AppButton } from "~/components/ui/AppButton";
 
 export const Route = createFileRoute("/projects/$id/spec")({
   component: SpecPage,
@@ -120,39 +121,47 @@ function SpecPage() {
               {syncedStats.specs} specs · {syncedStats.endpoints} eps in DB
             </Badge>
           )}
-          <button
+          <AppButton
             onClick={handleSync}
             disabled={syncing}
-            className="ml-auto flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-subtle hover:text-kumo-default disabled:opacity-50 transition-all"
+            variant="secondary"
+            size="sm"
+            icon={<ArrowsClockwise size={12} className={syncing ? "animate-spin" : ""} />}
+            className="ml-auto rounded-full px-3"
             title="Parse all spec files and save endpoints to SQLite"
           >
-            <ArrowsClockwise size={12} className={syncing ? "animate-spin" : ""} />
-            <span>{syncing ? "Syncing…" : "Sync to DB"}</span>
-          </button>
+            {syncing ? "Syncing…" : "Sync to DB"}
+          </AppButton>
         </div>
 
         {/* Row 3: File selector */}
-        <div className="flex items-center gap-1.5 text-[11px] overflow-x-auto pb-0.5">
-          <button onClick={() => { setSelectedSpec(null); setActiveModule(null); }}
-            className={`px-3 py-1 rounded-full bg-kumo-elevated border shrink-0 transition-all ${!selectedSpec ? "border-kumo-brand bg-kumo-brand/20 text-kumo-brand font-medium" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"}`}>Master</button>
+        <div className="flex items-center gap-1.5 overflow-x-auto py-2 px-1.5">
+          <AppButton variant="chip" size="sm" active={!selectedSpec} onClick={() => { setSelectedSpec(null); setActiveModule(null); }} className="px-3 shrink-0">
+            Master
+          </AppButton>
           {mdFiles.map((f) => (
-            <button key={f.path} onClick={() => { setSelectedSpec(f.path); setActiveModule(null); }}
-              className={`px-3 py-1 rounded-full bg-kumo-elevated border shrink-0 transition-all ${selectedSpec === f.path ? "border-kumo-brand bg-kumo-brand/20 text-kumo-brand font-medium" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"}`}>{f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1")}</button>
+            <AppButton key={f.path} variant="chip" size="sm" active={selectedSpec === f.path} onClick={() => { setSelectedSpec(f.path); setActiveModule(null); }} className="px-3 shrink-0">
+              {f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1")}
+            </AppButton>
           ))}
         </div>
 
         {/* Row 4: Tabs + Search */}
-        <div className="flex items-center gap-3 border-b border-kumo-line/50">
-          {(["cards", "document"] as const).map((mode) => (
-            <button key={mode} onClick={() => setViewMode(mode)}
-              className={`px-3 py-1.5 text-xs rounded-t transition-all capitalize ${
-                viewMode === mode
-                  ? "liquid-tab-active font-medium"
-                  : "text-kumo-subtle liquid-tab-hover"
-              }`}>
-              {mode}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            {(["cards", "document"] as const).map((mode) => (
+              <AppButton
+                key={mode}
+                variant="chip"
+                size="sm"
+                active={viewMode === mode}
+                onClick={() => setViewMode(mode)}
+                className="px-3 capitalize"
+              >
+                {mode}
+              </AppButton>
+            ))}
+          </div>
           <div className="ml-auto flex items-center gap-1 mb-1">
             <div className="relative">
               <input
@@ -160,7 +169,7 @@ function SpecPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search paths…"
-                className="w-48 h-7 pl-7 pr-6 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default placeholder:text-kumo-subtle outline-none focus:border-kumo-brand"
+                className="app-input w-48 h-7 pl-7 pr-6 text-xs text-kumo-default placeholder:text-kumo-subtle"
               />
               <MagnifyingGlass size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle pointer-events-none" />
               {search && (

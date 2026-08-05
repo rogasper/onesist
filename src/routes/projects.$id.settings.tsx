@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadAllData } from "~/lib/project-queries";
 import { Gear, Check } from "@phosphor-icons/react";
+import { AppButton } from "~/components/ui/AppButton";
 
 export const Route = createFileRoute("/projects/$id/settings")({
   loader: async ({ params }) => {
@@ -117,20 +118,17 @@ function SettingsPage() {
         <Section title="Default Agent">
           <div className="flex gap-2 flex-wrap">
             {AGENTS.map((a) => (
-              <button
+              <AppButton
                 key={a.value}
-                type="button"
+                variant="chip"
+                size="sm"
+                active={defaultAgent === a.value}
                 onClick={(e) => { e.stopPropagation(); setDefaultAgent(a.value); }}
-                style={defaultAgent === a.value ? { borderColor: "var(--color-kumo-brand, #60a5fa)", color: "var(--color-kumo-brand, #60a5fa)" } : {}}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-all ${
-                  defaultAgent === a.value
-                    ? "bg-kumo-brand/20 border-kumo-brand/40 font-medium"
-                    : "border-kumo-line/50 bg-kumo-elevated/40 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
-                }`}
+                icon={defaultAgent === a.value ? <Check size={10} /> : undefined}
+                className="px-3"
               >
-                <Check size={10} style={{ visibility: defaultAgent === a.value ? "visible" : "hidden" }} />
                 {a.label}
-              </button>
+              </AppButton>
             ))}
           </div>
         </Section>
@@ -146,26 +144,28 @@ function SettingsPage() {
           <Field label="Theme">
             <div className="flex gap-2">
               {(["dark", "light"] as const).map((t) => (
-                <button key={t} type="button"
+                <AppButton
+                  key={t}
+                  variant="chip"
+                  size="sm"
+                  active={terminalPrefs.theme === t}
                   onClick={(e) => { e.stopPropagation(); setTerminalPrefs(p => ({ ...p, theme: t })); }}
-                  style={terminalPrefs.theme === t ? { borderColor: "var(--color-kumo-brand, #60a5fa)", color: "var(--color-kumo-brand, #60a5fa)" } : {}}
-                  className={`px-3 py-1.5 text-xs rounded-full border capitalize transition-all ${
-                    terminalPrefs.theme === t ? "bg-kumo-brand/20 border-kumo-brand/40 font-medium" : "border-kumo-line/50 bg-kumo-elevated/40 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
-                  }`}
-                >{t}</button>
+                  className="px-3 capitalize"
+                >{t}</AppButton>
               ))}
             </div>
           </Field>
           <Field label="Cursor">
             <div className="flex gap-2">
               {CURSORS.map((c) => (
-                <button key={c.value} type="button"
+                <AppButton
+                  key={c.value}
+                  variant="chip"
+                  size="sm"
+                  active={terminalPrefs.cursor === c.value}
                   onClick={(e) => { e.stopPropagation(); setTerminalPrefs(p => ({ ...p, cursor: c.value as "bar" | "block" | "underline" })); }}
-                  style={terminalPrefs.cursor === c.value ? { borderColor: "var(--color-kumo-brand, #60a5fa)", color: "var(--color-kumo-brand, #60a5fa)" } : {}}
-                  className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
-                    terminalPrefs.cursor === c.value ? "bg-kumo-brand/20 border-kumo-brand/40 font-medium" : "border-kumo-line/50 bg-kumo-elevated/40 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
-                  }`}
-                >{c.label}</button>
+                  className="px-3"
+                >{c.label}</AppButton>
               ))}
             </div>
           </Field>

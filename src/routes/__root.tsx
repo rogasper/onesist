@@ -4,6 +4,7 @@ import {
   HeadContent,
   Scripts,
   Link,
+  useLocation,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
@@ -16,7 +17,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "SA Dashboard" },
+      { title: "Onesist" },
     ],
   }),
   component: RootComponent,
@@ -29,8 +30,8 @@ function AppSidebarHeader() {
   return (
     <Sidebar.Header>
       <div className={`flex items-center py-2.5 ${isCollapsed ? 'justify-center' : 'px-3 gap-2'}`}>
-        <span className="rounded bg-kumo-elevated px-1.5 py-0.5 text-xs font-bold text-kumo-brand shrink-0">SA</span>
-        {!isCollapsed && <span className="text-sm font-semibold text-kumo-default truncate">Dashboard</span>}
+        <span className="rounded bg-kumo-info px-1.5 py-0.5 text-xs font-bold text-white shrink-0">OS</span>
+        {!isCollapsed && <span className="text-sm font-semibold text-kumo-default truncate">ONESIST</span>}
       </div>
     </Sidebar.Header>
   );
@@ -51,6 +52,9 @@ function AppSidebarFooter() {
 
 function RootComponent() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const location = useLocation();
+  const pathname = location.pathname;
+  const isDashboardActive = pathname === "/";
 
   useEffect(() => {
     const fetchProjects = () => {
@@ -79,7 +83,7 @@ function RootComponent() {
                 <Sidebar.Group>
                   <Sidebar.GroupLabel>Navigation</Sidebar.GroupLabel>
                   <Sidebar.Menu>
-                    <Sidebar.MenuButton icon={House} tooltip="Dashboard">
+                    <Sidebar.MenuButton active={isDashboardActive} icon={House} tooltip="Dashboard">
                       <Link to="/" className="no-underline text-inherit">Dashboard</Link>
                     </Sidebar.MenuButton>
                   </Sidebar.Menu>
@@ -90,7 +94,7 @@ function RootComponent() {
                     {projects.length === 0 ? (
                       <Sidebar.MenuButton disabled icon={Folder} tooltip="No projects">No projects</Sidebar.MenuButton>
                     ) : projects.map((p) => (
-                      <Sidebar.MenuButton key={p.id} icon={Folder} tooltip={p.name}>
+                      <Sidebar.MenuButton key={p.id} active={pathname.startsWith(`/projects/${p.id}`)} icon={Folder} tooltip={p.name}>
                         <Link to="/projects/$id" params={{ id: p.id }} className="no-underline text-inherit">{p.name}</Link>
                       </Sidebar.MenuButton>
                     ))}

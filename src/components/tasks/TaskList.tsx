@@ -67,8 +67,8 @@ export function TaskList({ tasks, selectedId, viewMode, onSelect }: TaskListProp
                 onClick={() => onSelect(task.id)}
                 className={`text-left rounded-lg border p-3 transition-colors ${
                   isSelected
-                    ? "border-kumo-brand bg-kumo-brand/15"
-                    : "border-kumo-line bg-kumo-elevated/40 hover:bg-kumo-elevated/80"
+                    ? "liquid-wash border-transparent"
+                    : "border-kumo-line bg-kumo-elevated hover:bg-kumo-elevated/80"
                 }`}
               >
                 <div className="flex items-start justify-between gap-2 mb-1.5">
@@ -108,7 +108,7 @@ export function TaskList({ tasks, selectedId, viewMode, onSelect }: TaskListProp
             type="button"
             onClick={() => onSelect(task.id)}
             className={`w-full flex items-center gap-3 px-3 py-2 text-left border-b border-kumo-line transition-colors ${
-              isSelected ? "bg-kumo-brand/15" : "hover:bg-kumo-elevated/60"
+              isSelected ? "liquid-wash" : "hover:bg-kumo-elevated/60"
             }`}
           >
             <span className={`shrink-0 w-24 truncate font-mono text-[10px] ${isSelected ? "text-kumo-default" : "text-kumo-subtle"}`}>

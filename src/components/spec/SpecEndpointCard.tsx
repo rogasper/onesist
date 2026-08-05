@@ -110,7 +110,7 @@ export function SpecEndpointCard({ endpoint, onNavigateDetail }: SpecEndpointCar
   }), [handleRawLink]);
 
   return (
-    <div className="rounded-lg border border-kumo-line overflow-hidden">
+    <div className="rounded-lg border border-kumo-line overflow-hidden bg-kumo-elevated">
       <button
         onClick={() => setExpanded((p) => !p)}
         className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-kumo-elevated/50 transition-colors"

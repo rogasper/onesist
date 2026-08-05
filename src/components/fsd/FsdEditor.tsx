@@ -9,6 +9,7 @@ import {
   ListBullets, ListNumbers, CheckSquare, CodeBlock, Quotes, Minus, Table, Eye, PencilSimple, Columns,
 } from "@phosphor-icons/react";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { AppButton } from "~/components/ui/AppButton";
 
 export type EditorMode = "edit" | "preview" | "split";
 
@@ -169,15 +170,15 @@ export function FsdEditor({ content, dirty, saving, mode, onModeChange, onChange
   }, [onSave]);
 
   const modeBtn = (m: EditorMode, icon: React.ReactNode, label: string) => (
-    <button
+    <AppButton
+      variant="chip"
+      size="xs"
+      active={mode === m}
       onClick={() => onModeChange(m)}
-      className={`flex items-center gap-1 px-2 h-6 text-[10px] rounded transition-colors ${
-        mode === m ? "bg-kumo-brand/15 text-kumo-default font-medium" : "text-kumo-subtle hover:text-kumo-default"
-      }`}
+      icon={icon}
+      className="px-2"
       title={label}
-    >
-      {icon}
-    </button>
+    />
   );
 
   return (
@@ -221,7 +222,7 @@ export function FsdEditor({ content, dirty, saving, mode, onModeChange, onChange
             disabled={saving || !dirty}
             className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border transition-colors disabled:opacity-40 ${
               dirty
-                ? "border-kumo-brand bg-kumo-brand/15 text-kumo-default"
+                ? "liquid-wash border-transparent"
                 : "border-kumo-line text-kumo-subtle"
             }`}
           >

@@ -8,6 +8,7 @@ import { ErdToolbar } from "~/components/erd/ErdToolbar";
 import { TableEditor } from "~/components/erd/TableEditor";
 import { parseDbml, serializeDbml, type TableDef, type ParsedDbml } from "~/lib/dbml";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
+import { AppButton } from "~/components/ui/AppButton";
 
 export const Route = createFileRoute("/projects/$id/erd")({
   component: ErdPage,
@@ -71,13 +72,11 @@ function ErdPage() {
           <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
           <h1 className="text-lg text-kumo-default flex-1">ERD Canvas</h1>
           {parsed.tables.length > 0 && <Badge variant="neutral" className="text-[11px]">{parsed.tables.length} tables</Badge>}
-          <div className="ml-3 flex items-center gap-1 overflow-x-auto min-w-0 max-w-[80%] shrink">
+          <div className="ml-3 flex items-center gap-1 py-2 px-1.5 overflow-x-auto min-w-0 max-w-[80%] shrink">
             {files.map((f) => (
-              <button key={f.path} onClick={() => setSelectedFile(f.path)}
-                style={selectedFile === f.path ? { borderColor: "var(--color-kumo-brand, #60a5fa)", color: "var(--color-kumo-brand, #60a5fa)" } : {}}
-                className={`text-[11px] px-3 py-1 rounded-full bg-kumo-elevated border transition-all shrink-0 font-medium ${
-                  selectedFile === f.path ? "bg-kumo-brand/20" : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/50"
-                }`}>{f.name}</button>
+              <AppButton key={f.path} variant="chip" size="sm" active={selectedFile === f.path} onClick={() => setSelectedFile(f.path)} className="px-3 shrink-0">
+                {f.name}
+              </AppButton>
             ))}
           </div>
         </div>

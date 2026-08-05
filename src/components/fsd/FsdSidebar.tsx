@@ -1,4 +1,5 @@
 import { Scan, FileText, Clock, Plus, UploadSimple, MagnifyingGlass, CheckCircle } from "@phosphor-icons/react";
+import { FileRow } from "~/components/ui/FileRow";
 
 interface FsdSession {
   id: string;
@@ -79,29 +80,24 @@ export function FsdSidebar({ sessions, activeId, search, onSearchChange, onSelec
           <div className="px-3 py-4 text-[11px] text-kumo-subtle text-center">No documents</div>
         )}
         {filtered.map((s) => (
-          <button
+          <FileRow
             key={s.id}
+            accent
+            icon={<FileText size={12} />}
+            active={activeId === s.id}
             onClick={() => onSelect(s.id)}
-            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 border-l-2 transition-colors ${
-              activeId === s.id
-                ? "border-kumo-brand bg-kumo-brand/15 text-kumo-default"
-                : "border-transparent text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60"
-            }`}
           >
-            <FileText size={12} className="shrink-0 opacity-50" />
-            <div className="flex-1 min-w-0">
-              <div className="truncate">{s.title ?? s.fsdInputPath ?? "FSD"}</div>
-              <div className="flex items-center gap-1 mt-0.5">
-                {statusBadge(s.status)}
-                {s.sourceType && s.sourceType !== "manual" && (
-                  <span className="text-[9px] text-kumo-subtle">{s.sourceType}</span>
-                )}
-                <span className="flex items-center gap-0.5 text-[9px] text-kumo-subtle ml-auto">
-                  <Clock size={8} />{timeAgo(s.createdAt)}
-                </span>
-              </div>
+            <div className="truncate">{s.title ?? s.fsdInputPath ?? "FSD"}</div>
+            <div className="flex items-center gap-1 mt-0.5">
+              {statusBadge(s.status)}
+              {s.sourceType && s.sourceType !== "manual" && (
+                <span className="text-[9px] text-kumo-subtle">{s.sourceType}</span>
+              )}
+              <span className="flex items-center gap-0.5 text-[9px] text-kumo-subtle ml-auto">
+                <Clock size={8} />{timeAgo(s.createdAt)}
+              </span>
             </div>
-          </button>
+          </FileRow>
         ))}
       </div>
     </div>

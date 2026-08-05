@@ -38,20 +38,81 @@
    Liquid Design System Overrides
    ========================================= */
 
-/* Make Kumo UI Buttons "liquid" (pill-shaped) */
-button[data-kumo-component="Button"],
-a[data-kumo-component="LinkButton"] {
-  border-radius: 9999px !important;
+/* Kumo buttons keep their own radii per size (sm/base/lg).
+   Pill shape is opt-in via className="rounded-full" (merged by cnfast). */
+
+/* Pill utility for chips, segmented controls, inputs */
+.pill {
+  border-radius: 9999px;
 }
 
-/* Ensure any inset backgrounds/borders inherit the fully rounded radius */
-button[data-kumo-component="Button"] > span[aria-hidden="true"],
-a[data-kumo-component="LinkButton"] > span[aria-hidden="true"] {
-  border-radius: inherit !important;
+/* App surface: cards, panels — elevated bg + hairline border (no shadows) */
+.app-card {
+  background-color: var(--color-kumo-elevated);
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 70%, transparent);
 }
 
-/* Liquid Background Glow */
-/* Removed body background color/image override to keep original Kumo UI colors */
+/* App input: pill, elevated surface, brand focus ring */
+.app-input {
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 50%, transparent);
+  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 40%, transparent);
+}
+.app-input:focus {
+  border-color: var(--color-kumo-brand);
+  outline: none;
+}
+
+/* =========================================
+   Liquid Glass primitives
+   ========================================= */
+
+/* Glass surface: translucent elevated bg + blur + hairline + glass lip
+   (inset top highlight — the same "lip" as the primary button). */
+.glass-surface {
+  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 55%, transparent);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 70%, transparent);
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--color-kumo-default, #ffffff) 7%, transparent);
+}
+
+/* Liquid wash (strong): vertical gradient, lighter at top → base color,
+   white text, glass lip + colored ring + soft glow. Mirrors the kumo
+   primary-button anatomy. Accent via data-accent="success|warning". */
+:root {
+  --liquid-base: var(--color-kumo-brand, #2563eb);
+  --liquid-grad-start: color-mix(in oklch, var(--liquid-base), white 15%);
+  --liquid-grad-end: var(--liquid-base);
+  --liquid-lip: color-mix(in oklch, var(--liquid-base), white 45%);
+  --liquid-ring: color-mix(in oklch, var(--liquid-base), black 15%);
+}
+.liquid-wash {
+  background-image: linear-gradient(to bottom, var(--liquid-grad-start), var(--liquid-grad-end));
+  color: #ffffff !important;
+  box-shadow:
+    inset 0 1px 0 0 var(--liquid-lip),
+    0 0 0 1px var(--liquid-ring),
+    0 6px 20px -8px color-mix(in oklch, var(--liquid-base) 45%, transparent);
+}
+.liquid-wash[data-accent="success"] { --liquid-base: var(--color-kumo-success, #22c55e); }
+.liquid-wash[data-accent="warning"] { --liquid-base: var(--color-kumo-warning, #eab308); }
+
+/* Sidebar active menu item — liquid glass, matches the app-wide wash */
+[data-sidebar="menu-button"][data-active] {
+  background-image: linear-gradient(to bottom, var(--liquid-grad-start), var(--liquid-grad-end)) !important;
+  color: #ffffff !important;
+  box-shadow:
+    inset 0 1px 0 0 var(--liquid-lip),
+    0 0 0 1px var(--liquid-ring),
+    0 4px 16px -8px color-mix(in oklch, var(--liquid-base) 40%, transparent) !important;
+}
+
+/* Inside a liquid wash, muted text inherits the white foreground */
+.liquid-wash .text-kumo-subtle,
+.liquid-wash .text-kumo-default {
+  color: inherit !important;
+}
 
 /* Glass panel & container utility for cards, sidebars, containers */
 .glass-panel,

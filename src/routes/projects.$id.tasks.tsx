@@ -7,6 +7,7 @@ import { TaskList, type TaskViewMode } from "~/components/tasks/TaskList";
 import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
 import type { Task } from "~/shared/types";
+import { AppButton } from "~/components/ui/AppButton";
 
 export const Route = createFileRoute("/projects/$id/tasks")({
   loader: async ({ params }) => {
@@ -162,52 +163,55 @@ function TasksPage() {
             </Badge>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <button
+            <AppButton
               onClick={() => setView(view === "tasks" ? "timeline" : "tasks")}
-              className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-full border transition-all ${
-                view === "timeline"
-                  ? "border-kumo-brand bg-kumo-brand/20 text-kumo-default font-medium"
-                  : "border-kumo-line/50 bg-kumo-elevated/40 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
-              }`}
+              variant="chip"
+              size="sm"
+              active={view === "timeline"}
+              icon={<CalendarDots size={12} />}
+              className="px-3"
               title="Toggle AI-generated timeline view"
             >
-              <CalendarDots size={12} />
               {view === "timeline" ? "Tasks" : "Timeline"}
-            </button>
-            <button
+            </AppButton>
+            <AppButton
               onClick={handleImport}
               disabled={importing}
-              className="flex items-center gap-1 px-3 py-1 text-[11px] font-medium text-white bg-kumo-brand rounded-full hover:opacity-90 transition-opacity disabled:opacity-50"
+              variant="primary"
+              size="sm"
+              icon={<ArrowsClockwise size={12} className={importing ? "animate-spin" : ""} />}
+              className="rounded-full px-3"
             >
-              <ArrowsClockwise size={12} className={importing ? "animate-spin" : ""} />
               {importing ? "Importing..." : "Import from artifacts"}
-            </button>
+            </AppButton>
           </div>
         </div>
 
         {view === "tasks" && (
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center p-0.5 rounded-full border border-kumo-line/50 bg-kumo-elevated/40">
-              <button
+              <AppButton
                 onClick={() => setViewMode("list")}
+                variant="chip"
+                size="xs"
+                active={viewMode === "list"}
+                icon={<ListDashes size={11} />}
+                className="px-2.5"
                 title="List view"
-                className={`flex items-center gap-1 px-2.5 h-6 text-[10px] rounded-full transition-all ${
-                  viewMode === "list" ? "bg-kumo-brand/25 text-kumo-brand font-medium" : "text-kumo-subtle hover:text-kumo-default"
-                }`}
               >
-                <ListDashes size={11} />
                 List
-              </button>
-              <button
+              </AppButton>
+              <AppButton
                 onClick={() => setViewMode("cards")}
+                variant="chip"
+                size="xs"
+                active={viewMode === "cards"}
+                icon={<SquaresFour size={11} />}
+                className="px-2.5"
                 title="Card view"
-                className={`flex items-center gap-1 px-2.5 h-6 text-[10px] rounded-full transition-all ${
-                  viewMode === "cards" ? "bg-kumo-brand/25 text-kumo-brand font-medium" : "text-kumo-subtle hover:text-kumo-default"
-                }`}
               >
-                <SquaresFour size={11} />
                 Cards
-              </button>
+              </AppButton>
             </div>
             <div className="relative">
               <input
@@ -215,7 +219,7 @@ function TasksPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search code, title, assignee, content…"
-                className="w-72 h-7 pl-7 pr-6 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default placeholder:text-kumo-subtle outline-none focus:border-kumo-brand"
+                className="app-input w-72 h-7 pl-7 pr-6 text-xs text-kumo-default placeholder:text-kumo-subtle"
               />
               <MagnifyingGlass size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle pointer-events-none" />
               {search && (
@@ -238,16 +242,15 @@ function TasksPage() {
               <option value="all">All phases</option>
               {phases.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
-            <button
+            <AppButton
               onClick={() => setUnassignedOnly((p) => !p)}
-              className={`h-7 px-3 text-xs rounded-full border transition-all ${
-                unassignedOnly
-                  ? "border-kumo-brand bg-kumo-brand/20 text-kumo-default font-medium"
-                  : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
-              }`}
+              variant="chip"
+              size="sm"
+              active={unassignedOnly}
+              className="px-3"
             >
               Unassigned only
-            </button>
+            </AppButton>
             <span className="text-[10px] text-kumo-subtle ml-auto">
               {filteredTasks.length}/{tasks.length} tasks
             </span>

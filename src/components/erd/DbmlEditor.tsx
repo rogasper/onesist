@@ -1,6 +1,6 @@
 import CodeMirror from "@uiw/react-codemirror";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { ViewUpdate } from "@codemirror/view";
+import { EditorView, ViewUpdate } from "@codemirror/view";
 
 interface DbmlEditorProps {
   value: string;
@@ -14,7 +14,7 @@ export function DbmlEditor({ value, onChange }: DbmlEditorProps) {
       onChange={(val: string, _view: ViewUpdate) => onChange(val)}
       theme={oneDark}
       height="100%"
-      extensions={[]}
+      extensions={[EditorView.lineWrapping]}
       basicSetup={{
         lineNumbers: true,
         foldGutter: true,

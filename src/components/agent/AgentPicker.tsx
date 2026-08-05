@@ -74,7 +74,7 @@ export function AgentPicker({ selected, onSelect }: AgentPickerProps) {
               key={a.name}
               onClick={() => { onSelect(a.found ? { name: a.name, command: a.command } : null); setOpen(false); }}
               className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2 hover:bg-[#2a2a2a] transition-colors ${
-                selected === a.name ? "text-white bg-kumo-brand/15" : a.found ? "text-kumo-default" : "text-kumo-subtle"
+                selected === a.name ? "liquid-wash font-medium" : a.found ? "text-kumo-default" : "text-kumo-subtle"
               }`}
               disabled={!a.found}
             >

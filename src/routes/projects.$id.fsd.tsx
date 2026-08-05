@@ -305,7 +305,7 @@ function FsdPage() {
                     </div>
                     {dirty && (
                       <button onClick={() => handleSave()}
-                        className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border border-kumo-brand bg-kumo-brand/15 text-kumo-default"
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] rounded liquid-wash border-transparent font-medium"
                         title="Save (Cmd/Ctrl+S)">
                         <FloppyDisk size={11} /> Save
                       </button>

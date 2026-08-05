@@ -19,6 +19,15 @@ const MIN_WIDTH = 280;
 const DEFAULT_WIDTH = 420;
 const MAX_WIDTH = 1200;
 
+// Keep TUI apps (opencode) in the NORMAL buffer so the terminal's own
+// scrollback works with the native macOS trackpad — like Ghostty/Terminal.app.
+// Alt-screen entry is translated into a full clear so the TUI still starts
+// from a clean slate; the alt-buffer exit sequence is dropped.
+const stripAltBuffer = (data: string) =>
+  data
+    .replace(/\x1b\[\?(1049|1047|47)h/g, "\x1b[2J\x1b[H")
+    .replace(/\x1b\[\?(1049|1047|47)l/g, "");
+
 export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", projectId }: AgentTermPanelProps) {
   const [connected, setConnected] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgent);
@@ -48,7 +57,10 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const lastSpawnTimeRef = useRef(0);
   const wheelCleanupRef = useRef<(() => void) | null>(null);
   const connectedRef = useRef(false);
+  const reviewSkipCloseRef = useRef(false);
+  const reviewOpenRef = useRef(false);
   useEffect(() => { connectedRef.current = connected; }, [connected]);
+  useEffect(() => { reviewOpenRef.current = reviewOpen; }, [reviewOpen]);
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
@@ -106,7 +118,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       if (cached) {
         termRef.current = cached.term;
         fitRef.current = cached.fit;
-        try { cached.fit.fit(); } catch {}
+        try { safeFit(); } catch {}
       }
     }
 
@@ -159,7 +171,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         } else if (msg.type === "replay") {
           if (!termRef.current) createXterm();
           if (termRef.current) {
-            termRef.current.write(msg.data);
+            termRef.current.write(stripAltBuffer(msg.data));
             appendHistory(msg.data);
           }
         } else if (msg.type === "ready") {
@@ -168,7 +180,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         } else if (msg.type === "output") {
           if (!termRef.current) createXterm();
           if (termRef.current) {
-            termRef.current.write(msg.data);
+            termRef.current.write(stripAltBuffer(msg.data));
             appendHistory(msg.data);
           }
         } else if (msg.type === "exit") {
@@ -191,6 +203,18 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     ws.onclose = () => { setConnected(false); wsRef.current = null; connectingRef.current = false; };
     ws.onerror = () => { setConnected(false); wsRef.current = null; connectingRef.current = false; };
   }, [visible, port, projectRoot, agentName, sessionId, sessionEpoch, restartTick]);
+
+  // fit() in xterm 6.x can reset the viewport to the bottom; save/restore the
+  // scroll position when the user is scrolled up in the normal buffer.
+  const safeFit = useCallback(() => {
+    const t = termRef.current;
+    if (!t || !fitRef.current) return;
+    const v = t.buffer.active.type === "normal" ? t.buffer.active.viewportY : 0;
+    try { fitRef.current.fit(); } catch {}
+    if (v > 0) {
+      try { t.scrollToLine(v); } catch {}
+    }
+  }, []);
 
   const createXterm = () => {
     if (!containerRef.current || termRef.current) return;
@@ -223,15 +247,20 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     term.open(containerRef.current);
     register(sessionIdRef.current, term, fit, term.element ?? containerRef.current);
 
-    // Wheel up in the TUI (alt buffer, no scrollback) opens the history
-    // review overlay; wheel down is ignored (xterm handles normal-buffer
-    // scrollback itself). preventDefault stops the page from scrolling.
+    // Wheel over the TUI (normal buffer, no scrollback — TUI redraws in place):
+    // the history overlay is the scroll surface. First wheel-up opens it, and
+    // the same gesture keeps scrolling it — feels like native macOS scroll.
     const container = containerRef.current;
     const onWheel = (e: WheelEvent) => {
       if (!connectedRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       if (e.defaultPrevented) return;
       e.preventDefault();
       e.stopPropagation();
+      if (reviewOpenRef.current) {
+        const el = reviewRef.current;
+        if (el && e.deltaY) el.scrollTop += e.deltaY;
+        return;
+      }
       if (e.deltaY < 0 && historyRef.current) openReview();
     };
     container.addEventListener("wheel", onWheel, { passive: false });
@@ -257,7 +286,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     const tryFit = (attempts = 0) => {
       const rect = containerRef.current!.getBoundingClientRect();
       if (rect.width >= 50 && rect.height >= 50) {
-        try { fit.fit(); } catch {}
+        try { safeFit(); } catch {}
       } else if (attempts < 40) {
         requestAnimationFrame(() => tryFit(attempts + 1));
       }
@@ -266,7 +295,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
     if (observerRef.current) observerRef.current.disconnect();
     observerRef.current = new ResizeObserver(() => {
-      requestAnimationFrame(() => { try { fit.fit(); } catch {} });
+      requestAnimationFrame(() => { try { safeFit(); } catch {} });
     });
     observerRef.current.observe(panelRef.current!);
   };
@@ -281,7 +310,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
           if (cached) {
             termRef.current = cached.term;
             fitRef.current = cached.fit;
-            cached.fit.fit();
+            safeFit();
             cached.term.focus();
           }
         });
@@ -312,7 +341,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
   useLayoutEffect(() => {
     if (fitRef.current && containerRef.current) {
-      try { fitRef.current.fit(); } catch {}
+      try { safeFit(); } catch {}
     }
   }, [width, visible]);
 
@@ -345,6 +374,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const openReview = () => {
     setReviewText(historyRef.current);
     setReviewOpen(true);
+    reviewSkipCloseRef.current = true;
   };
   const closeReview = () => setReviewOpen(false);
 
@@ -352,11 +382,16 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     if (reviewOpen && reviewRef.current) {
       reviewRef.current.scrollTop = reviewRef.current.scrollHeight;
     }
-  }, [reviewOpen, reviewText]);
+  }, [reviewOpen]);
 
   const handleReviewScroll = () => {
     const el = reviewRef.current;
     if (!el) return;
+    // Ignore the programmatic scroll-to-bottom right after opening
+    if (reviewSkipCloseRef.current) {
+      reviewSkipCloseRef.current = false;
+      return;
+    }
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 8) setReviewOpen(false);
   };
 

@@ -71,8 +71,8 @@ export function TaskBoard({ tasks, selectedId, onSelect, onStatusChange }: TaskB
                     onClick={() => onSelect(task.id)}
                     className={`rounded-lg border cursor-pointer transition-colors ${
                       selectedId === task.id
-                        ? "border-kumo-brand bg-kumo-brand/15"
-                        : "border-kumo-line bg-kumo-elevated/40 hover:bg-kumo-elevated/80"
+                        ? "liquid-wash border-transparent"
+                        : "border-kumo-line bg-kumo-elevated hover:bg-kumo-elevated/80"
                     }`}
                   >
                     <div className="px-2.5 py-2">
