@@ -19,15 +19,6 @@ const MIN_WIDTH = 280;
 const DEFAULT_WIDTH = 420;
 const MAX_WIDTH = 1200;
 
-// Keep TUI apps (opencode) in the NORMAL buffer so the terminal's own
-// scrollback works with the native macOS trackpad — like Ghostty/Terminal.app.
-// Alt-screen entry is translated into a full clear so the TUI still starts
-// from a clean slate; the alt-buffer exit sequence is dropped.
-const stripAltBuffer = (data: string) =>
-  data
-    .replace(/\x1b\[\?(1049|1047|47)h/g, "\x1b[2J\x1b[H")
-    .replace(/\x1b\[\?(1049|1047|47)l/g, "");
-
 export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", projectId }: AgentTermPanelProps) {
   const [connected, setConnected] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgent);
@@ -47,20 +38,13 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const boundSidRef = useRef<string | null>(null);
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const [restartTick, setRestartTick] = useState(0);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewText, setReviewText] = useState("");
-  const historyRef = useRef("");
-  const reviewRef = useRef<HTMLDivElement | null>(null);
   const needsReattach = useRef(false);
   const connectingRef = useRef(false);
   const manualEndRef = useRef(false);
   const lastSpawnTimeRef = useRef(0);
-  const wheelCleanupRef = useRef<(() => void) | null>(null);
-  const connectedRef = useRef(false);
-  const reviewSkipCloseRef = useRef(false);
-  const reviewOpenRef = useRef(false);
-  useEffect(() => { connectedRef.current = connected; }, [connected]);
-  useEffect(() => { reviewOpenRef.current = reviewOpen; }, [reviewOpen]);
+  const wheelBoundRef = useRef(false);
+  const visibleRef = useRef(visible);
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
@@ -122,16 +106,6 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       }
     }
 
-    const appendHistory = (data: string) => {
-      const clean = data
-        .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
-        .replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")
-        .replace(/\x1bP[^\x1b]*\x1b\\/g, "")
-        .replace(/\x1b[\x5b\x5d\x50]/g, "");
-      historyRef.current += clean;
-      if (historyRef.current.length > 250000) historyRef.current = historyRef.current.slice(-250000);
-    };
-
     const ws = new WebSocket(`ws://localhost:${port}/wss`);
     wsRef.current = ws;
 
@@ -148,7 +122,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
           if (msg.exists) {
             // Agent still running — just attach to the live session
             setConnected(true);
-            if (!termRef.current) createXterm();
+            if (!termRef.current && visibleRef.current) createXterm();
             requestAnimationFrame(() => {
               if (fitRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
                 const dims = fitRef.current.proposeDimensions();
@@ -169,25 +143,22 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             ws.send(JSON.stringify({ type: "spawn", id: sid, command: cmd, cwd: projectRoot || "/tmp" }));
           }
         } else if (msg.type === "replay") {
-          if (!termRef.current) createXterm();
+          if (!termRef.current && visibleRef.current) createXterm();
           if (termRef.current) {
-            termRef.current.write(stripAltBuffer(msg.data));
-            appendHistory(msg.data);
+            termRef.current.write(msg.data);
           }
         } else if (msg.type === "ready") {
           setConnected(true);
-          if (!termRef.current) createXterm();
+          if (!termRef.current && visibleRef.current) createXterm();
         } else if (msg.type === "output") {
-          if (!termRef.current) createXterm();
+          if (!termRef.current && visibleRef.current) createXterm();
           if (termRef.current) {
-            termRef.current.write(stripAltBuffer(msg.data));
-            appendHistory(msg.data);
+            termRef.current.write(msg.data);
           }
         } else if (msg.type === "exit") {
-          if (!termRef.current) createXterm();
+          if (!termRef.current && visibleRef.current) createXterm();
           if (termRef.current) termRef.current.writeln(`\x1b[33m\nExited (code ${msg.code ?? "?"})\x1b[0m`);
           setConnected(false);
-          setReviewOpen(false);
           boundSidRef.current = null;
           connectingRef.current = false;
           wsRef.current = null;
@@ -247,24 +218,25 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     term.open(containerRef.current);
     register(sessionIdRef.current, term, fit, term.element ?? containerRef.current);
 
-    // Wheel over the TUI (normal buffer, no scrollback — TUI redraws in place):
-    // the history overlay is the scroll surface. First wheel-up opens it, and
-    // the same gesture keeps scrolling it — feels like native macOS scroll.
-    const container = containerRef.current;
-    const onWheel = (e: WheelEvent) => {
-      if (!connectedRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      if (e.defaultPrevented) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (reviewOpenRef.current) {
-        const el = reviewRef.current;
-        if (el && e.deltaY) el.scrollTop += e.deltaY;
-        return;
-      }
-      if (e.deltaY < 0 && historyRef.current) openReview();
-    };
-    container.addEventListener("wheel", onWheel, { passive: false });
-    wheelCleanupRef.current = () => container.removeEventListener("wheel", onWheel);
+    // Terminal.app-style fallback: while a fullscreen TUI (alt buffer) is
+    // active and the program has NOT enabled mouse tracking, translate wheel
+    // events into PageUp/PageDown key sequences and send them to the TUI.
+    // Otherwise wheel would either do nothing or bubble up and scroll the
+    // page behind the panel. When mouse tracking IS active, xterm.js already
+    // converts wheel events to mouse sequences — leave it alone.
+    if (!wheelBoundRef.current) {
+      wheelBoundRef.current = true;
+      containerRef.current.addEventListener("wheel", (e: WheelEvent) => {
+        const t = termRef.current;
+        if (!t || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        if (t.buffer.active.type !== "alternate") return;
+        if (t.modes.mouseTrackingMode !== "none") return;
+        e.preventDefault();
+        e.stopPropagation();
+        const key = e.deltaY < 0 ? "\x1b[5~" : "\x1b[6~";
+        wsRef.current.send(JSON.stringify({ type: "input", id: sessionIdRef.current, data: key }));
+      }, { passive: false });
+    }
 
     term.onResize(({ cols, rows }) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -321,7 +293,6 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         park(sessionIdRef.current);
         termRef.current = null;
         fitRef.current = null;
-        setReviewOpen(false);
       }
     }
   }, [visible, connected]);
@@ -356,43 +327,14 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       wsRef.current = null;
     }
     boundSidRef.current = null;
-    wheelCleanupRef.current?.();
-    wheelCleanupRef.current = null;
     if (termRef.current) {
       termRef.current.dispose();
       termRef.current = null;
       fitRef.current = null;
     }
     destroyCache(sessionIdRef.current);
-    historyRef.current = "";
-    setReviewText("");
-    setReviewOpen(false);
     setConnected(false);
     connectingRef.current = false;
-  };
-
-  const openReview = () => {
-    setReviewText(historyRef.current);
-    setReviewOpen(true);
-    reviewSkipCloseRef.current = true;
-  };
-  const closeReview = () => setReviewOpen(false);
-
-  useEffect(() => {
-    if (reviewOpen && reviewRef.current) {
-      reviewRef.current.scrollTop = reviewRef.current.scrollHeight;
-    }
-  }, [reviewOpen]);
-
-  const handleReviewScroll = () => {
-    const el = reviewRef.current;
-    if (!el) return;
-    // Ignore the programmatic scroll-to-bottom right after opening
-    if (reviewSkipCloseRef.current) {
-      reviewSkipCloseRef.current = false;
-      return;
-    }
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 8) setReviewOpen(false);
   };
 
   useEffect(() => {
@@ -448,18 +390,6 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         {/* Terminal body */}
         <div style={{ position: "absolute", top: 40, left: 0, right: 0, bottom: 0 }}>
           <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden" }} />
-
-          {reviewOpen && (
-            <div className="absolute inset-0 z-20 flex flex-col bg-[#0d0d0d]">
-              <div className="shrink-0 px-3 py-1.5 border-b border-[#2a2a2a] flex items-center justify-between">
-                <span className="text-[10px] text-neutral-400 font-mono">agent history — scroll to bottom to return to live</span>
-                <button onClick={closeReview} className="text-neutral-500 hover:text-neutral-200 text-[10px]">✕</button>
-              </div>
-              <div ref={reviewRef} onScroll={handleReviewScroll} className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[12px] leading-relaxed text-neutral-300 whitespace-pre-wrap">
-                {reviewText}
-              </div>
-            </div>
-          )}
 
           {!connected && (
             <div style={{ position: "absolute", inset: 0 }}

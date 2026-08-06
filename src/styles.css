@@ -152,26 +152,24 @@ div[data-kumo-component="Sidebar"] {
 }
 
 /* =========================================
-   xterm.js scrollbar fix (xtermjs/xterm.js#512)
-   Keep the scrollbar above the rendered rows so it stays
-   visible and clickable (drag-to-scroll) in xterm 6.x.
+   xterm.js scrollbar — hidden.
+   Trackpad/keyboard scrolling still works (xterm scrolls the viewport
+   programmatically on wheel in the normal buffer; TUIs in the alternate
+   buffer get PageUp/PageDown via the AgentTerminal wheel fallback), so the
+   native scrollbar is only visual noise inside the panel.
    ========================================= */
 
+.xterm .xterm-scrollable-element > .xterm-scrollbar,
+.xterm .xterm-viewport::-webkit-scrollbar,
+.xterm ::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
 .xterm .xterm-scrollable-element > .xterm-scrollbar {
-  position: absolute !important;
-  right: 0 !important;
-  top: 0 !important;
-  bottom: 0 !important;
-  z-index: 15 !important;
-  pointer-events: auto !important;
-}
-
-.xterm .xterm-scrollable-element > .xterm-visible {
-  z-index: 15 !important;
-}
-
-.xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
-  cursor: pointer !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 /* =========================================
