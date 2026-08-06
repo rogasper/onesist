@@ -10,6 +10,13 @@
 .spec-markdown p { font-size: 0.875rem; line-height: 1.75; color: #e0e0e0; margin: 0.5rem 0; }
 .spec-markdown ul, .spec-markdown ol { font-size: 0.875rem; line-height: 1.7; color: #e0e0e0; padding-left: 1.5rem; margin: 0.35rem 0; }
 .spec-markdown li { margin: 0.25rem 0; color: #e0e0e0; }
+.spec-markdown ul { list-style: disc; }
+.spec-markdown ul ul { list-style-type: circle; }
+.spec-markdown ul ul ul { list-style-type: square; }
+.spec-markdown ol { list-style: decimal; }
+.spec-markdown ol ol { list-style-type: lower-alpha; }
+.spec-markdown ol ol ol { list-style-type: lower-roman; }
+.spec-markdown li > p { margin: 0.15rem 0; }
 .spec-markdown code { font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace; font-size: 0.75rem; color: #e8e8e8; background: #252525; padding: 0.15em 0.4em; border-radius: 3px; }
 .spec-markdown pre { color: #e0e0e0; background: #1e1e1e; padding: 0.75rem 1rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; border: 1px solid #3a3a3a; }
 .spec-markdown pre code { background: none; padding: 0; font-size: 0.7rem; color: #e0e0e0; }
@@ -28,6 +35,8 @@
 .spec-markdown-inline h1, .spec-markdown-inline h2, .spec-markdown-inline h3, .spec-markdown-inline h4 { font-size: 0.8125rem; font-weight: 500; color: #f8f8f8; margin: 0.25rem 0; }
 .spec-markdown-inline ul, .spec-markdown-inline ol { font-size: 0.75rem; color: #e8e8e8; padding-left: 1rem; }
 .spec-markdown-inline li { margin: 0.1rem 0; color: #e8e8e8; }
+.spec-markdown-inline ul { list-style: disc; }
+.spec-markdown-inline ol { list-style: decimal; }
 .spec-markdown-inline code { font-size: 0.7rem; color: #ececec; background: #252525; padding: 0.05em 0.25em; border-radius: 2px; }
 .spec-markdown-inline pre { margin: 0.25rem 0; padding: 0.5rem; background: #1e1e1e; border: 1px solid #3a3a3a; }
 .spec-markdown-inline pre code { font-size: 0.65rem; color: #e0e0e0; }
@@ -164,3 +173,146 @@ div[data-kumo-component="Sidebar"] {
 .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
   cursor: pointer !important;
 }
+
+/* =========================================
+   MDXEditor — kumo dark theme overrides
+   ========================================= */
+
+/* Use compound class `.mdxeditor.mdxeditor-full-height` (specificity 0,2,0) so the
+   var overrides beat MDXEditor's `._editorRoot_er3ed_53` (0,1,0) regardless of
+   CSS load order — style.css is lazy-imported via MdxEditorInner so it lands
+   AFTER our styles.css in the Vite bundle, otherwise it would reset
+   --basePageBg to white and --baseTextContrast to a near-black slate.
+   Colors hardcode the old CodeMirror oneDark palette (#282c34) so the editor
+   stays a dark panel inside the app's light theme, exactly like before. */
+.mdxeditor.mdxeditor-full-height {
+  height: 100%;
+  --basePageBg: #282c34;
+  --baseBase: #21252b;
+  --baseBgSubtle: #2c313a;
+  --baseBg: #282c34;
+  --baseBgHover: #2f3542;
+  --baseBgActive: #353b45;
+  --baseLine: #3e4451;
+  --baseBorder: #3e4451;
+  --baseBorderHover: #528bff;
+  --baseSolid: #9da5b4;
+  --baseSolidHover: #ffffff;
+  --baseText: #abb2bf;
+  --baseTextContrast: #abb2bf;
+  --accentBase: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 30%, transparent);
+  --accentBgSubtle: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 12%, transparent);
+  --accentBg: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 18%, transparent);
+  --accentBgHover: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 26%, transparent);
+  --accentBgActive: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 34%, transparent);
+  --accentLine: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 45%, transparent);
+  --accentBorder: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 60%, transparent);
+  --accentBorderHover: var(--color-kumo-brand, #2563eb);
+  --accentSolid: var(--color-kumo-brand, #2563eb);
+  --accentSolidHover: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 85%, white);
+  --accentText: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 75%, white);
+  --accentTextContrast: #ffffff;
+}
+
+.mdxeditor .mdxeditor-toolbar {
+  background: #282c34;
+  border: none;
+  border-bottom: 1px solid #3e4451;
+  padding: 2px 0 6px;
+}
+
+.mdxeditor .mdxeditor-toolbar .mdxeditor-button[aria-label] {
+  color: var(--baseText, #abb2bf);
+}
+
+.mdxeditor .mdxeditor-toolbar .mdxeditor-button:hover:not([disabled]) {
+  background-color: #353b45;
+  color: #ffffff;
+}
+
+.mdxeditor .mdxeditor-toolbar .mdxeditor-button[data-state="on"] {
+  background-color: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 20%, transparent);
+  color: #ffffff;
+}
+
+.mdxeditor .mdxeditor-root-contenteditable {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #fefefe;
+  background-color: #282c34;
+}
+
+/* Restore typography inside the editor content — Tailwind preflight strips
+   the browser defaults MDXEditor relies on (headings/lists would render
+   identical to plain text otherwise). Mirrors .spec-markdown styling. */
+.mdxeditor-root-contenteditable h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: #fefefe; border-bottom: 1px solid #3a3a3a; padding-bottom: 0.5rem; }
+.mdxeditor-root-contenteditable h2 { font-size: 1.2rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: #fefefe; }
+.mdxeditor-root-contenteditable h3 { font-size: 1.05rem; font-weight: 500; margin: 1rem 0 0.25rem; color: #f4f4f4; }
+.mdxeditor-root-contenteditable h4 { font-size: 0.9rem; font-weight: 500; margin: 0.75rem 0 0.2rem; color: #f0f0f0; }
+.mdxeditor-root-contenteditable p { font-size: 0.875rem; line-height: 1.75; color: #e0e0e0; margin: 0.5rem 0; }
+.mdxeditor-root-contenteditable ul,
+.mdxeditor-root-contenteditable ol {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: #e0e0e0;
+  padding-left: 1.5rem;
+  margin: 0.35rem 0;
+}
+.mdxeditor-root-contenteditable ul { list-style: disc; }
+.mdxeditor-root-contenteditable ul ul { list-style-type: circle; }
+.mdxeditor-root-contenteditable ul ul ul { list-style-type: square; }
+.mdxeditor-root-contenteditable ol { list-style: decimal; }
+.mdxeditor-root-contenteditable ol ol { list-style-type: lower-alpha; }
+.mdxeditor-root-contenteditable ol ol ol { list-style-type: lower-roman; }
+.mdxeditor-root-contenteditable li { margin: 0.25rem 0; color: #e0e0e0; }
+.mdxeditor-root-contenteditable li > p { margin: 0.15rem 0; }
+.mdxeditor-root-contenteditable code {
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  font-size: 0.75rem;
+  color: #e8e8e8;
+  background: #252525;
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+}
+.mdxeditor-root-contenteditable pre {
+  color: #e0e0e0;
+  background: #1e1e1e;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  border: 1px solid #3a3a3a;
+}
+.mdxeditor-root-contenteditable pre code { background: none; padding: 0; font-size: 0.7rem; color: #e0e0e0; }
+.mdxeditor-root-contenteditable table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 0.75rem 0; }
+.mdxeditor-root-contenteditable th,
+.mdxeditor-root-contenteditable td { border: 1px solid #3a3a3a; padding: 0.5rem 0.75rem; text-align: left; }
+.mdxeditor-root-contenteditable th { background: #252525; font-weight: 500; color: #f4f4f4; }
+.mdxeditor-root-contenteditable td { color: #e0e0e0; }
+.mdxeditor-root-contenteditable hr { border: none; border-top: 1px solid #3a3a3a; margin: 1.5rem 0; }
+.mdxeditor-root-contenteditable a { color: var(--color-kumo-brand, #64b5f6); text-decoration: none; }
+.mdxeditor-root-contenteditable a:hover { text-decoration: underline; }
+.mdxeditor-root-contenteditable strong { color: #fefefe; font-weight: 600; }
+.mdxeditor-root-contenteditable blockquote {
+  border-left: 2px solid var(--color-kumo-brand, #64b5f6);
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  color: #d4d4d4;
+}
+
+.mdxeditor .mdxeditor-root-contenteditable:focus {
+  outline: none;
+}
+
+.mdxeditor .mdxeditor-root-contenteditable .mdxeditor-link {
+  color: var(--color-kumo-brand, #2563eb);
+}
+
+.mdxeditor .mdxeditor-root-contenteditable table {
+  border-color: #3e4451;
+}
+
+.mdxeditor .mdxeditor-source-editor .cm-editor {
+  font-size: 12px;
+}
+

@@ -8,7 +8,12 @@
         "description": "Handles high-level system architecture, planning, and reasoning.",
         "permission": {
           "edit": "deny",
-          "bash": "deny"
+          "bash": "deny",
+          "task": {
+            "build": "deny",
+            "execute": "deny",
+            "general": "deny"
+          }
         }
       },
       "cheap-plan": {

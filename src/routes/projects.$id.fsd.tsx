@@ -91,6 +91,12 @@ function FsdPage() {
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
+  // Reset the draft when switching to a different document
+  useEffect(() => {
+    setDraftContent(null);
+    setDirty(false);
+  }, [activeId]);
+
   const handleScan = useCallback(async () => {
     setScanning(true);
     try { await fetch(`/api/projects/${id}/fsd/scan`, { method: "POST" }); await loadSessions(); } catch {}
