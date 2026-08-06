@@ -22,9 +22,10 @@ const TYPE_PATTERNS: Record<string, RegExp[]> = {
 };
 
 export function detectRoute(filename: string): string {
+  const normalized = filename.replace(/\\/g, "/");
   for (const [route, patterns] of Object.entries(TYPE_PATTERNS)) {
     for (const p of patterns) {
-      if (p.test(filename)) return route;
+      if (p.test(normalized)) return route;
     }
   }
   return "other";
@@ -89,6 +90,59 @@ export function deleteFile(rootPath: string, relPath: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+export function renameFile(rootPath: string, relPath: string, newName: string): boolean {
+  try {
+    const fullPath = path.join(rootPath, relPath);
+    if (!fs.existsSync(fullPath)) return false;
+    const newPath = path.join(path.dirname(fullPath), newName);
+    if (fs.existsSync(newPath)) return false;
+    fs.renameSync(fullPath, newPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function uniquePath(rootPath: string, relPath: string): string {
+  const fullPath = path.join(rootPath, relPath);
+  if (!fs.existsSync(fullPath)) return relPath;
+  const ext = path.extname(relPath);
+  const base = ext ? relPath.slice(0, -ext.length) : relPath;
+  let i = 1;
+  let candidate = `${base} (copy)${ext}`;
+  while (fs.existsSync(path.join(rootPath, candidate))) {
+    candidate = `${base} (copy ${i})${ext}`;
+    i++;
+  }
+  return candidate;
+}
+
+export function copyFile(rootPath: string, source: string, destinationDir: string): string | null {
+  try {
+    const srcPath = path.join(rootPath, source);
+    if (!fs.existsSync(srcPath)) return null;
+    const dest = uniquePath(rootPath, path.join(destinationDir, path.basename(source)));
+    fs.mkdirSync(path.dirname(path.join(rootPath, dest)), { recursive: true });
+    fs.copyFileSync(srcPath, path.join(rootPath, dest));
+    return dest;
+  } catch {
+    return null;
+  }
+}
+
+export function moveFile(rootPath: string, source: string, destinationDir: string): string | null {
+  try {
+    const srcPath = path.join(rootPath, source);
+    if (!fs.existsSync(srcPath)) return null;
+    const dest = uniquePath(rootPath, path.join(destinationDir, path.basename(source)));
+    fs.mkdirSync(path.dirname(path.join(rootPath, dest)), { recursive: true });
+    fs.renameSync(srcPath, path.join(rootPath, dest));
+    return dest;
+  } catch {
+    return null;
   }
 }
 

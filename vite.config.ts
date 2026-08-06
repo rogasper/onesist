@@ -27,7 +27,13 @@ function terminalServerPlugin() {
         console.log("[terminal-plugin] terminal server already running — reusing it");
         return;
       }
-      proc = spawn("bun", ["run", path.resolve(__dirname, "src/server/terminal-server.ts")], {
+      const script = path.resolve(__dirname, "src/server/terminal-server.ts");
+      const isBun = typeof Bun !== "undefined";
+      const nodeMajor = Number(process.versions.node?.split(".")[0] || 0);
+      const args = isBun
+        ? ["run", script]
+        : [...(nodeMajor < 23 ? ["--experimental-strip-types"] : []), script];
+      proc = spawn(process.execPath, args, {
         stdio: "inherit",
         env: { ...process.env },
       });
@@ -65,6 +71,15 @@ export default defineConfig({
     react(),
   ],
   ssr: {
-    external: ["drizzle-orm/bun-sqlite"],
+    external: [
+      "bun:sqlite",
+      "drizzle-orm/bun-sqlite",
+      "drizzle-orm/bun-sqlite/migrator",
+      "drizzle-orm/better-sqlite3",
+      "drizzle-orm/better-sqlite3/migrator",
+      "better-sqlite3",
+      "node-pty",
+      "ws",
+    ],
   },
 });

@@ -1,13 +1,15 @@
 import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
-import { Badge } from "@cloudflare/kumo";
-import { Cube, Terminal as TerminalIcon, FileText, File, FolderOpen, X, CaretDown, CaretRight, ArrowCounterClockwise } from "@phosphor-icons/react";
+import { Badge, Button, DialogRoot, Dialog, DialogTitle, DialogDescription } from "@cloudflare/kumo";
+import { Cube, Terminal as TerminalIcon, FileText, File, FolderOpen, X, CaretDown, CaretRight, CaretLeft, ArrowCounterClockwise, Folder, ArrowDownLeft, ArrowUpRight, MagnifyingGlass, PencilSimple, Trash, CopySimple, ClipboardText } from "@phosphor-icons/react";
 import { loadAllData } from "~/lib/project-queries";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
 import { useFileContent } from "~/lib/use-file-data";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { AppButton } from "~/components/ui/AppButton";
 import { FileRow } from "~/components/ui/FileRow";
+import { ContextMenu } from "~/components/ui/ContextMenu";
+import type { ContextMenuItem } from "~/components/ui/ContextMenu";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: async ({ params }) => {
@@ -191,27 +193,101 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   const [fileSummary, setFileSummary] = useState<Record<string, number>>({});
   const [dirs, setDirs] = useState<Record<string, { name: string; path: string; size: number }[]>>({});
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+  const [fileExplorerCollapsed, setFileExplorerCollapsed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; target: { kind: "file"; file: any } | { kind: "dir"; dir: string } } | null>(null);
+  const [clipboard, setClipboard] = useState<{ path: string; name: string } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
 
   useEffect(() => {
     const pid = project?.id;
     fetch(`/api/files/summary${pid ? `?projectId=${pid}` : ""}`).then((r) => r.ok ? r.json() : {}).then(setFileSummary).catch(() => {});
   }, [project?.id]);
 
-  useEffect(() => {
+  const loadDirs = useCallback(async () => {
     const pid = project?.id;
     if (!pid) return;
-    const loadDirs = async () => {
-      const result: Record<string, any[]> = {};
-      for (const dir of ["input/fsd", "output/spec", "output/erd", "output/task"]) {
-        try {
-          const res = await fetch(`/api/files/list?projectId=${pid}&dir=${dir}`);
-          if (res.ok) result[dir] = await res.json();
-        } catch {}
-      }
-      setDirs(result);
-    };
-    loadDirs();
+    const result: Record<string, any[]> = {};
+    for (const dir of ["input/fsd", "output/spec", "output/erd", "output/task"]) {
+      try {
+        const res = await fetch(`/api/files/list?projectId=${pid}&dir=${dir}`);
+        if (res.ok) result[dir] = await res.json();
+      } catch {}
+    }
+    setDirs(result);
   }, [project?.id]);
+
+  useEffect(() => { loadDirs(); }, [loadDirs]);
+
+  const refreshAll = useCallback(() => {
+    loadDirs();
+    fetch(`/api/files/summary${project?.id ? `?projectId=${project.id}` : ""}`).then((r) => r.ok ? r.json() : {}).then(setFileSummary).catch(() => {});
+  }, [loadDirs, project?.id]);
+
+  const handleRename = async (path: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === path.split("/").pop()) { setRenaming(null); return; }
+    try {
+      const res = await fetch("/api/files/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, path, newName: trimmed }),
+      });
+      if (res.ok && (await res.json()).renamed) {
+        const newPath = path.slice(0, path.lastIndexOf("/") + 1) + trimmed;
+        setOpenTabs((prev) => prev.map((t) => (t.path === path ? { path: newPath, name: trimmed } : t)));
+        if (activeTabPath === path) setActiveTabPath(newPath);
+        refreshAll();
+      }
+    } catch {}
+    setRenaming(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await fetch(`/api/files/delete?projectId=${project.id}&path=${encodeURIComponent(deleteTarget.path)}`, { method: "DELETE" });
+      onTabClose(deleteTarget.path);
+    } catch {}
+    setDeleteTarget(null);
+    refreshAll();
+  };
+
+  const handleCopy = (file: any) => setClipboard({ path: file.path, name: file.name });
+
+  const handlePaste = async (targetDir: string) => {
+    if (!clipboard) return;
+    const sameDir = clipboard.path.startsWith(targetDir.replace(/\/$/, "") + "/");
+    try {
+      const res = await fetch(`/api/files/${sameDir ? "copy" : "move"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, source: clipboard.path, destination: targetDir }),
+      });
+      if (res.ok) setClipboard(null);
+    } catch {}
+    refreshAll();
+  };
+
+  const openMenu = (e: React.MouseEvent, target: { kind: "file"; file: any } | { kind: "dir"; dir: string }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, target });
+  };
+
+  const menuItems: ContextMenuItem[] = ctxMenu ? (() => {
+    const t = ctxMenu.target;
+    const items: ContextMenuItem[] = [];
+    if (t.kind === "file") {
+      items.push({ label: "Rename", icon: <PencilSimple size={12} />, onClick: () => setRenaming(t.file.path) });
+      items.push({ label: "Delete", icon: <Trash size={12} />, danger: true, onClick: () => setDeleteTarget({ path: t.file.path, name: t.file.name }) });
+      items.push({ label: "Copy", icon: <CopySimple size={12} />, onClick: () => handleCopy(t.file) });
+    }
+    const pasteDir = t.kind === "file" ? t.file.path.slice(0, t.file.path.lastIndexOf("/") + 1) : t.dir;
+    items.push({ label: "Paste", icon: <ClipboardText size={12} />, disabled: !clipboard, onClick: () => handlePaste(pasteDir) });
+    return items;
+  })() : [];
 
   const { content: activeContent, loading: contentLoading, refresh: refreshContent } = useFileContent(activeTabPath, project?.id);
 
@@ -227,6 +303,71 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   const totalFiles = Object.values(dirs).flat().length;
   const DIR_ORDER = ["input/fsd", "output/spec", "output/erd", "output/task"];
 
+  const query = searchQuery.trim().toLowerCase();
+  const searchResults = query
+    ? Object.entries(dirs).flatMap(([dir, files]) => (files ?? []).map((f) => ({ dir, ...f })))
+        .filter((f) => f.name.toLowerCase().includes(query) || f.path.toLowerCase().includes(query))
+    : [];
+
+  const trees = useMemo(() => {
+    const t: Record<string, TreeNode[]> = {};
+    for (const dir of DIR_ORDER) t[dir] = buildFileTree(dir, dirs[dir] ?? []);
+    return t;
+  }, [dirs]);
+
+  const countFiles = (node: TreeNode): number =>
+    node.type === "file" ? 1 : (node.children ?? []).reduce((n, c) => n + countFiles(c), 0);
+
+  const renderTreeNodes = (nodes: TreeNode[], depth: number): React.ReactNode[] =>
+    nodes.map((node) => {
+      if (node.type === "folder") {
+        const isCollapsed = collapsedDirs.has(node.path);
+        return (
+          <div key={node.path}>
+            <button
+              type="button"
+              onClick={() => toggleCollapse(node.path)}
+              onContextMenu={(e) => openMenu(e, { kind: "dir", dir: node.path })}
+              className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer whitespace-nowrap"
+              style={{ paddingLeft: `${8 + depth * 14}px` }}
+            >
+              {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
+              <Folder size={11} className="opacity-60" />
+              <span className="text-xs truncate">{node.name}</span>
+              <span className="text-[10px] text-kumo-subtle ml-auto">{countFiles(node)}</span>
+            </button>
+            {!isCollapsed && (
+              <div className="ml-[9px] pl-1.5 border-l border-kumo-line/25">{renderTreeNodes(node.children ?? [], depth + 1)}</div>
+            )}
+          </div>
+        );
+      }
+      const f = node.file!;
+      const isMarkdown = f.path.endsWith(".md");
+      const isActive = activeTabPath === f.path;
+      return (
+        <div key={f.path}>
+          {renaming === f.path ? (
+            <div className="my-0.5 mx-1.5" style={{ paddingLeft: `${12 + depth * 12}px` }}>
+              <RenameInput initial={f.name} onCommit={(name) => handleRename(f.path, name)} />
+            </div>
+          ) : (
+            <FileRow
+              depth={depth}
+              noTruncate
+              icon={<File size={11} />}
+              active={isActive}
+              disabled={!isMarkdown}
+              onClick={() => onFileClick(f)}
+              onContextMenu={(e) => openMenu(e, { kind: "file", file: f })}
+            >
+              <span className="whitespace-nowrap">{f.name}</span>
+            </FileRow>
+          )}
+        </div>
+      );
+    });
+
   if (totalFiles === 0) {
     return (
       <div className="rounded-lg border border-kumo-line p-6 text-center">
@@ -238,6 +379,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   }
 
   return (
+    <>
     <div className="flex flex-col h-full">
       {/* Stat cards */}
       <div className="grid grid-cols-4 gap-3 mb-3 shrink-0">
@@ -250,64 +392,116 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
       {/* Split: file browser (left) + content (right) */}
       <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
         {/* Left: file browser */}
-        <div className="w-56 shrink-0 border-r border-kumo-line bg-kumo-elevated/30 flex flex-col">
-          <div className="px-3 py-1.5 border-b border-kumo-line text-[10px] font-medium text-kumo-subtle uppercase tracking-wider shrink-0">
-            Files
+        <div className={`flex overflow-hidden transition-[width] duration-300 ease-in-out shrink-0 border-r border-kumo-line bg-kumo-elevated/30 ${fileExplorerCollapsed ? "w-7" : "w-56"}`}>
+          <button
+            type="button"
+            onClick={() => setFileExplorerCollapsed(false)}
+            className={`shrink-0 flex flex-col items-center pt-3 gap-1 overflow-hidden transition-opacity duration-200 cursor-pointer hover:bg-kumo-elevated/50 text-kumo-subtle hover:text-kumo-default ${fileExplorerCollapsed ? "w-7 opacity-100" : "w-0 opacity-0"}`}
+            title="Show file explorer"
+          >
+            <CaretRight size={12} />
+            <span className="text-[9px] -rotate-90 whitespace-nowrap text-kumo-subtle mt-1 select-none">Files</span>
+          </button>
+          <div className={`flex flex-col flex-1 min-w-0 transition-opacity duration-200 ${fileExplorerCollapsed ? "opacity-0 pointer-events-none" : "opacity-100"}`} aria-hidden={fileExplorerCollapsed}>
+          <div className="px-2 py-1.5 border-b border-kumo-line shrink-0 flex items-center gap-1">
+            <div className="relative flex-1">
+              <MagnifyingGlass size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-kumo-subtle" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search files…"
+                className="w-full bg-kumo-elevated/60 border border-kumo-line rounded pl-6 pr-6 py-1 text-xs text-kumo-default placeholder:text-kumo-subtle focus:border-kumo-brand focus:outline-none"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-default"
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFileExplorerCollapsed(true)}
+              className="text-kumo-subtle hover:text-kumo-default p-0.5 shrink-0"
+              title="Hide file explorer"
+            >
+              <CaretLeft size={12} />
+            </button>
           </div>
-          <div className="flex-1 overflow-y-auto text-xs">
-            {DIR_ORDER.map((dir) => {
-              const files = dirs[dir];
-              if (!files || files.length === 0) {
+          <div className="flex-1 overflow-x-auto overflow-y-auto text-xs" onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}>
+            {query ? (
+              searchResults.length === 0 ? (
+                <div className="px-3 py-2 text-[10px] text-kumo-subtle italic">No files match</div>
+              ) : (
+                searchResults.map((f) => {
+                  const isMarkdown = f.path.endsWith(".md");
+                  const isActive = activeTabPath === f.path;
+                  return (
+                    <div key={f.path}>
+                      {renaming === f.path ? (
+                        <div className="px-3 py-0.5 my-0.5 mx-1.5">
+                          <RenameInput initial={f.name} onCommit={(name) => handleRename(f.path, name)} />
+                        </div>
+                      ) : (
+                        <FileRow
+                          icon={<File size={10} />}
+                          active={isActive}
+                          disabled={!isMarkdown}
+                          onClick={() => onFileClick(f)}
+                          onContextMenu={(e) => openMenu(e, { kind: "file", file: f })}
+                        >
+                          <span className="truncate">{f.name}</span>
+                        </FileRow>
+                      )}
+                      <div className="pl-6 pr-2 -mt-0.5 text-[10px] text-kumo-subtle truncate">{dirLabel(f.dir)}</div>
+                    </div>
+                  );
+                })
+              )
+            ) : (
+              DIR_ORDER.map((dir) => {
+                const nodes = trees[dir] ?? [];
+                if (nodes.length === 0) {
+                  return (
+                    <div key={dir}>
+                      <button
+                        type="button"
+                        onClick={() => toggleCollapse(dir)}
+                        onContextMenu={(e) => openMenu(e, { kind: "dir", dir })}
+                  className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer whitespace-nowrap"
+                    >
+                      {collapsedDirs.has(dir) ? <CaretRight size={10} /> : <CaretDown size={10} />}
+                      <span className="text-xs truncate">{dirLabel(dir)}</span>
+                    </button>
+                    {!collapsedDirs.has(dir) && (
+                      <div className="pl-4 py-1 text-[11px] text-kumo-subtle italic">(empty)</div>
+                    )}
+                    </div>
+                  );
+                }
+                const isCollapsed = collapsedDirs.has(dir);
                 return (
                   <div key={dir}>
                     <button
                       type="button"
                       onClick={() => toggleCollapse(dir)}
-                      className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer"
+                      onContextMenu={(e) => openMenu(e, { kind: "dir", dir })}
+                      className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer whitespace-nowrap"
                     >
-                      {collapsedDirs.has(dir) ? <CaretRight size={10} /> : <CaretDown size={10} />}
-                      <span className="text-[10px] truncate">{dirLabel(dir)}</span>
+                      {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
+                      <span className="text-xs truncate">{dirLabel(dir)}</span>
+                      <span className="text-[10px] text-kumo-subtle ml-auto">{nodes.reduce((n, c) => n + countFiles(c), 0)}</span>
                     </button>
-                    {!collapsedDirs.has(dir) && (
-                      <div className="pl-4 py-1 text-[10px] text-kumo-subtle italic">(empty)</div>
-                    )}
+                    {!isCollapsed && <div>{renderTreeNodes(nodes, 0)}</div>}
                   </div>
                 );
-              }
-              const isCollapsed = collapsedDirs.has(dir);
-              return (
-                <div key={dir}>
-                  <button
-                    type="button"
-                    onClick={() => toggleCollapse(dir)}
-                    className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer"
-                  >
-                    {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
-                    <span className="text-[10px] truncate">{dirLabel(dir)}</span>
-                    <span className="text-[9px] text-kumo-subtle ml-auto">{files.length}</span>
-                  </button>
-                  {!isCollapsed && (
-                    <div>
-                      {files.map((f) => {
-                        const isMarkdown = f.path.endsWith(".md");
-                        const isActive = activeTabPath === f.path;
-                        return (
-                          <FileRow
-                            key={f.path}
-                            icon={<File size={10} />}
-                            active={isActive}
-                            disabled={!isMarkdown}
-                            onClick={() => onFileClick(f)}
-                          >
-                            <span className="truncate">{f.name}</span>
-                          </FileRow>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+              })
+            )}
+          </div>
           </div>
         </div>
 
@@ -379,11 +573,127 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
         </div>
       </div>
     </div>
+
+    {ctxMenu && (
+      <ContextMenu
+        x={ctxMenu.x}
+        y={ctxMenu.y}
+        items={menuItems}
+        onClose={() => setCtxMenu(null)}
+      />
+    )}
+
+    <DialogRoot open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+      <Dialog>
+        <div className="p-5">
+          <DialogTitle>Delete File</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete <code className="text-[11px] text-kumo-default">{deleteTarget?.name}</code>? This cannot be undone.
+          </DialogDescription>
+          <div className="flex justify-end gap-2 mt-6">
+            <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" size="sm" onClick={confirmDelete}>Delete</Button>
+          </div>
+        </div>
+      </Dialog>
+    </DialogRoot>
+    </>
   );
 }
 
-function dirLabel(dir: string): string {
-  return dir.replace("input/", "📥 ").replace("output/", "📤 ");
+function RenameInput({ initial, onCommit }: { initial: string; onCommit: (name: string) => void }) {
+  const [value, setValue] = useState(initial);
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (el) {
+      el.focus();
+      const dot = initial.lastIndexOf(".");
+      el.setSelectionRange(0, dot === -1 ? initial.length : dot);
+    }
+  }, [initial]);
+
+  return (
+    <input
+      ref={ref}
+      type="text"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => onCommit(value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onCommit(value);
+        if (e.key === "Escape") onCommit(initial);
+      }}
+      className="w-full bg-kumo-elevated border border-kumo-brand rounded px-1.5 py-0.5 text-xs text-kumo-default focus:outline-none"
+    />
+  );
+}
+
+interface TreeNode {
+  name: string;
+  path: string;
+  type: "folder" | "file";
+  children?: TreeNode[];
+  file?: { name: string; path: string; size: number };
+}
+
+function buildFileTree(rootDir: string, entries: { name: string; path: string; size: number }[]): TreeNode[] {
+  const root: TreeNode[] = [];
+  const folderMap = new Map<string, TreeNode>();
+
+  const ensureFolder = (parts: string[]): TreeNode[] => {
+    let level = root;
+    let acc = rootDir;
+    for (const part of parts) {
+      acc += "/" + part;
+      let node = folderMap.get(acc);
+      if (!node) {
+        node = { name: part, path: acc, type: "folder", children: [] };
+        folderMap.set(acc, node);
+        level.push(node);
+      }
+      level = node.children ?? [];
+    }
+    return level;
+  };
+
+  for (const f of entries) {
+    const rel = f.path.slice(rootDir.length + 1);
+    const parts = rel.split("/");
+    const folder = ensureFolder(parts.slice(0, -1));
+    folder.push({ name: parts[parts.length - 1], path: f.path, type: "file", file: f });
+  }
+
+  const sortNodes = (nodes: TreeNode[]): TreeNode[] => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) if (n.children) sortNodes(n.children);
+    return nodes;
+  };
+  return sortNodes(root);
+}
+
+function dirLabel(dir: string): React.ReactNode {
+  if (dir.startsWith("input/")) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <ArrowDownLeft size={12} weight="bold" />
+        {dir.slice(6)}
+      </span>
+    );
+  }
+  if (dir.startsWith("output/")) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <ArrowUpRight size={12} weight="bold" />
+        {dir.slice(7)}
+      </span>
+    );
+  }
+  return dir;
 }
 
 function StatCard({ label, value }: { label: string; value: string | null }) {

@@ -17,7 +17,12 @@
         "description": "Handles high-level system architecture, planning, and reasoning. just write the plan, no execution just write the plan. anaylze the project and write the plan.",
         "permission": {
           "edit": "deny",
-          "bash": "deny"
+          "bash": "deny",
+          "task": {
+            "build": "deny",
+            "execute": "deny",
+            "general": "deny"
+          }
         }
       },
       "execute": {

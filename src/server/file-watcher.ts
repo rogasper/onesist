@@ -40,7 +40,6 @@ export function startFileWatcher(rootPath: string = "", intervalMs = 2000) {
         }
         // Detect deletions
           for (const [key, val] of knownFiles) {
-            const parentDir = path.join(currentRoot, key.split("/").slice(0, -1).join("/"));
             try {
               if (!fs.existsSync(path.join(currentRoot, key))) {
               const route = detectRoute(key);

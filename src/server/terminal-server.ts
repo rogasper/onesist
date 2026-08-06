@@ -1,10 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
+import type { IPty } from "node-pty";
 
 interface AgentSession {
   id: string;
-  proc: ChildProcess;
+  proc?: ChildProcess;
+  pty?: IPty;
   cwd: string;
   cols: number;
   rows: number;
@@ -15,6 +18,20 @@ interface AgentSession {
 const MAX_REPLAY = 64 * 1024;
 
 const sessions = new Map<string, AgentSession>();
+
+const pythonBin = process.platform === "win32" ? "python" : "python3";
+
+// node-pty hangs under Bun's runtime (fork never emits) — use it only under
+// Node.js. Fall back to the Python PTY bridge when unavailable or on failure.
+let nodePty: typeof import("node-pty") | null = null;
+if (typeof Bun === "undefined") {
+  try {
+    nodePty = await import("node-pty");
+    if (typeof nodePty.spawn !== "function") nodePty = null;
+  } catch {
+    nodePty = null;
+  }
+}
 
 function parseCommand(command: string): string[] {
   const args: string[] = [];
@@ -40,9 +57,59 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
   const cmdParts = parseCommand(command);
   if (cmdParts.length === 0) return null;
 
-  const sizeFile = `/tmp/pty_size_${id}_${Date.now()}.txt`;
+  const sizeFile = path.join(os.tmpdir(), `pty_size_${id}_${Date.now()}.txt`);
   try { fs.writeFileSync(sizeFile, `${rows} ${cols}`); } catch {}
 
+  const session: AgentSession = { id, cwd, cols, rows, sizeFile, buffer: "" };
+  sessions.set(id, session);
+
+  const broadcast = (data: string) => {
+    session.buffer += data;
+    if (session.buffer.length > MAX_REPLAY) {
+      session.buffer = session.buffer.slice(-MAX_REPLAY);
+    }
+    for (const ws of activeSockets) {
+      try { ws.send(JSON.stringify({ type: "output", id, data })); } catch {}
+    }
+  };
+
+  const handleExit = (code: number | null) => {
+    for (const ws of activeSockets) {
+      try { ws.send(JSON.stringify({ type: "exit", id, code })); } catch {}
+    }
+    if (session.sizeFile) {
+      try { fs.unlinkSync(session.sizeFile); } catch {}
+    }
+    sessions.delete(id);
+  };
+
+  // Backend 1: node-pty (native, works on Node.js, macOS/Linux/Windows)
+  if (nodePty) {
+    try {
+      const pty = nodePty.spawn(cmdParts[0], cmdParts.slice(1), {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd,
+        env: {
+          ...process.env,
+          TERM: "xterm-256color",
+          COLUMNS: String(cols),
+          LINES: String(rows),
+        },
+      });
+      session.pty = pty;
+      pty.onData((data) => broadcast(data));
+      pty.onExit(({ exitCode }) => handleExit(exitCode));
+      return session;
+    } catch (err) {
+      console.error("[terminal] node-pty spawn failed, falling back to python bridge:", err);
+      nodePty = null;
+      session.pty = undefined;
+    }
+  }
+
+  // Backend 2: Python PTY bridge (POSIX-only; primary path under Bun)
   const pythonCode = `
 import pty, os, sys, struct, fcntl, termios, signal, select, json
 
@@ -94,54 +161,38 @@ while True:
         break
 `;
 
-  const proc = spawn("python3", ["-c", pythonCode, String(cols), String(rows), JSON.stringify(cmdParts), sizeFile], {
+  const proc = spawn(pythonBin, ["-c", pythonCode, String(cols), String(rows), JSON.stringify(cmdParts), sizeFile], {
     cwd,
     env: {
       ...process.env,
       TERM: "xterm-256color",
-      HOME: process.env.HOME || "/tmp",
+      HOME: process.env.HOME || os.tmpdir(),
       COLUMNS: String(cols),
       LINES: String(rows),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
-
-  const session: AgentSession = { id, proc, cwd, cols, rows, sizeFile, buffer: "" };
-  sessions.set(id, session);
-
-  const broadcast = (data: string) => {
-    session.buffer += data;
-    if (session.buffer.length > MAX_REPLAY) {
-      session.buffer = session.buffer.slice(-MAX_REPLAY);
-    }
-    for (const ws of activeSockets) {
-      try { ws.send(JSON.stringify({ type: "output", id, data })); } catch {}
-    }
-  };
+  session.proc = proc;
 
   proc.stdout?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
 
   proc.stderr?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
 
-  proc.on("close", (code: number | null) => {
-    try {
-      for (const ws of activeSockets) {
-        ws.send(JSON.stringify({ type: "exit", id, code }));
-      }
-    } catch {}
-    if (sizeFile) {
-      try { fs.unlinkSync(sizeFile); } catch {}
-    }
-    sessions.delete(id);
-  });
+  proc.on("close", (code: number | null) => handleExit(code));
 
   return session;
 }
 
 function writeStdin(id: string, data: string) {
   const session = sessions.get(id);
-  if (!session || !session.proc.stdin?.writable) return;
-  try { session.proc.stdin.write(data); } catch {}
+  if (!session) return;
+  try {
+    if (session.pty) {
+      session.pty.write(data);
+    } else if (session.proc?.stdin?.writable) {
+      session.proc.stdin.write(data);
+    }
+  } catch {}
 }
 
 function resizeSession(id: string, cols: number, rows: number) {
@@ -149,16 +200,28 @@ function resizeSession(id: string, cols: number, rows: number) {
   if (!session) return;
   session.cols = cols;
   session.rows = rows;
-  if (session.sizeFile) {
-    try { fs.writeFileSync(session.sizeFile, `${rows} ${cols}`); } catch {}
-  }
-  try { session.proc.kill("SIGWINCH"); } catch {}
+  try {
+    if (session.pty) {
+      session.pty.resize(cols, rows);
+    } else {
+      if (session.sizeFile) {
+        try { fs.writeFileSync(session.sizeFile, `${rows} ${cols}`); } catch {}
+      }
+      try { session.proc?.kill("SIGWINCH"); } catch {}
+    }
+  } catch {}
 }
 
 function killSession(id: string) {
   const session = sessions.get(id);
   if (!session) return;
-  try { session.proc.kill("SIGTERM"); } catch {}
+  try {
+    if (session.pty) {
+      session.pty.kill();
+    } else {
+      try { session.proc?.kill("SIGTERM"); } catch {}
+    }
+  } catch {}
   if (session.sizeFile) {
     try { fs.unlinkSync(session.sizeFile); } catch {}
   }
@@ -169,60 +232,93 @@ const activeSockets = new Set<any>();
 
 const port = parseInt(process.env.TERMINAL_PORT || "4323", 10);
 
-try {
-  Bun.serve({
-    port,
-    fetch(req, server) {
-      if (server.upgrade(req, { data: { url: req.url } } as any)) return;
-      return new Response("terminal", { headers: { "Access-Control-Allow-Origin": "*" } });
-    },
-    websocket: {
-      open(ws: any) {
-        activeSockets.add(ws);
+function handleMessage(ws: any, msg: string | Buffer) {
+  try {
+    const parsed = JSON.parse(typeof msg === "string" ? msg : msg.toString());
+    if (parsed.type === "spawn") {
+      const s = runAgent(parsed.id, parsed.command, parsed.cwd || path.resolve(process.cwd(), ".."));
+      if (s) {
+        setTimeout(() => {
+          try {
+            ws.send(JSON.stringify({ type: "ready", id: parsed.id, cwd: s.cwd }));
+          } catch {}
+        }, 300);
+      }
+    } else if (parsed.type === "status") {
+      const s = sessions.get(parsed.id);
+      if (s) {
+        if (s.buffer) {
+          ws.send(JSON.stringify({ type: "replay", id: parsed.id, data: s.buffer }));
+        }
+        ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: true }));
+      } else {
+        ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: false }));
+      }
+    } else if (parsed.type === "input") {
+      writeStdin(parsed.id, parsed.data);
+    } else if (parsed.type === "resize") {
+      resizeSession(parsed.id, parsed.cols || 120, parsed.rows || 40);
+    } else if (parsed.type === "kill") {
+      killSession(parsed.id);
+    }
+  } catch {}
+}
+
+const isBun = typeof Bun !== "undefined";
+
+function handleEaddrinuse() {
+  console.log(`[terminal] Port ${port} already in use — another terminal server is running`);
+  process.exit(0);
+}
+
+if (isBun) {
+  // Primary: Bun.serve (native WebSocket, used under Bun runtime)
+  try {
+    Bun.serve({
+      port,
+      fetch(req, server) {
+        if (server.upgrade(req, { data: { url: req.url } } as any)) return;
+        return new Response("terminal", { headers: { "Access-Control-Allow-Origin": "*" } });
       },
-      message(ws: any, msg: string | Buffer) {
-        try {
-          const parsed = JSON.parse(msg as string);
-          if (parsed.type === "spawn") {
-            const s = runAgent(parsed.id, parsed.command, parsed.cwd || path.resolve(process.cwd(), ".."));
-            if (s) {
-              setTimeout(() => {
-                try {
-                  ws.send(JSON.stringify({ type: "ready", id: parsed.id, cwd: s.cwd }));
-                } catch {}
-              }, 300);
-            }
-          } else if (parsed.type === "status") {
-            const s = sessions.get(parsed.id);
-            if (s) {
-              if (s.buffer) {
-                ws.send(JSON.stringify({ type: "replay", id: parsed.id, data: s.buffer }));
-              }
-              ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: true }));
-            } else {
-              ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: false }));
-            }
-          } else if (parsed.type === "input") {
-            writeStdin(parsed.id, parsed.data);
-          } else if (parsed.type === "resize") {
-            resizeSession(parsed.id, parsed.cols || 120, parsed.rows || 40);
-          } else if (parsed.type === "kill") {
-            killSession(parsed.id);
-          }
-        } catch {}
+      websocket: {
+        open(ws: any) {
+          activeSockets.add(ws);
+        },
+        message(ws: any, msg: string | Buffer) {
+          handleMessage(ws, msg);
+        },
+        close(ws: any) {
+          activeSockets.delete(ws);
+        },
       },
-      close(ws: any) {
-        activeSockets.delete(ws);
-      },
-    },
-  });
-  console.log(`[terminal] Ready on ws://localhost:${port}`);
-} catch (e: any) {
-  // Port already in use — another terminal server is running. Exit quietly
-  // instead of crashing with an EADDRINUSE stack trace.
-  if (e?.code === "EADDRINUSE") {
-    console.log(`[terminal] Port ${port} already in use — another terminal server is running`);
-    process.exit(0);
+    });
+    console.log(`[terminal] Ready on ws://localhost:${port} (bun.serve)`);
+  } catch (e: any) {
+    // Port already in use — another terminal server is running. Exit quietly
+    // instead of crashing with an EADDRINUSE stack trace.
+    if (e?.code === "EADDRINUSE") {
+      handleEaddrinuse();
+    }
+    throw e;
   }
-  throw e;
+} else {
+  // Fallback: `ws` package over node:http (Node.js runtime, all platforms)
+  const { createServer } = await import("node:http");
+  const { WebSocketServer } = await import("ws");
+  const httpServer = createServer((req, res) => {
+    res.writeHead(200, { "Access-Control-Allow-Origin": "*" });
+    res.end("terminal");
+  });
+  const wss = new WebSocketServer({ server: httpServer });
+  wss.on("connection", (ws: any, req) => {
+    ws.userData = { url: req.url };
+    activeSockets.add(ws);
+    ws.on("message", (data: Buffer) => handleMessage(ws, data));
+    ws.on("close", () => activeSockets.delete(ws));
+  });
+  httpServer.on("error", (e: any) => {
+    if (e?.code === "EADDRINUSE") handleEaddrinuse();
+    throw e;
+  });
+  httpServer.listen(port, () => console.log(`[terminal] Ready on ws://localhost:${port} (ws)`));
 }

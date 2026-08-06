@@ -1,6 +1,27 @@
 import { db } from "~/server/db/client";
 import { projects, changeLog, erds, apiSpecs, apiEndpoints, wikiPages, tasks, fsdSessions } from "~/server/db/schema";
 import { eq, desc } from "drizzle-orm";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import path from "node:path";
+
+function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex").slice(0, 12);
+}
+
+function runCommand(cmd: string, args: string[]): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"] });
+      let out = "";
+      proc.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
+      proc.on("close", (code) => resolve(code === 0 ? out.trim() : ""));
+      proc.on("error", () => resolve(""));
+    } catch {
+      resolve("");
+    }
+  });
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -31,29 +52,23 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     async function pickFolder(): Promise<string> {
       const os = process.platform;
       if (os === "darwin") {
-        const proc = Bun.spawn(["osascript", "-e", "tell me to activate", "-e", "POSIX path of (choose folder)"]);
-        return await new Response(proc.stdout).text();
+        return runCommand("osascript", ["-e", "tell me to activate", "-e", "POSIX path of (choose folder)"]);
       }
       if (os === "linux") {
-        try {
-          const proc = Bun.spawn(["zenity", "--file-selection", "--directory", "--title=Select Project Folder"]);
-          return await new Response(proc.stdout).text();
-        } catch {
-          const proc = Bun.spawn(["kdialog", "--getexistingdirectory"]);
-          return await new Response(proc.stdout).text();
-        }
+        const zenity = await runCommand("zenity", ["--file-selection", "--directory", "--title=Select Project Folder"]);
+        if (zenity) return zenity;
+        return runCommand("kdialog", ["--getexistingdirectory"]);
       }
       if (os === "win32") {
-        const proc = Bun.spawn(["powershell", "-NoProfile", "-Command",
-          `Add-Type -AssemblyName System.Windows.Forms; (New-Object System.Windows.Forms.FolderBrowserDialog).ShowDialog(); return [System.Windows.Forms.FolderBrowserDialog]::new().SelectedPath`
+        return runCommand("powershell", ["-NoProfile", "-Command",
+          `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath } else { '' }`
         ]);
-        return await new Response(proc.stdout).text();
       }
       return "";
     }
     let selectedPath = "";
     try {
-      selectedPath = (await pickFolder()).trim();
+      selectedPath = await pickFolder();
     } catch (e: any) {
       if (e?.exitCode !== 1) console.error("[folder-picker]", e?.message || e);
     }
@@ -117,8 +132,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const proj = db.select().from(projects).where(eq(projects.id, projectId)).get() as any;
       if (proj?.rootPath) return json({ root: proj.rootPath });
     }
-    const path = await import("node:path");
-    return json({ root: path.default.resolve(process.cwd(), "..") });
+    return json({ root: path.resolve(process.cwd(), "..") });
   }
 
   // /api/events/ticket
@@ -161,8 +175,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   // /api/files/* — read/write/list/delete files in the project
   if (resource === "files") {
-    const pathMod = (await import("node:path")).default;
-    const defaultRoot = pathMod.resolve(process.cwd(), "..");
+    const defaultRoot = path.resolve(process.cwd(), "..");
     function resolveRoot(projectId?: string | null): string {
       if (projectId) {
         try {
@@ -204,6 +217,35 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const projectId = reqUrl.searchParams.get("projectId");
       if (!filePath) return json({ error: "Missing path" }, 400);
       return json({ deleted: deleteFile(resolveRoot(projectId), filePath) });
+    }
+    if (fileAction === "rename" && method === "POST") {
+      const { renameFile } = await import("~/lib/file-router");
+      const body = await parseBody(request);
+      const filePath = body.path as string;
+      const newName = body.newName as string;
+      const projectId = body.projectId as string;
+      if (!filePath || !newName) return json({ error: "Missing path or newName" }, 400);
+      return json({ renamed: renameFile(resolveRoot(projectId), filePath, newName) });
+    }
+    if (fileAction === "copy" && method === "POST") {
+      const { copyFile } = await import("~/lib/file-router");
+      const body = await parseBody(request);
+      const source = body.source as string;
+      const destination = body.destination as string;
+      const projectId = body.projectId as string;
+      if (!source || !destination) return json({ error: "Missing source or destination" }, 400);
+      const result = copyFile(resolveRoot(projectId), source, destination);
+      return result ? json({ copied: true, path: result }) : json({ error: "Copy failed" }, 404);
+    }
+    if (fileAction === "move" && method === "POST") {
+      const { moveFile } = await import("~/lib/file-router");
+      const body = await parseBody(request);
+      const source = body.source as string;
+      const destination = body.destination as string;
+      const projectId = body.projectId as string;
+      if (!source || !destination) return json({ error: "Missing source or destination" }, 400);
+      const result = moveFile(resolveRoot(projectId), source, destination);
+      return result ? json({ moved: true, path: result }) : json({ error: "Move failed" }, 404);
     }
     if (fileAction === "summary" && method === "GET") {
       const { getProjectSummary } = await import("~/lib/file-router");
@@ -324,7 +366,7 @@ async function handleProjects(
   if (sub === "skills") {
     const proj = db.select().from(projects).where(eq(projects.id, id)).get() as any;
     if (!proj) return json({ error: "Not found" }, 404);
-    const rootPath = proj.rootPath || (await import("node:path")).default.resolve(process.cwd(), "..");
+    const rootPath = proj.rootPath || path.resolve(process.cwd(), "..");
     const { detectProjectSkills, installProjectSkills } = await import("~/lib/project-skills");
 
     // GET /api/projects/:id/skills — detect status
@@ -394,7 +436,7 @@ async function handleProjects(
 
     // POST /api/projects/:id/specs/import — parse all spec files and persist to SQLite
     if (specAction === "import" && method === "POST") {
-      const pathMod = (await import("node:path")).default;
+      const pathMod = path;
       const fs = await import("node:fs");
       const proj = db.select().from(projects).where(eq(projects.id, id)).get() as any;
       if (!proj) return json({ error: "Project not found" }, 404);
@@ -679,7 +721,7 @@ async function handleProjects(
   // /api/projects/:id/fsd
   if (sub === "fsd") {
     const sessionId = segments[2];
-    const pathMod = (await import("node:path")).default;
+    const pathMod = path;
     const fs = await import("node:fs");
     const defaultRoot = pathMod.resolve(process.cwd(), "..");
     const resolveRoot = () => {
@@ -691,7 +733,7 @@ async function handleProjects(
 
     const writeSessionContent = (sid: string, content: string) => {
       const now = new Date().toISOString();
-      const hash = Bun.hash(content).toString(36);
+      const hash = hashContent(content);
       db.update(fsdSessions).set({ fsdContent: content, contentHash: hash, updatedAt: now }).where(eq(fsdSessions.id, sid)).run();
       return hash;
     };
@@ -718,7 +760,7 @@ async function handleProjects(
               const rel = relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name;
               const relPath = `input/fsd/${rel}`;
               const content = fs.default.readFileSync(full, "utf-8");
-              const hash = Bun.hash(content).toString(36);
+              const hash = hashContent(content);
               const artifactSlug = entry.name.replace(/^fsd_/, "").replace(/\.md$/, "").replace(/_/g, "");
               const artifacts: Record<string, string[]> = { spec: [], erd: [], task: [] };
               try {
@@ -817,7 +859,7 @@ async function handleProjects(
               markdownPath: null,
               conversionStatus: "pending",
               conversionError: null,
-              contentHash: Bun.hash(placeholder).toString(36),
+              contentHash: hashContent(placeholder),
               artifactsJson: JSON.stringify({ spec: [], erd: [], task: [] }),
               createdAt: now,
               updatedAt: now,
@@ -940,7 +982,7 @@ async function handleProjects(
       if (fs.default.existsSync(fullPath)) return json({ error: `File already exists: ${safeName}` }, 409);
       try { fs.default.mkdirSync(fsdDir(), { recursive: true }); } catch {}
       fs.default.writeFileSync(fullPath, content, "utf-8");
-      const hash = Bun.hash(content).toString(36);
+      const hash = hashContent(content);
       const session = {
         id: crypto.randomUUID(),
         projectId: id,
@@ -996,7 +1038,7 @@ async function handleProjects(
             } catch {}
           }
           updates.fsdContent = data.content;
-          updates.contentHash = Bun.hash(data.content).toString(36);
+          updates.contentHash = hashContent(data.content);
         }
         if (data.status !== undefined) updates.status = data.status;
         if (data.title !== undefined) updates.title = data.title;
@@ -1056,10 +1098,10 @@ async function handleProjects(
                 error = cli.error;
               }
             }
-            const finalMd = `---\nsource_file: ${session.sourceFilePath.split("/").pop()}\nsource_type: ${(session.sourceType ?? "file").replace("manual", "file")}\nconverted_by: ${tool}\nconverted_at: ${new Date().toISOString()}\n---\n\n# ${title}\n\n${markdown ?? ""}`;
+            const finalMd = `---\nsource_file: ${pathMod.basename(session.sourceFilePath)}\nsource_type: ${(session.sourceType ?? "file").replace("manual", "file")}\nconverted_by: ${tool}\nconverted_at: ${new Date().toISOString()}\n---\n\n# ${title}\n\n${markdown ?? ""}`;
             if (markdown) {
               fs.default.writeFileSync(mdFullPath, finalMd, "utf-8");
-              const hash = Bun.hash(finalMd).toString(36);
+              const hash = hashContent(finalMd);
               db.update(fsdSessions).set({
                 fsdContent: finalMd,
                 fsdInputPath: outputFileName,
@@ -1071,7 +1113,7 @@ async function handleProjects(
               }).where(eq(fsdSessions.id, sessionId)).run();
               eventBus.emitFsdConversion(sessionId, "converted", null, finalMd.length);
             } else {
-              const failedMd = `---\nsource_file: ${session.sourceFilePath.split("/").pop()}\nsource_type: ${(session.sourceType ?? "file").replace("manual", "file")}\nconverted_by: ${tool}\nconverted_at: ${new Date().toISOString()}\n---\n\n# ${title}\n\n> **Conversion failed.** The original file is preserved at \`${session.sourceFilePath}\`.\n> Error: ${error}\n\nYou can paste the content manually below.\n`;
+              const failedMd = `---\nsource_file: ${pathMod.basename(session.sourceFilePath)}\nsource_type: ${(session.sourceType ?? "file").replace("manual", "file")}\nconverted_by: ${tool}\nconverted_at: ${new Date().toISOString()}\n---\n\n# ${title}\n\n> **Conversion failed.** The original file is preserved at \`${session.sourceFilePath}\`.\n> Error: ${error}\n\nYou can paste the content manually below.\n`;
               fs.default.writeFileSync(mdFullPath, failedMd, "utf-8");
               db.update(fsdSessions).set({
                 fsdContent: failedMd,

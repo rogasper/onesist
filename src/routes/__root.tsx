@@ -9,7 +9,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { House, Folder } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -50,6 +50,43 @@ function AppSidebarFooter() {
   );
 }
 
+const SIDEBAR_OPEN_KEY = "onesist:sidebar:open";
+const SIDEBAR_WIDTH_KEY = "onesist:sidebar:width";
+
+function readStored(key: string): string | null {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+function writeStored(key: string, value: string): void {
+  try { window.localStorage.setItem(key, value); } catch {}
+}
+
+function SidebarPersistence() {
+  const { state, width, setOpen, setWidth } = useSidebar();
+  const applied = useRef(false);
+
+  useEffect(() => {
+    if (applied.current) return;
+    applied.current = true;
+    const open = readStored(SIDEBAR_OPEN_KEY);
+    if (open !== null) setOpen(open === "true");
+    const w = readStored(SIDEBAR_WIDTH_KEY);
+    if (w !== null) {
+      const n = Number(w);
+      if (Number.isFinite(n) && n > 0) setWidth(n);
+    }
+  }, [setOpen, setWidth]);
+
+  useEffect(() => {
+    writeStored(SIDEBAR_OPEN_KEY, state !== "collapsed" ? "true" : "false");
+  }, [state]);
+
+  useEffect(() => {
+    if (state === "expanded") writeStored(SIDEBAR_WIDTH_KEY, String(width));
+  }, [state, width]);
+
+  return null;
+}
+
 function RootComponent() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const location = useLocation();
@@ -77,6 +114,7 @@ function RootComponent() {
       <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
         <div className="flex flex-1 min-h-0">
           <Sidebar.Provider defaultOpen collapsible="icon" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
+            <SidebarPersistence />
             <Sidebar>
               <AppSidebarHeader />
               <Sidebar.Content>
