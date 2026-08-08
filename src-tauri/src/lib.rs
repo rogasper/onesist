@@ -26,6 +26,8 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
     .invoke_handler(tauri::generate_handler![pick_folder])
     .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
       if let Some(win) = app.get_webview_window("main") {

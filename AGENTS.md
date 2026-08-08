@@ -117,6 +117,16 @@ Tauri shell (Rust) ──spawn──▶ onesist-server (compiled Bun)
 - **Quit:** never rely on `app.exit()` on macOS with a tray icon (hangs). Tray Quit and `ExitRequested` both do: `mark_quitting()` → spawn detached thread `std::process::exit(0)` after 150ms → `state.stop()`.
 - **Crash recovery:** sidecar auto-restarts max 3×/60s; memory watchdog exits the server if RSS > 1200MB (forces clean restart).
 
+## Auto-update (Phase 3)
+
+- **Updater config** lives in `tauri.conf.json`: `plugins.updater` (pubkey + GitHub manifest endpoint) AND `bundle.createUpdaterArtifacts: true` — the latter is REQUIRED or Tauri produces installers with no `.sig`/`.tar.gz` updater bundles.
+- **Frontend** `src/components/UpdateBanner.tsx` (`@tauri-apps/plugin-updater` + `@tauri-apps/plugin-process`): checks on mount + every 6h, only active when `__TAURI_INTERNALS__` is present. No-op in web builds.
+- **Signing key:** pass as `TAURI_SIGNING_PRIVATE_KEY` (base64 string contents of `~/.tauri/onesist.key`) + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The `_PATH` variant alone errors: "public key found but no private key". Backup `~/.tauri/onesist.key` — losing it breaks auto-update for all installed users.
+- **macOS bundle targets** for updater must include `app` (`--bundles app,dmg`); `--bundles dmg` alone warns "no updater-enabled targets". Windows uses `--bundles nsis` (msi+nsis together → duplicate manifest keys).
+- **CI** `.github/workflows/release.yml` (tag `v*`): matrix macos-14/macos-13/windows-latest, per-platform artifact dirs, generates `manifest.json` + uploads to release. Full setup + secrets in `plan/phase3-setup.md`.
+- **Cross-platform build scripts** (Windows runners have no `cp -r`/`rm -rf`): `scripts/post-build.mjs` (migrations + vendor-skills + desktop-entry.ts) and `scripts/prepare-resources.mjs` (web-dist → src-tauri). `build:server` chain: vite build → terminal bundle → post-build → build-server-bin.
+- **Windows WebView2:** `bundle.windows.webviewInstallMode: { type: "embedBootstrapper", silent: true }` bundles the runtime for Win 10 offline installs.
+
 ## API Endpoints
 
 The monolithic router at `server/api-router.ts` handles all `/api/*` routes:

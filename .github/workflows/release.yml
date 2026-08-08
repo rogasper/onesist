@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS arm64 (Apple Silicon)
+          - platform: macos-14
+            platform_key: darwin-aarch64
+            args: --target aarch64-apple-darwin --bundles app,dmg
+          # macOS x86_64 (Intel)
+          - platform: macos-13
+            platform_key: darwin-x86_64
+            args: --target x86_64-apple-darwin --bundles app,dmg
+          # Windows x86_64 (NSIS installer is the updater target)
+          - platform: windows-latest
+            platform_key: windows-x86_64
+            args: --target x86_64-pc-windows-msvc --bundles nsis
+    runs-on: ${{ matrix.platform }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      TAURI_WINDOWS_CERTIFICATE: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
+      TAURI_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri
+
+      - name: Import Apple Developer certificate (macOS)
+        if: startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          KEYCHAIN=build.keychain
+          security create-keychain -p buildpass "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p buildpass "$KEYCHAIN"
+          security import certificate.p12 -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k buildpass "$KEYCHAIN"
+          rm -f certificate.p12
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build server bundle + Tauri shell
+        run: bunx tauri build ${{ matrix.args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_WINDOWS_CERTIFICATE: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
+          TAURI_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
+
+      - name: Upload artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform_key }}
+          path: src-tauri/target/release/bundle/
+          if-no-files-found: error
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: Build update manifest
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cat > manifest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Onesist ${VERSION}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+          EOF
+
+          # Each platform directory contains its updater artifact + .sig.
+          # The updater artifact is the one the .sig is generated for:
+          #   darwin-*: *.app.tar.gz   (the .dmg has no .sig)
+          #   windows-*: *.exe         (NSIS, the updater target)
+          first=1
+          for dir in artifacts/*/; do
+            platform="$(basename "$dir")"
+            sig="$(find "$dir" -name '*.sig' | head -1)"
+            if [ -z "$sig" ]; then
+              echo "!! no .sig found for $platform — skipping"
+              continue
+            fi
+            artifact="${sig%.sig}"
+            name="$(basename "$artifact")"
+            sig_content="$(cat "$sig")"
+            if [ "$first" -eq 0 ]; then printf ',\n' >> manifest.json; fi
+            first=0
+            cat >> manifest.json <<EOF
+              "${platform}": {
+                "signature": "${sig_content}",
+                "url": "https://github.com/rogasper/onesist/releases/latest/download/${name}"
+              }
+            EOF
+          done
+
+          printf '\n}\n' >> manifest.json
+          echo "=== manifest.json ==="
+          cat manifest.json
+          python3 -c "import json,sys; d=json.load(open('manifest.json')); assert d['platforms'], 'no platforms'" || exit 1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Onesist ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            manifest.json
+            artifacts/**/*.dmg
+            artifacts/**/*.app.tar.gz
+            artifacts/**/*.exe
+            artifacts/**/*.msi
+            artifacts/**/*.sig

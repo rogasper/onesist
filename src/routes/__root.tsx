@@ -11,6 +11,7 @@ import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { House, Folder, Sun, Moon } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
+import { UpdateBanner } from "~/components/UpdateBanner";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -50,15 +51,17 @@ function AppSidebarFooter() {
   return (
     <Sidebar.Footer>
       <div className={`flex items-center p-2 gap-1 ${isCollapsed ? 'justify-center' : ''}`}>
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          className="flex items-center gap-2 px-2 py-1.5 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
-        >
-          {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-          {!isCollapsed && <span className="text-xs">{theme === "dark" ? "Light mode" : "Dark mode"}</span>}
-        </button>
+        {!isCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="flex items-center gap-2 px-2 py-1.5 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
+          >
+            {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+            <span className="text-xs">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+          </button>
+        )}
         <Sidebar.Trigger />
       </div>
     </Sidebar.Footer>
@@ -127,6 +130,7 @@ function RootComponent() {
     <html suppressHydrationWarning data-mode={getStoredTheme() === "dark" ? "dark" : undefined} className="h-svh overflow-hidden">
       <head><HeadContent /></head>
       <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
+        <UpdateBanner />
         <div className="flex flex-1 min-h-0">
           <Sidebar.Provider defaultOpen collapsible="icon" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
             <SidebarPersistence />

@@ -7,8 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:4321",
     "beforeDevCommand": "pkill -9 -f 'onesist-server' 2>/dev/null; pkill -9 -f 'terminal-server.ts' 2>/dev/null; bun run dev",
-    "beforeBuildCommand": "bun run build:server && rm -rf src-tauri/web-dist && cp -r dist src-tauri/web-dist && rm -rf src-tauri/vendor-skills && cp -r vendor/skills src-tauri/vendor-skills",
-    "devUrl": "http://localhost:4321"
+    "beforeBuildCommand": "bun run build:server && bun scripts/prepare-resources.mjs"
   },
   "app": {
     "security": {
@@ -18,6 +17,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "externalBin": ["binaries/onesist-server"],
     "resources": ["web-dist", "vendor-skills"],
     "icon": [
@@ -26,6 +26,23 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4NjQ2QjY3RTc3RkFBMzQKUldRMHFuL25aMnRrS05tZk5YcmtPN1U5Mk94TnRIN1REcC9nZzZHemtjcTNGRmdGQVMwaFBNNUMK",
+      "endpoints": [
+        "https://github.com/rogasper/onesist/releases/latest/download/manifest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
