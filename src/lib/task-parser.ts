@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const TASK_ROOT = path.resolve(process.cwd(), "..", "output", "task");
-
 export interface ParsedTask {
   code: string;
   title: string;
@@ -16,20 +14,22 @@ export interface ParsedTask {
   sourcePath: string | null;
 }
 
-export function scanAllTaskFiles(): ParsedTask[] {
+export function scanAllTaskFiles(rootPath: string): ParsedTask[] {
   const tasks: ParsedTask[] = [];
+  const taskRoot = path.join(rootPath, "output", "task");
+  if (!fs.existsSync(taskRoot)) return [];
 
-  const rootFiles = fs.readdirSync(TASK_ROOT).filter((f) => f.startsWith("task_") && f.endsWith(".md") && f !== "task.md");
+  const rootFiles = fs.readdirSync(taskRoot).filter((f) => f.startsWith("task_") && f.endsWith(".md") && f !== "task.md");
   for (const file of rootFiles) {
-    const content = fs.readFileSync(path.join(TASK_ROOT, file), "utf-8");
+    const content = fs.readFileSync(path.join(taskRoot, file), "utf-8");
     tasks.push(...parseTaskFile(content, file));
   }
 
-  const dirs = fs.readdirSync(TASK_ROOT, { withFileTypes: true })
+  const dirs = fs.readdirSync(taskRoot, { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith("."))
     .sort((a, b) => a.name.localeCompare(b.name));
   for (const dir of dirs) {
-    const phasePath = path.join(TASK_ROOT, dir.name);
+    const phasePath = path.join(taskRoot, dir.name);
     const phaseFiles = fs.readdirSync(phasePath).filter((f) => f.endsWith(".md"));
     phaseFiles.sort((a, b) => (a === "master.md" ? -1 : b === "master.md" ? 1 : a.localeCompare(b)));
     for (const file of phaseFiles) {

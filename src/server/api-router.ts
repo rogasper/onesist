@@ -661,7 +661,9 @@ async function handleProjects(
         const key = t.code ?? (typeof t.title === "string" ? t.title.split(":")[0].trim() : t.title);
         byCode.set(key, t);
       }
-      const parsed = scanAllTaskFiles();
+      const proj = db.select().from(projects).where(eq(projects.id, id)).get() as any;
+      const taskRoot = proj?.rootPath || (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), ".."));
+      const parsed = scanAllTaskFiles(taskRoot);
       const seenCodes = new Set<string>();
       let inserted = 0, updated = 0;
       for (const pt of parsed) {

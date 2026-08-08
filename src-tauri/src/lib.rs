@@ -7,17 +7,14 @@ use tauri_plugin_window_state::{StateFlags, WindowExt};
 /// Native folder picker for the "Open Project" flow. Returns the selected
 /// directory path or null when cancelled.
 #[tauri::command]
-async fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
-    let builder = window
+    Ok(app
         .dialog()
         .file()
-        .set_title("Select Project Folder");
-    builder.pick_folder(move |path| {
-        let _ = tx.send(path.map(|p| p.to_string()));
-    });
-    rx.recv().map_err(|e| e.to_string())
+        .set_title("Select Project Folder")
+        .blocking_pick_folder()
+        .map(|p| p.to_string()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -70,7 +70,9 @@ export function readFile(rootPath: string, relPath: string): string | null {
 }
 
 export function getProjectRoot(): string {
-  return path.resolve(process.cwd(), "..");
+  return process.env.SA_ROOT
+    ? path.resolve(process.env.SA_ROOT)
+    : path.resolve(process.cwd(), "..");
 }
 
 export function writeFile(rootPath: string, relPath: string, content: string): boolean {
