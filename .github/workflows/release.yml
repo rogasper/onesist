@@ -76,7 +76,11 @@ jobs:
           rm -f certificate.p12
 
       - name: Install dependencies
-        run: bun install
+        # --ignore-scripts: better-sqlite3/node-pty native builds crash under
+        # node-gyp 13 + Node 20 in CI, but they're never loaded at runtime
+        # (app uses bun:sqlite) and are excluded from the bundle — only the JS
+        # sources are needed to compile the sidecar executable.
+        run: bun install --ignore-scripts
 
       - name: Build server bundle + Tauri shell
         run: bunx tauri build ${{ matrix.args }}
