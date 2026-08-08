@@ -1,7 +1,34 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button, Badge, DialogRoot, Dialog, DialogTitle, DialogDescription } from "@cloudflare/kumo";
 import { Folder, Cube, MagnifyingGlass, Trash, Plus } from "@phosphor-icons/react";
+
+// Native folder picker when running inside the Tauri desktop shell; falls
+// back to the web API (osascript/zenity/powershell) otherwise.
+async function pickFolder(): Promise<string | null> {
+  // Check at call-time, not module-level: __TAURI_INTERNALS__ may be injected
+  // after the module first evaluates when the page loads from an external URL.
+  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  if (isTauri) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const path = await invoke<string | null>("pick_folder");
+      return path;
+    } catch (e) {
+      console.error("[pick_folder] invoke failed, falling back to web API:", e);
+    }
+  }
+  try {
+    const res = await fetch("/api/helpers/choose-folder", { method: "POST", cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      return data.path ?? null;
+    }
+  } catch (e) {
+    console.error("[pick_folder] web API failed:", e);
+  }
+  return null;
+}
 
 export const Route = createFileRoute("/")({
   component: DashboardPage,
@@ -47,13 +74,14 @@ function DashboardPage() {
   const [projectName, setProjectName] = useState("");
   const [defaultAgent, setDefaultAgent] = useState("opencode");
   const [agentsList, setAgentsList] = useState<AgentInfo[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
 
   // Delete modal state
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
 
   const fetchProjects = () => {
-    fetch("/api/projects")
+    fetch("/api/projects", { cache: "no-store" })
       .then((r) => r.json())
       .then((data: ProjectData[]) => { 
         if (Array.isArray(data)) {
@@ -67,7 +95,24 @@ function DashboardPage() {
 
   useEffect(() => { 
     fetchProjects(); 
-    fetch("/api/agent/detect").then(r => r.json()).then(data => {
+    const detect = () => {
+      setAgentsLoading(true);
+      fetch("/api/agent/detect", { cache: "no-store" }).then(r => r.json()).then(data => {
+        setAgentsList(data);
+        setAgentsLoading(false);
+      }).catch(() => setAgentsLoading(false));
+    };
+    detect();
+    const interval = setInterval(detect, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Refresh the agent list whenever the Open Project dialog opens, so the
+  // CLI availability shown is always current (mount-time fetch may have run
+  // before the sidecar was ready → stale "not installed" entries).
+  const openProjectDialog = useCallback(() => {
+    setModalOpen(true);
+    fetch("/api/agent/detect", { cache: "no-store" }).then(r => r.json()).then(data => {
       setAgentsList(data);
     }).catch(() => {});
   }, []);
@@ -75,16 +120,13 @@ function DashboardPage() {
   const handleBrowse = async () => {
     setBrowsing(true);
     try {
-      const res = await fetch("/api/helpers/choose-folder", { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.path) {
-          setFolderPath(data.path);
-          if (!projectName) {
-            const cleanPath = data.path.replace(/[/\\]$/, "");
-            const parts = cleanPath.split(/[/\\]/);
-            setProjectName(parts[parts.length - 1] || "Project");
-          }
+      const path = await pickFolder();
+      if (path) {
+        setFolderPath(path);
+        if (!projectName) {
+          const cleanPath = path.replace(/[/\\]$/, "");
+          const parts = cleanPath.split(/[/\\]/);
+          setProjectName(parts[parts.length - 1] || "Project");
         }
       }
     } catch {}
@@ -99,6 +141,7 @@ function DashboardPage() {
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rootPath: path, name: projectName.trim(), defaultAgent }),
       });
@@ -107,7 +150,7 @@ function DashboardPage() {
       // Project created — start skill verification
       setSetupState({ phase: "installing", skills: null, error: null, projectId: data.id });
       try {
-        const skillRes = await fetch(`/api/projects/${data.id}/skills`);
+        const skillRes = await fetch(`/api/projects/${data.id}/skills`, { cache: "no-store" });
         if (skillRes.ok) {
           const skillData = await skillRes.json();
           const allReady = skillData.skills?.every((s: any) => s.status === "installed");
@@ -119,15 +162,17 @@ function DashboardPage() {
         // Install missing skills
         await fetch(`/api/projects/${data.id}/skills/install`, { method: "POST" });
         if (setupTimer.current) clearInterval(setupTimer.current);
+        let attempts = 0;
         setupTimer.current = setInterval(async () => {
-          const r = await fetch(`/api/projects/${data.id}/skills`);
+          attempts += 1;
+          const r = await fetch(`/api/projects/${data.id}/skills`, { cache: "no-store" });
           if (!r.ok) return;
           const d = await r.json();
           setSetupState((prev) => ({ ...prev, skills: d.skills ?? null, error: null }));
           if (d.status === "ready") {
             if (setupTimer.current) { clearInterval(setupTimer.current); setupTimer.current = null; }
             finishProjectOpen(data.id);
-          } else if (d.status === "failed") {
+          } else if (d.status === "failed" || attempts >= 20) {
             if (setupTimer.current) { clearInterval(setupTimer.current); setupTimer.current = null; }
             setSetupState({ phase: "failed", skills: d.skills ?? null, error: "Skill installation failed", projectId: data.id });
             setOpening(false);
@@ -158,14 +203,16 @@ function DashboardPage() {
     setSetupState((prev) => ({ ...prev, phase: "installing", error: null }));
     await fetch(`/api/projects/${pid}/skills/install`, { method: "POST" });
     if (setupTimer.current) clearInterval(setupTimer.current);
+    let attempts = 0;
     setupTimer.current = setInterval(async () => {
-      const r = await fetch(`/api/projects/${pid}/skills`);
+      attempts += 1;
+      const r = await fetch(`/api/projects/${pid}/skills`, { cache: "no-store" });
       if (!r.ok) return;
       const d = await r.json();
       if (d.status === "ready") {
         if (setupTimer.current) { clearInterval(setupTimer.current); setupTimer.current = null; }
         finishProjectOpen(pid);
-      } else if (d.status === "failed") {
+      } else if (d.status === "failed" || attempts >= 20) {
         if (setupTimer.current) { clearInterval(setupTimer.current); setupTimer.current = null; }
         setSetupState({ phase: "failed", skills: d.skills ?? null, error: "Skill installation failed", projectId: pid });
       }
@@ -195,7 +242,7 @@ function DashboardPage() {
           <h1 className="text-lg text-kumo-default">Projects</h1>
           {projects.length > 0 && <Badge variant="neutral" className="text-xs px-2 py-0.5">{projects.length}</Badge>}
         </div>
-        <Button variant="primary" size="sm" onClick={() => setModalOpen(true)} className="flex items-center gap-1.5">
+        <Button variant="primary" size="sm" onClick={openProjectDialog} className="flex items-center gap-1.5">
           <Plus size={14} />
           <span>Open Project</span>
         </Button>
@@ -237,28 +284,34 @@ function DashboardPage() {
               <div>
                 <label className="block text-xs text-kumo-subtle mb-1.5">Default Agent CLI</label>
                 <div className="grid grid-cols-2 gap-2 mt-1">
-                  {agentsList.map(a => (
-                    <button
-                      key={a.name}
-                      type="button"
-                      onClick={() => a.found && setDefaultAgent(a.command)}
+                  {agentsList.length === 0 ? (
+                    <div className="col-span-2 text-[11px] text-kumo-subtle italic py-2">
+                      {agentsLoading ? "Checking installed agents…" : "No agents detected"}
+                    </div>
+                  ) : (
+                    agentsList.map(a => (
+                      <button
+                        key={a.name}
+                        type="button"
+                        onClick={() => a.found && setDefaultAgent(a.command)}
 
-                      disabled={!a.found}
-                      className={`flex items-center gap-2 p-2.5 rounded border text-left transition-colors ${
-                        defaultAgent === a.command
-                          ? "border-kumo-brand bg-kumo-brand/10"
-                          : a.found
-                            ? "border-kumo-line bg-kumo-elevated/30 hover:bg-kumo-elevated/60 cursor-pointer"
-                            : "border-[#2a2a2a] bg-[#1a1a1a] opacity-50 cursor-not-allowed"
-                      }`}
-                    >
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${a.found ? "bg-green-400" : "bg-red-400/50"}`} />
-                      <div className="min-w-0 flex-1">
-                        <div className={`text-xs font-medium ${defaultAgent === a.name ? "text-kumo-brand" : a.found ? "text-kumo-default" : "text-kumo-subtle"} truncate`}>{a.name}</div>
-                        <div className="text-[9px] text-kumo-subtle truncate">{a.found ? a.version || "Found" : "Not installed"}</div>
-                      </div>
-                    </button>
-                  ))}
+                        disabled={!a.found}
+                        className={`flex items-center gap-2 p-2.5 rounded border text-left transition-colors ${
+                          defaultAgent === a.command
+                            ? "border-kumo-brand bg-kumo-brand/10"
+                            : a.found
+                              ? "border-kumo-line bg-kumo-elevated/30 hover:bg-kumo-elevated/60 cursor-pointer"
+                              : "border-[#2a2a2a] bg-[#1a1a1a] opacity-50 cursor-not-allowed"
+                        }`}
+                      >
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${a.found ? "bg-green-400" : "bg-red-400/50"}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className={`text-xs font-medium ${defaultAgent === a.command ? "text-kumo-brand" : a.found ? "text-kumo-default" : "text-kumo-subtle"} truncate`}>{a.name}</div>
+                          <div className="text-[9px] text-kumo-subtle truncate">{a.found ? a.version || "Found" : "Not installed"}</div>
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
                 <p className="text-[10px] text-kumo-subtle mt-2">This agent will be used by default when you open the terminal in this project.</p>
               </div>

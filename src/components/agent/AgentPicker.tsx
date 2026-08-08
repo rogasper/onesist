@@ -21,12 +21,20 @@ export function AgentPicker({ selected, onSelect }: AgentPickerProps) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    fetch("/api/agent/detect").then((r) => r.json()).then((data) => {
+  const refreshAgents = (autoSelect = true) => {
+    fetch("/api/agent/detect", { cache: "no-store" }).then((r) => r.json()).then((data) => {
       setAgents(data);
-      const found = data.find((a: AgentInfo) => a.found);
-      if (found && !selected) onSelect({ name: found.name, command: found.command });
+      if (autoSelect) {
+        const found = data.find((a: AgentInfo) => a.found);
+        if (found && !selected) onSelect({ name: found.name, command: found.command });
+      }
     }).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshAgents();
+    const interval = setInterval(refreshAgents, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -45,10 +53,13 @@ export function AgentPicker({ selected, onSelect }: AgentPickerProps) {
       const r = btnRef.current.getBoundingClientRect();
       setPos({ top: r.bottom + 4, left: r.left });
     }
-    setOpen((prev) => !prev);
+    setOpen((prev) => {
+      if (!prev) refreshAgents(false);
+      return !prev;
+    });
   };
 
-  const active = agents.find((a) => a.name === selected);
+  const active = agents.find((a) => a.command === selected);
 
   return (
     <div className="relative">
@@ -74,7 +85,7 @@ export function AgentPicker({ selected, onSelect }: AgentPickerProps) {
               key={a.name}
               onClick={() => { onSelect(a.found ? { name: a.name, command: a.command } : null); setOpen(false); }}
               className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2 hover:bg-[#2a2a2a] transition-colors ${
-                selected === a.name ? "liquid-wash font-medium" : a.found ? "text-kumo-default" : "text-kumo-subtle"
+                selected === a.command ? "liquid-wash font-medium" : a.found ? "text-kumo-default" : "text-kumo-subtle"
               }`}
               disabled={!a.found}
             >

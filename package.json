@@ -13,6 +13,7 @@
     "dev": "bun run --bun vite",
     "build": "bun run --bun vite build",
     "start": "bun run --bun vite",
+    "build:server": "bun run --bun vite build && bun build src/server/terminal-server.ts --outdir dist/server/server --target bun --external node-pty && cp -r src/server/db/migrations dist/server/assets/migrations && cp -r vendor/skills dist/server/vendor-skills && echo 'export { default } from \"./dist/server/server.js\";' > desktop-entry.ts && bun scripts/build-server-bin.mjs && rm desktop-entry.ts",
     "generate:routes": "node scripts/generate-routes.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -32,6 +33,7 @@
     "@tanstack/react-router": "^1.169.2",
     "@tanstack/react-router-with-query": "^1.130.17",
     "@tanstack/react-start": "^1.167.65",
+    "@tauri-apps/api": "^2.11.1",
     "@uiw/react-codemirror": "^4.25.11",
     "@xterm/addon-fit": "^0.12.0-beta.292",
     "@xterm/addon-web-links": "^0.13.0-beta.292",
@@ -54,6 +56,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/router-plugin": "^1.168.19",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/better-sqlite3": "^9.6.0",
     "@types/bun": "^1.3.14",
     "@types/node": "^25.8.0",

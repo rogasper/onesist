@@ -1,6 +1,6 @@
 # SA Dashboard — Agent Instructions
 
-This is the **SA Dashboard** web application — a full-stack React app that serves as the UI for System Analysts working with AI-generated artifacts (FSD, API specs, ERD, tasks, timelines).
+This is the **SA Dashboard (Onesist)** application — a full-stack React app (web + Tauri desktop) that serves as the UI for System Analysts working with AI-generated artifacts (FSD, API specs, ERD, tasks, timelines).
 
 ## Tech Stack
 
@@ -8,10 +8,11 @@ This is the **SA Dashboard** web application — a full-stack React app that ser
 - **Framework:** React 19 + TanStack Start (SSR)
 - **Router:** TanStack Router (file-based)
 - **UI:** @cloudflare/kumo + Tailwind CSS 4
-- **Editor:** CodeMirror 6 (+ @codemirror/lang-markdown)
+- **Editor:** CodeMirror 6 (+ @codemirror/lang-markdown), MDXEditor for FSD
 - **Diagrams:** Mermaid 11, DBML (@dbml/core)
-- **Database:** Drizzle ORM + Bun SQLite (file: `data.db`)
+- **Database:** Drizzle ORM + Bun SQLite (file: `data.db`, WAL mode)
 - **Terminal:** xterm.js (embedded agent terminal)
+- **Desktop:** Tauri 2 (Rust shell) + compiled Bun sidecar
 - **Build:** Vite 8, TypeScript 6
 
 ## Agent Configuration
@@ -35,26 +36,30 @@ app/
 ├── vite.config.ts          # Vite + plugins (TanStack, Tailwind, terminal server)
 ├── tsconfig.json           # TypeScript config (paths: ~/ → ./src)
 ├── data.db                 # SQLite database (Drizzle + auto-migrations)
+├── vendor/skills/          # Vendored agent skills (copied into projects)
+├── src-tauri/              # Tauri desktop shell (Rust)
+│   ├── src/lib.rs          # Window, sidecar startup, macOS app menu, exit handling
+│   ├── src/sidecar.rs      # Spawn/kill/restart compiled server, port picking
+│   ├── src/tray.rs         # Tray menu, close-to-tray, QUITTING flag
+│   └── binaries/           # Compiled sidecar executables (gitignored)
 ├── src/
-│   ├── server.ts           # TanStack Start fetch handler → API router
+│   ├── server.ts           # TanStack Start fetch handler → API router + static assets
 │   ├── client.tsx          # Client entry point
 │   ├── ssr.tsx             # SSR entry point
 │   ├── router.tsx          # Router configuration
 │   ├── routeTree.gen.ts    # Auto-generated route tree
-│   ├── styles.css          # Global styles + Tailwind
-│   ├── shared/
-│   │   └── types.ts        # Shared TypeScript interfaces (WikiPage, Task)
+│   ├── styles.css          # Global styles + Tailwind + xterm/MDX overrides
 │   ├── server/
 │   │   ├── db/
-│   │   │   ├── client.ts   # Drizzle + SQLite initialization + migrations
+│   │   │   ├── client.ts   # Drizzle + SQLite + runtime ALTER TABLE migrations + checkpointWal()
 │   │   │   ├── schema.ts   # Drizzle schema (projects, tasks, wiki, fsd, erd, etc.)
-│   │   │   └── seed.ts     # Database seeder
+│   │   │   └── migrations/ # Drizzle SQL migrations (MUST match schema.ts)
 │   │   ├── api-router.ts   # Monolithic API router (/api/* endpoints)
 │   │   ├── events.ts       # SSE event bus for real-time updates
-│   │   ├── file-watcher.ts # Polling file watcher for hot reload
+│   │   ├── file-watcher.ts # Watches registered project roots, emits file:changed
 │   │   ├── agent-runner.ts # Spawns OpenCode CLI as child process
 │   │   ├── ws-terminal.ts  # WebSocket terminal handler
-│   │   └── terminal-server.ts # xterm.js WebSocket server (port 4323)
+│   │   └── terminal-server.ts # xterm.js WebSocket server (port TERMINAL_PORT)
 │   ├── lib/
 │   │   ├── agent-cli.ts    # Detect installed agents (opencode, claude, codex)
 │   │   ├── agent-command.ts # Build agent CLI command strings
@@ -83,12 +88,34 @@ app/
 │   └── components/
 │       ├── agent/          # Agent terminal, status, picker, stream components
 │       ├── erd/            # ERD editor, canvas (ReactFlow), table editor, toolbar
-│       ├── fsd/            # FSD editor (CodeMirror), sidebar, completeness, upload
+│       ├── fsd/            # FSD editor (MDXEditor), FileTree, upload, completeness
 │       ├── mermaid/        # Mermaid diagram renderer + markdown viewer
 │       ├── spec/           # Spec endpoint cards, sidebar, module viewer
 │       ├── tasks/          # Task list, task detail, timeline viewer
 │       └── wiki/           # Wiki content viewer/editor
 ```
+
+## Desktop Architecture (Tauri)
+
+The desktop app runs the **same web server** as a compiled Bun executable (sidecar) inside a Tauri shell. WebView loads `http://127.0.0.1:{port}`.
+
+```
+Tauri shell (Rust) ──spawn──▶ onesist-server (compiled Bun)
+      │                            │
+      └── WebView ◀──http─── localhost:{PORT}  (SSR + /api/* + static assets)
+```
+
+- **Sidecar env vars** (set by `sidecar.rs`, all absolute paths — macOS GUI apps have CWD=`/`):
+  - `SA_DB_PATH` → SQLite at appData
+  - `SA_CLIENT_DIR` → client assets
+  - `SA_MIGRATIONS_DIR` → Drizzle migrations
+  - `SA_ROOT` → default project root (home dir)
+  - `SA_VENDOR_SKILLS_DIR` → vendored skills copy
+  - `SA_DESKTOP=1` → enables PPID watchdog (sidecar exits if shell dies)
+- **Ports:** HTTP = first free of 4321 (checks IPv4 AND IPv6), terminal = first free of 4331
+- **Asset sync:** `ensure_server_dir` re-copies `web-dist` from resources on EVERY launch (stale assets = 404 = React never boots = "Loading..." forever)
+- **Quit:** never rely on `app.exit()` on macOS with a tray icon (hangs). Tray Quit and `ExitRequested` both do: `mark_quitting()` → spawn detached thread `std::process::exit(0)` after 150ms → `state.stop()`.
+- **Crash recovery:** sidecar auto-restarts max 3×/60s; memory watchdog exits the server if RSS > 1200MB (forces clean restart).
 
 ## API Endpoints
 
@@ -107,6 +134,7 @@ The monolithic router at `server/api-router.ts` handles all `/api/*` routes:
 | `/api/projects/:id/fsd` | GET, POST, PUT, DELETE | FSD session CRUD |
 | `/api/projects/:id/fsd/scan` | POST | Scan input/fsd/ for new documents |
 | `/api/projects/:id/fsd/upload` | POST | Upload files to input/fsd/ |
+| `/api/projects/:id/fsd/upload-image` | POST | Upload editor images to input/fsd/images/ |
 | `/api/projects/:id/fsd/:id/check` | POST | Check FSD completeness |
 | `/api/projects/:id/fsd/:id/ready` | POST | Mark FSD as ready for analysis |
 | `/api/projects/:id/fsd/:id/convert` | POST | Convert uploaded file to Markdown |
@@ -115,7 +143,9 @@ The monolithic router at `server/api-router.ts` handles all `/api/*` routes:
 | `/api/projects/:id/skills/install` | POST | Install missing project skills |
 | `/api/files/list` | GET | List files in project directories |
 | `/api/files/read` | GET | Read file contents |
+| `/api/files/image` | GET | Raw binary image serving (for `<img src>`) |
 | `/api/files/write` | POST | Write file contents |
+| `/api/files/rename` | POST | Rename files (also updates fsd_sessions markdownPath) |
 | `/api/files/delete` | DELETE | Delete files |
 | `/api/events` | GET | SSE stream for real-time updates |
 | `/api/events/ticket` | POST | Get SSE ticket |
@@ -123,26 +153,74 @@ The monolithic router at `server/api-router.ts` handles all `/api/*` routes:
 | `/api/agent/run` | POST | Start agent execution |
 | `/api/agent/stop` | POST | Stop running agent |
 | `/api/agent/status` | GET | Get running agent status |
+| `/api/terminal/port` | GET | Terminal WebSocket port (env-driven) |
 
 ## Key Conventions
 
 - **File paths:** Use `readFile(rootPath, relPath)` from file-router, not raw fs reads
 - **Database:** Use Drizzle queries through `db` instance from `server/db/client`. Runtime migrations add columns via `ALTER TABLE ... ADD COLUMN` in `client.ts`
 - **API layer:** All routes go through `handleApiRequest` → delegates to `handleProjects` for `/api/projects/*` routes
-- **Real-time updates:** SSE via `server/events.ts` event bus. File changes polled every 2s by `file-watcher.ts`
+- **Real-time updates:** SSE via `server/events.ts` event bus. `file-watcher.ts` watches REGISTERED project roots (via `registerWatchRoot`) and emits `file:changed` — frontend listens, never polls
 - **Agent execution:** `agent-runner.ts` spawns OpenCode CLI with `--format json --auto`. Log output parsed line-by-line as JSONL
 - **Styles:** Use kumo tokens (`kumo-default`, `kumo-subtle`, `kumo-brand`, `kumo-elevated`, `kumo-line`). Avoid custom hex colors
 - **TypeScript:** Strict mode. `bun run typecheck` before commits
+- **Desktop paths:** NEVER rely on `process.cwd()` for absolute paths — macOS launches with CWD=`/`. Always read from env (`SA_DB_PATH`, `SA_ROOT`, etc.) or resolve against `process.env.SA_ROOT`.
+
+## Do's and Don'ts (from production bugs)
+
+### Cache & freshness
+- **DO** set `Cache-Control: no-store` on every new API response (the `json()` helper in api-router already does this globally — don't remove it).
+- **DO** pass `{ cache: "no-store" }` on every frontend `fetch("/api/...")`.
+- **DON'T** add client-side polling when SSE events exist. If file changes don't arrive, fix the emitter (`registerWatchRoot`), don't add `setInterval`.
+- **DO** refresh dynamic lists (agent detection, project list) when a dialog opens, not only on mount — mount-time fetch may run before the server is ready.
+
+### Environment & paths (desktop vs web)
+- **DON'T** hardcode `process.cwd()`-relative paths in server code — they break in the desktop sidecar (CWD=`/`).
+- **DO** use env vars (`SA_DB_PATH`, `SA_ROOT`, `SA_CLIENT_DIR`, `SA_MIGRATIONS_DIR`, `SA_VENDOR_SKILLS_DIR`) with sensible fallbacks for web dev.
+- **DO** resolve external CLI paths via the environment already passed to the sidecar — agent detection uses `execSync("which ...")` which depends on `PATH`.
+
+### Ports & processes
+- **DO** check BOTH IPv4 and IPv6 when picking free ports (Bun binds `localhost` IPv6-only; the old check missed it and two servers shared one port).
+- **DO** kill stale processes of our own type before spawning (sidecar does `pkill onesist-server` / `pkill terminal-server.ts` on start).
+- **DON'T** run `bun run dev` and the desktop app simultaneously — both want port 4321.
+
+### SSE / EventSource
+- **DO** add an error guard to any `new EventSource(...)`: close after ~5 errors, otherwise the WebView auto-reconnects forever and leaks memory.
+- **DO** close `EventSource` in the effect cleanup — and make sure the cleanup actually runs (don't return the close from an inner `init()` that's never awaited).
+
+### Memory safety
+- **DO** prune unbounded Maps (`knownFiles` in file-watcher) when their owner (project root) is unregistered.
+- **DO** call `checkpointWal()` periodically for long-running SQLite sessions (WAL journal grows without bound otherwise).
+- **DON'T** restore `visible: false` window state on desktop launch — a hidden-but-rendering WebView leaks GBs. Only restore POSITION/SIZE/MAXIMIZED and always `window.show()`.
+
+### Quit behavior (macOS desktop)
+- **DON'T** call `app.exit()` on macOS when a tray icon exists — it hangs and the WebView keeps leaking memory.
+- **DO** use the established pattern: `mark_quitting()` → detached thread with `std::process::exit(0)` after a short delay → `state.stop()`.
+
+### Migrations & schema
+- **DO** keep `server/db/migrations/*.sql` in sync with `schema.ts` — a fresh DB fails if CREATE TABLE is missing columns that schema references (this caused "failed to connect" on fresh installs).
+- **DO** test with a fresh DB (`rm data.db && bun run dev`) before assuming migrations work — existing dev DBs hide missing-column bugs.
+
+### FSD / file operations
+- **DO** remember FSD documents live on disk in `input/fsd/` — the DB session is metadata (status, artifacts, completeness). Don't store content only in DB.
+- **DO** keep `fsd_sessions.markdownPath` in sync when files are renamed/moved (the `/api/files/rename` handler updates it).
+- **DON'T** use `window.prompt` for new UI — use kumo `Dialog` components like the rest of the app.
 
 ## Dev Commands
 
 ```bash
 cd app
 bun install          # Install dependencies
-bun run dev          # Start dev server (http://localhost:4321)
+bun run dev          # Start web dev server (http://localhost:4321)
 bun run typecheck    # tsc --noEmit
-bun run build        # Production build
+bun run build        # Production build (Vite)
+bun run build:server # Build server bundle + compiled sidecar executable
+bunx tauri dev       # Run desktop app in dev mode
+bunx tauri build     # Build desktop app (release, .dmg/.msi)
+bunx tauri build --debug  # Debug desktop build (faster)
 ```
+
+**Reminder:** quit the desktop app (tray → Quit) before running `bun run dev`, and vice versa.
 
 ## UI Components
 
@@ -150,7 +228,8 @@ bun run build        # Production build
 |-----------|------|----------|
 | ERD canvas | @xyflow/react + @dagrejs/dagre | `components/erd/` |
 | Spec viewer | Custom parser + ReactMarkdown | `components/spec/` |
-| FSD editor | CodeMirror 6 + markdown lang | `components/fsd/FsdEditor.tsx` |
+| FSD editor | MDXEditor + MarkdownViewer (mermaid) | `components/fsd/FsdEditor.tsx` |
+| File tree | Custom (buildFileTree + ContextMenu) | `components/ui/FileTree.tsx` |
 | Mermaid diagrams | mermaid + ReactMarkdown custom comp | `components/mermaid/` |
 | Task management | Custom list + card views | `components/tasks/` |
 | Embedded terminal | xterm.js + WebSocket | `components/agent/AgentTerminal.tsx` |

@@ -8,8 +8,9 @@ import {
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
-import { House, Folder } from "@phosphor-icons/react";
+import { House, Folder, Sun, Moon } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
+import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -40,10 +41,24 @@ function AppSidebarHeader() {
 function AppSidebarFooter() {
   const { state, isMobile } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
+  const [theme, setTheme] = useState<AppTheme>(() => getStoredTheme());
+
+  const onToggleTheme = () => {
+    void toggleTheme().then(setTheme);
+  };
 
   return (
     <Sidebar.Footer>
-      <div className={`flex items-center p-2 ${isCollapsed ? 'justify-center' : ''}`}>
+      <div className={`flex items-center p-2 gap-1 ${isCollapsed ? 'justify-center' : ''}`}>
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          className="flex items-center gap-2 px-2 py-1.5 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
+        >
+          {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+          {!isCollapsed && <span className="text-xs">{theme === "dark" ? "Light mode" : "Dark mode"}</span>}
+        </button>
         <Sidebar.Trigger />
       </div>
     </Sidebar.Footer>
@@ -95,7 +110,7 @@ function RootComponent() {
 
   useEffect(() => {
     const fetchProjects = () => {
-      fetch("/api/projects")
+      fetch("/api/projects", { cache: "no-store" })
         .then((r) => r.json())
         .then((data: { id: string; name: string }[]) => {
           if (Array.isArray(data)) setProjects(data);
@@ -109,7 +124,7 @@ function RootComponent() {
   }, []);
 
   return (
-    <html suppressHydrationWarning data-theme="dark" className="h-svh overflow-hidden">
+    <html suppressHydrationWarning data-mode={getStoredTheme() === "dark" ? "dark" : undefined} className="h-svh overflow-hidden">
       <head><HeadContent /></head>
       <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
         <div className="flex flex-1 min-h-0">

@@ -26,7 +26,13 @@ function runCommand(cmd: string, args: string[]): Promise<string> {
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      // WKWebView (Tauri desktop) heuristically caches responses without
+      // explicit cache headers — stale agent/project data would persist across
+      // app launches. API responses must always be fresh.
+      "Cache-Control": "no-store",
+    },
   });
 }
 
@@ -122,7 +128,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   // /api/terminal/port
   if (resource === "terminal" && segments[1] === "port" && method === "GET") {
-    return json({ port: 4323 });
+    return json({ port: parseInt(process.env.TERMINAL_PORT || "4323", 10) });
   }
 
   // /api/config/* — configuration info
@@ -132,7 +138,7 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const proj = db.select().from(projects).where(eq(projects.id, projectId)).get() as any;
       if (proj?.rootPath) return json({ root: proj.rootPath });
     }
-    return json({ root: path.resolve(process.cwd(), "..") });
+    return json({ root: (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), "..")) });
   }
 
   // /api/events/ticket
@@ -175,7 +181,8 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
 
   // /api/files/* — read/write/list/delete files in the project
   if (resource === "files") {
-    const defaultRoot = path.resolve(process.cwd(), "..");
+    const fs = await import("node:fs");
+    const defaultRoot = (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), ".."));
     function resolveRoot(projectId?: string | null): string {
       if (projectId) {
         try {
@@ -201,6 +208,29 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const content = readFile(resolveRoot(projectId), filePath);
       return content !== null ? json({ content }) : json({ error: "Not found" }, 404);
     }
+    if (fileAction === "image" && method === "GET") {
+      // Raw binary image serving so <img src> can render project files.
+      const filePath = reqUrl.searchParams.get("path");
+      const projectId = reqUrl.searchParams.get("projectId");
+      if (!filePath || filePath.includes("..")) return json({ error: "Missing or invalid path" }, 400);
+      const fullPath = path.join(resolveRoot(projectId), filePath);
+      try {
+        const buf = fs.readFileSync(fullPath);
+        const ext = path.extname(filePath).slice(1).toLowerCase();
+        const types: Record<string, string> = {
+          png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+          webp: "image/webp", svg: "image/svg+xml", avif: "image/avif",
+        };
+        return new Response(new Uint8Array(buf), {
+          headers: {
+            "Content-Type": types[ext] || "application/octet-stream",
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch {
+        return json({ error: "Not found" }, 404);
+      }
+    }
     if (fileAction === "write" && method === "POST") {
       const body = await parseBody(request);
       const { writeFile } = await import("~/lib/file-router");
@@ -225,7 +255,22 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const newName = body.newName as string;
       const projectId = body.projectId as string;
       if (!filePath || !newName) return json({ error: "Missing path or newName" }, 400);
-      return json({ renamed: renameFile(resolveRoot(projectId), filePath, newName) });
+      const renamed = renameFile(resolveRoot(projectId), filePath, newName);
+      if (renamed && projectId) {
+        // Keep FSD sessions pointing at the renamed markdown file (input/fsd/*).
+        const newPath = filePath.slice(0, filePath.lastIndexOf("/") + 1) + newName;
+        if (filePath.startsWith("input/fsd/")) {
+          try {
+            const projId = projectId;
+            db.update(fsdSessions)
+              .set({ markdownPath: newPath, fsdInputPath: newName, updatedAt: new Date().toISOString() })
+              .where(eq(fsdSessions.projectId, projId))
+              .where(eq(fsdSessions.markdownPath, filePath))
+              .run();
+          } catch {}
+        }
+      }
+      return json({ renamed });
     }
     if (fileAction === "copy" && method === "POST") {
       const { copyFile } = await import("~/lib/file-router");
@@ -304,6 +349,10 @@ async function handleProjects(
         updatedAt: now,
       };
       db.insert(projects).values(project).run();
+      if (rootPath) {
+        const { registerWatchRoot } = await import("~/server/file-watcher");
+        registerWatchRoot(rootPath);
+      }
       db.insert(changeLog).values({
         id: crypto.randomUUID(),
         projectId,
@@ -366,7 +415,7 @@ async function handleProjects(
   if (sub === "skills") {
     const proj = db.select().from(projects).where(eq(projects.id, id)).get() as any;
     if (!proj) return json({ error: "Not found" }, 404);
-    const rootPath = proj.rootPath || path.resolve(process.cwd(), "..");
+    const rootPath = proj.rootPath || (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), ".."));
     const { detectProjectSkills, installProjectSkills } = await import("~/lib/project-skills");
 
     // GET /api/projects/:id/skills — detect status
@@ -440,7 +489,7 @@ async function handleProjects(
       const fs = await import("node:fs");
       const proj = db.select().from(projects).where(eq(projects.id, id)).get() as any;
       if (!proj) return json({ error: "Project not found" }, 404);
-      const rootPath = proj.rootPath || pathMod.resolve(process.cwd(), "..");
+      const rootPath = proj.rootPath || (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), ".."));
       const now = new Date().toISOString();
       const { parseMarkdownToModules } = await import("~/lib/spec-parser");
       const { readFile } = await import("~/lib/file-router");
@@ -723,7 +772,7 @@ async function handleProjects(
     const sessionId = segments[2];
     const pathMod = path;
     const fs = await import("node:fs");
-    const defaultRoot = pathMod.resolve(process.cwd(), "..");
+    const defaultRoot = (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), ".."));
     const resolveRoot = () => {
       const proj = db.select().from(projects).where(eq(projects.id, id)).get() as any;
       return proj?.rootPath || defaultRoot;
@@ -916,6 +965,38 @@ async function handleProjects(
         }, 201);
       } catch (e: any) {
         return json({ error: `Upload failed: ${e?.message ?? e}` }, 500);
+      }
+    }
+
+    // POST /api/projects/:id/fsd/upload-image — save an image pasted/dropped
+    // into the editor into input/fsd/images/. Body: raw file bytes. Query: ?filename=<base64>
+    if (sessionId === "upload-image" && method === "POST") {
+      try {
+        const reqUrl = new URL(request.url);
+        const originalNameRaw = reqUrl.searchParams.get("filename") ?? "";
+        let originalName = "";
+        try { originalName = Buffer.from(originalNameRaw, "base64").toString("utf-8"); } catch {}
+        if (!originalName) return json({ error: "Missing filename" }, 400);
+        const buf = Buffer.from(await request.arrayBuffer());
+        if (!buf.length) return json({ error: "Missing file" }, 400);
+        if (buf.length > 20 * 1024 * 1024) return json({ error: "Image too large (max 20MB)" }, 413);
+        const ext = originalName.match(/\.(png|jpe?g|gif|webp|svg|avif)$/i)?.[0].toLowerCase() ?? "";
+        if (!ext) return json({ error: `Unsupported image type: ${originalName}` }, 415);
+
+        const imagesDir = pathMod.join(fsdDir(), "images");
+        try { fs.default.mkdirSync(imagesDir, { recursive: true }); } catch {}
+        const stem = originalName.replace(/\.[a-z0-9]+$/i, "").replace(/[^\w.\- ]+/g, "_");
+        let fileNameFinal = `${stem}${ext}`;
+        let n = 2;
+        while (fs.default.existsSync(pathMod.join(imagesDir, fileNameFinal))) {
+          fileNameFinal = `${stem}_${n}${ext}`;
+          n++;
+        }
+        fs.default.writeFileSync(pathMod.join(imagesDir, fileNameFinal), buf);
+        const relativePath = `input/fsd/images/${fileNameFinal}`;
+        return json({ uploaded: true, path: relativePath }, 201);
+      } catch (e: any) {
+        return json({ error: `Image upload failed: ${e?.message ?? e}` }, 500);
       }
     }
 

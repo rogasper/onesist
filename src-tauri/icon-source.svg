@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e8edf5"/>
+    </linearGradient>
+    <linearGradient id="fg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <rect x="120" y="120" width="784" height="784" rx="160" fill="none" stroke="url(#fg)" stroke-width="28" opacity="0.9"/>
+  <path d="M320 700 L320 324 L704 324 L704 700" fill="none" stroke="url(#fg)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="320" cy="430" r="20" fill="#3b82f6"/>
+  <circle cx="512" cy="430" r="20" fill="#3b82f6" opacity="0.7"/>
+  <circle cx="704" cy="430" r="20" fill="#3b82f6" opacity="0.4"/>
+  <text x="512" y="840" font-family="Menlo, monospace" font-size="72" font-weight="600" fill="#1d4ed8" text-anchor="middle" letter-spacing="8">ONESIST</text>
+</svg>

@@ -228,6 +228,17 @@ function killSession(id: string) {
   sessions.delete(id);
 }
 
+// Kill every live session when this process exits (crash, SIGTERM, quit).
+// Without this, spawned agents (opencode serve etc.) become orphans (PPID=1)
+// and keep running forever — they accumulate and eat GBs of memory.
+function killAllSessions() {
+  for (const id of Array.from(sessions.keys())) killSession(id);
+}
+
+for (const sig of ["exit", "SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(sig as any, () => killAllSessions());
+}
+
 const activeSockets = new Set<any>();
 
 const port = parseInt(process.env.TERMINAL_PORT || "4323", 10);
@@ -236,7 +247,7 @@ function handleMessage(ws: any, msg: string | Buffer) {
   try {
     const parsed = JSON.parse(typeof msg === "string" ? msg : msg.toString());
     if (parsed.type === "spawn") {
-      const s = runAgent(parsed.id, parsed.command, parsed.cwd || path.resolve(process.cwd(), ".."));
+      const s = runAgent(parsed.id, parsed.command, parsed.cwd || (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), "..")));
       if (s) {
         setTimeout(() => {
           try {

@@ -1,0 +1,178 @@
+mod sidecar;
+mod tray;
+
+use tauri::{Listener, Manager, RunEvent, WebviewUrl};
+use tauri_plugin_window_state::{StateFlags, WindowExt};
+
+/// Native folder picker for the "Open Project" flow. Returns the selected
+/// directory path or null when cancelled.
+#[tauri::command]
+async fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+    let builder = window
+        .dialog()
+        .file()
+        .set_title("Select Project Folder");
+    builder.pick_folder(move |path| {
+        let _ = tx.send(path.map(|p| p.to_string()));
+    });
+    rx.recv().map_err(|e| e.to_string())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+  tauri::Builder::default()
+    .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_window_state::Builder::default().build())
+    .plugin(tauri_plugin_dialog::init())
+    .invoke_handler(tauri::generate_handler![pick_folder])
+    .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+      if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.set_focus();
+      }
+    }))
+    .setup(|app| {
+      if cfg!(debug_assertions) {
+        app.handle().plugin(
+          tauri_plugin_log::Builder::default()
+            .level(log::LevelFilter::Info)
+            .build(),
+        )?;
+      }
+
+      // Start the sidecar and wait for the web server to become healthy.
+      let sc = sidecar::SidecarState::new(app.handle().clone());
+      let status = sc.start()?;
+      app.manage(sc);
+
+      tray::watch_sidecar_status(app.handle());
+
+      // Crash recovery: when the compiled server exits unexpectedly, respawn
+      // it (max 3 attempts in 60s, handled inside SidecarState::on_terminated).
+      let recovery_app = app.handle().clone();
+      app.listen("sidecar-terminated", move |_event| {
+        if let Some(state) = recovery_app.try_state::<sidecar::SidecarState>() {
+          state.on_terminated();
+        }
+      });
+
+      if status.running {
+        let url = format!("http://127.0.0.1:{}", status.port);
+        let window = tauri::WebviewWindowBuilder::new(
+          app,
+          "main",
+          WebviewUrl::External(url.parse().expect("valid url")),
+        )
+        .title("Onesist")
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(800.0, 600.0)
+        .build()?;
+        // Restore position/size/maximized, but NEVER restore a hidden
+        // (visible:false) state: a hidden-but-rendering WebView at full
+        // resolution leaks memory rapidly (observed 3.7 GB while idle).
+        let _ = window.restore_state(
+          StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED,
+        );
+        let _ = window.show();
+        let _ = window.set_focus();
+      }
+
+      tray::setup_close_to_tray(app.handle());
+      let _ = tray::setup_tray(app.handle());
+
+      // macOS application menu — required for Cmd+Q and dock "Quit" to work.
+      // Without a menu with a Quit role, the app ignores quit requests and
+      // the process lingers (WebView keeps leaking memory).
+      setup_app_menu(app.handle())?;
+
+      Ok(())
+    })
+    .build(tauri::generate_context!())
+    .expect("error while running tauri application")
+    .run(|app, event| {
+      match event {
+        RunEvent::Exit => {
+          if let Some(state) = app.try_state::<sidecar::SidecarState>() {
+            state.stop();
+          }
+        }
+        // Dock Quit / Cmd+Q trigger ExitRequested on macOS. Mark quitting so
+        // the close-to-tray handler lets the window close. Stop the sidecar
+        // and hard-exit — Tauri's app.exit() can hang with a tray icon
+        // present, leaking WebView memory.
+        RunEvent::ExitRequested { .. } => {
+          tray::mark_quitting();
+          // Hard-exit FIRST (in a detached thread) so a hang in sidecar stop
+          // or event emission can never prevent termination.
+          std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            std::process::exit(0);
+          });
+          if let Some(state) = app.try_state::<sidecar::SidecarState>() {
+            state.stop();
+          }
+        }
+        RunEvent::WindowEvent { .. } => {}
+        _ => {}
+      }
+    });
+}
+
+/// Build the macOS menu bar with a working Quit item. The Quit menu role
+/// triggers ExitRequested → our handler hard-exits (see run() above).
+#[cfg(target_os = "macos")]
+fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    let app_menu = Submenu::with_items(
+        app,
+        "Onesist",
+        true,
+        &[
+            &PredefinedMenuItem::about(app, Some("Onesist"), Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "quit", "Quit Onesist", true, Some("q"))?,
+            &PredefinedMenuItem::separator(app)?,
+        ],
+    )?;
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let window_menu = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+        ],
+    )?;
+
+    let menu = Menu::with_items(
+        app,
+        &[
+            &app_menu as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+            &edit_menu as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+            &window_menu as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+        ],
+    )?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn setup_app_menu(_app: &tauri::AppHandle) -> tauri::Result<()> {
+    Ok(())
+}

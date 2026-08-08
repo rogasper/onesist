@@ -21,15 +21,17 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
 
   useEffect(() => {
     let mounted = true;
+    let es: EventSource | null = null;
+    let errorCount = 0;
     let ticket = "";
 
     const init = async () => {
       try {
-        const res = await fetch("/api/events/ticket", { method: "POST" });
+        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
         const d = await res.json();
         ticket = d.ticket;
 
-        const es = new EventSource(`/api/events?ticket=${ticket}`);
+        es = new EventSource(`/api/events?ticket=${ticket}`);
 
         es.addEventListener("connected", () => {
           if (!mounted) return;
@@ -75,13 +77,25 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
           onError?.(data.error);
         });
 
-        return () => es.close();
+        // Guard against infinite auto-reconnect when the server is down —
+        // otherwise the WebView spins reconnect requests forever (memory leak).
+        es.onerror = () => {
+          errorCount += 1;
+          if (errorCount > 5) {
+            es?.close();
+            es = null;
+          }
+        };
       } catch {}
     };
 
-    init();
+    void init();
 
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      es?.close();
+      es = null;
+    };
   }, [sessionId]);
 
   useEffect(() => {

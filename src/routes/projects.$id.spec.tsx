@@ -149,7 +149,7 @@ function SpecPage() {
     setGenerating(true);
     setGenSessionId(null);
     try {
-      const detectRes = await fetch("/api/agent/detect");
+      const detectRes = await fetch("/api/agent/detect", { cache: "no-store" });
       const agents = await detectRes.json();
       const found = (agents ?? []).find((a: any) => a.found);
       const command = found?.command ?? "opencode";

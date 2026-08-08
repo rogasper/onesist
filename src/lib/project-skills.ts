@@ -34,10 +34,19 @@ function skillDir(projectRoot: string, name: string): string {
 }
 
 function vendorDir(name: string): string {
+  // Desktop sidecar points here at the appData copy (see SA_VENDOR_SKILLS_DIR).
+  const fromEnv = process.env.SA_VENDOR_SKILLS_DIR
+    ? path.resolve(process.env.SA_VENDOR_SKILLS_DIR, name)
+    : "";
   const fromCwd = path.resolve(process.cwd(), "vendor", "skills", name);
-  if (fs.existsSync(path.join(fromCwd, "SKILL.md"))) return fromCwd;
-  const fromModule = path.resolve(import.meta.dir, "..", "..", "vendor", "skills", name);
-  return fromModule;
+  // Web production: dist/server/vendor-skills/<name> (copied by build:server).
+  const fromDist = path.resolve(import.meta.dirname, "..", "vendor-skills", name);
+  const fromModule = path.resolve(import.meta.dirname, "..", "..", "vendor", "skills", name);
+  const candidates = [fromEnv, fromCwd, fromDist, fromModule].filter(Boolean);
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, "SKILL.md"))) return c;
+  }
+  return candidates[0] ?? fromCwd;
 }
 
 function hasValidSkill(projectRoot: string, name: string): boolean {

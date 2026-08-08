@@ -42,6 +42,86 @@ bun run dev
 3. Required skills (`fsd-analyzer`, `markitdown`) auto-install on first open
 4. Use the **FSD Analyzer** tab to edit FSDs and run AI analysis
 
+## Desktop App (Tauri)
+
+Onesist also ships as a native desktop app for **macOS (arm64/x64)** and **Windows**, built with Tauri 2. The web app runs as a self-contained compiled Bun server (sidecar) inside the desktop shell.
+
+### Prerequisites (developer machine)
+
+```bash
+# Rust toolchain
+curl https://sh.rustup.rs -sSf | sh
+
+# Tauri CLI (via Bun)
+cd app
+bun add -D @tauri-apps/cli
+```
+
+- macOS: Xcode Command Line Tools (`xcode-select --install`)
+- Windows: Visual Studio Build Tools (MSVC C++ workload)
+
+### Run desktop app (dev mode)
+
+```bash
+cd app
+bun run tauri dev
+```
+
+### Build desktop app (release)
+
+```bash
+cd app
+bunx tauri build
+# macOS → src-tauri/target/release/bundle/dmg/Onesist_*.dmg
+# Windows → src-tauri/target/release/bundle/msi/Onesist_*.msi
+```
+
+Debug build (faster, for testing):
+
+```bash
+bunx tauri build --debug
+# → src-tauri/target/debug/bundle/
+```
+
+### Server-only build (for sidecar bundling)
+
+```bash
+cd app
+bun run build:server
+```
+
+Produces `dist/server/server.js` + a self-contained compiled executable in `src-tauri/binaries/onesist-server-<triple>`. Tauri bundles this as the sidecar and copies `dist/` (web assets) + `vendor/skills` into the app data folder on first run.
+
+### Desktop app data location
+
+- macOS: `~/Library/Application Support/com.rogasper.onesist/`
+- Windows: `%APPDATA%\com.rogasper.onesist\`
+
+Contains `data.db` (SQLite), `server/` (copied web assets), `vendor-skills/`, and `logs/`.
+
+### Important: don't run `bun run dev` while the desktop app is running
+
+The dev server and the desktop sidecar both listen on port 4321. Running them at the same time causes the desktop WebView to hit the wrong server (agent detection, file watching, etc. break). Always **quit the desktop app** (tray → Quit) before starting `bun run dev`, and vice versa.
+
+### Tray & lifecycle
+
+- Close window → app hides to tray (agent sessions keep running)
+- Tray menu: **Show Onesist** / **Restart Server** / **Quit** — only Quit fully exits
+- If the sidecar crashes it auto-restarts (max 3× per 60s)
+
+## Scripts
+
+```bash
+bun run dev          # Start dev server (web, http://localhost:4321)
+bun run build        # Production build (Vite)
+bun run typecheck    # TypeScript type checking
+bun run start        # Start production server
+bun run build:server # Build server bundle + compiled sidecar executable
+bunx tauri dev       # Run desktop app in dev mode
+bunx tauri build     # Build desktop app (release)
+bunx tauri build --debug  # Build desktop app (debug, faster)
+```
+
 ## Architecture
 
 ```
@@ -93,6 +173,7 @@ API Router (Bun)
 | Icons | @phosphor-icons/react |
 | Agent CLI | OpenCode (headless + JSONL output) |
 | Build | Vite 8, TypeScript 6 |
+| Desktop | Tauri 2 (Rust), Bun sidecar (compiled executable) |
 
 ## Project Skill Requirements
 
@@ -118,10 +199,14 @@ Three agents are configured for this app:
 ## Scripts
 
 ```bash
-bun run dev          # Start dev server
-bun run build        # Production build
+bun run dev          # Start dev server (web, http://localhost:4321)
+bun run build        # Production build (Vite)
 bun run typecheck    # TypeScript type checking
 bun run start        # Start production server
+bun run build:server # Build server bundle + compiled sidecar executable
+bunx tauri dev       # Run desktop app in dev mode
+bunx tauri build     # Build desktop app (release)
+bunx tauri build --debug  # Build desktop app (debug, faster)
 ```
 
 ## Database

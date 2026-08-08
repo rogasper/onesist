@@ -129,7 +129,7 @@ function TasksPage() {
       if (res.ok) {
         const result = await res.json();
         setImportResult(result);
-        const reloadRes = await fetch(`/api/projects/${id}/tasks`);
+        const reloadRes = await fetch(`/api/projects/${id}/tasks`, { cache: "no-store" });
         if (reloadRes.ok) setTasks(await reloadRes.json());
       }
     } catch {}

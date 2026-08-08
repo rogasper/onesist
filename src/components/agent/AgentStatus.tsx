@@ -16,14 +16,14 @@ export function AgentStatus({ onStop }: AgentStatusProps) {
 
   useEffect(() => {
     // Initial fetch
-    fetch("/api/agent/status").then((r) => r.json()).then((d) => {
+    fetch("/api/agent/status", { cache: "no-store" }).then((r) => r.json()).then((d) => {
       if (d.running) setRunning(d.running);
     }).catch(() => {});
 
     // Poll for status changes
     const timer = setInterval(async () => {
       try {
-        const res = await fetch("/api/agent/status");
+        const res = await fetch("/api/agent/status", { cache: "no-store" });
         const d = await res.json();
         setRunning(d.running || []);
       } catch {}

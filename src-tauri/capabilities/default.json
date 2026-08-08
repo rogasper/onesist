@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-background-color",
+    "core:window:allow-set-title",
+    "shell:allow-execute",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "window-state:allow-restore-state",
+    "window-state:allow-save-window-state",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/onesist-server",
+          "sidecar": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Onesist",
+  "version": "0.1.0",
+  "identifier": "com.rogasper.onesist",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:4321",
+    "beforeDevCommand": "pkill -9 -f 'onesist-server' 2>/dev/null; pkill -9 -f 'terminal-server.ts' 2>/dev/null; bun run dev",
+    "beforeBuildCommand": "bun run build:server && rm -rf src-tauri/web-dist && cp -r dist src-tauri/web-dist && rm -rf src-tauri/vendor-skills && cp -r vendor/skills src-tauri/vendor-skills",
+    "devUrl": "http://localhost:4321"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data: blob: http://localhost:* http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": ["binaries/onesist-server"],
+    "resources": ["web-dist", "vendor-skills"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

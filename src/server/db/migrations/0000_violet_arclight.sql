@@ -84,6 +84,15 @@ CREATE TABLE `fsd_sessions` (
 	`status` text DEFAULT 'pending',
 	`artifacts_json` text,
 	`agent_output` text,
+	`title` text,
+	`source_type` text DEFAULT 'manual',
+	`source_file_path` text,
+	`markdown_path` text,
+	`completeness_json` text,
+	`content_hash` text,
+	`generated_from_hash` text,
+	`conversion_status` text,
+	`conversion_error` text,
 	`created_at` text DEFAULT 'datetime(''now'')',
 	`updated_at` text DEFAULT 'datetime(''now'')',
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action
@@ -94,6 +103,11 @@ CREATE TABLE `projects` (
 	`name` text NOT NULL,
 	`company` text,
 	`description` text,
+	`root_path` text,
+	`default_agent` text DEFAULT 'opencode',
+	`skills_status` text DEFAULT 'pending',
+	`skills_error` text,
+	`skills_updated_at` text,
 	`created_at` text DEFAULT 'datetime(''now'')',
 	`updated_at` text DEFAULT 'datetime(''now'')'
 );
@@ -121,6 +135,9 @@ CREATE TABLE `tasks` (
 	`assignee` text,
 	`module` text,
 	`dependencies_json` text,
+	`code` text,
+	`source_path` text,
+	`phase` text,
 	`created_at` text DEFAULT 'datetime(''now'')',
 	`updated_at` text DEFAULT 'datetime(''now'')',
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action

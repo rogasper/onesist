@@ -5,6 +5,7 @@ import {
   listsPlugin,
   quotePlugin,
   codeBlockPlugin,
+  codeMirrorPlugin,
   tablePlugin,
   thematicBreakPlugin,
   markdownShortcutPlugin,
@@ -55,7 +56,7 @@ const htmlFallbackPlugin = realmPlugin({
   },
 });
 
-const MdxEditorInner = forwardRef<MDXEditorMethods, MDXEditorProps>(function MdxEditorInner(props, ref) {
+const MdxEditorInner = forwardRef<MDXEditorMethods, MDXEditorProps & { projectId?: string }>(function MdxEditorInner(props, ref) {
   return (
     <MDXEditor
       ref={ref}
@@ -64,7 +65,26 @@ const MdxEditorInner = forwardRef<MDXEditorMethods, MDXEditorProps>(function Mdx
         headingsPlugin(),
         listsPlugin(),
         quotePlugin(),
-        codeBlockPlugin({ defaultCodeBlockLanguage: "" }),
+        codeBlockPlugin({
+          defaultCodeBlockLanguage: "",
+        }),
+        codeMirrorPlugin({
+          codeBlockLanguages: {
+            mermaid: "Mermaid",
+            js: "JavaScript",
+            ts: "TypeScript",
+            json: "JSON",
+            md: "Markdown",
+            plain: "Plain text",
+            shell: "Shell",
+            bash: "Bash",
+            python: "Python",
+            sql: "SQL",
+            yaml: "YAML",
+            html: "HTML",
+            css: "CSS",
+          },
+        }),
         tablePlugin(),
         thematicBreakPlugin(),
         markdownShortcutPlugin(),

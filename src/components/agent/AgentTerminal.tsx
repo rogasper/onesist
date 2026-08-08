@@ -49,10 +49,10 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
   useEffect(() => {
-    fetch("/api/terminal/port").then((r) => r.ok ? r.json() : null).then((d) => {
+    fetch("/api/terminal/port", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.port) setPort(d.port);
     }).catch(() => {});
-    fetch(`/api/config/project-root${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`).then((r) => r.ok ? r.json() : null).then((d) => {
+    fetch(`/api/config/project-root${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.root) setProjectRoot(d.root);
     }).catch(() => {});
   }, [projectId]);
@@ -60,7 +60,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   // Fetch latest project data to get current defaultAgent (route loader may be stale)
   useEffect(() => {
     if (!projectId) return;
-    fetch(`/api/projects/${projectId}`).then((r) => r.ok ? r.json() : null).then((d) => {
+    fetch(`/api/projects/${projectId}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.defaultAgent && d.defaultAgent !== agentName) setAgentName(d.defaultAgent);
     }).catch(() => {});
   }, [projectId]);

@@ -6,13 +6,14 @@ const MdxEditorInner = lazy(() => import("./MdxEditorInner"));
 interface MdxEditorClientProps {
   content: string;
   onChange: (value: string) => void;
+  projectId: string;
 }
 
 const loadingFallback = (
   <div className="h-full flex items-center justify-center text-xs text-kumo-subtle">Loading editor…</div>
 );
 
-export function MdxEditorClient({ content, onChange }: MdxEditorClientProps) {
+export function MdxEditorClient({ content, onChange, projectId }: MdxEditorClientProps) {
   const [mounted, setMounted] = useState(false);
   const editorRef = useRef<MDXEditorMethods | null>(null);
   const lastSynced = useRef<string | null>(null);
@@ -34,6 +35,7 @@ export function MdxEditorClient({ content, onChange }: MdxEditorClientProps) {
       <MdxEditorInner
         ref={editorRef}
         markdown={content}
+        projectId={projectId}
         onChange={(v) => {
           lastSynced.current = v;
           onChange(v);

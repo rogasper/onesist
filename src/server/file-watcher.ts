@@ -5,50 +5,119 @@ import { detectRoute } from "~/lib/file-router";
 
 let watcherActive = false;
 let watcherTimer: ReturnType<typeof setInterval> | null = null;
-let currentRoot = "";
 
+// Project roots are registered dynamically (see registerWatchRoot) so the
+// watcher scans the actual project folders — NOT SA_ROOT (home dir), which
+// caused SSE file:changed events to never fire for project files.
+const watchRoots = new Set<string>();
+
+const watchDirs = [
+  "input/fsd", "output/spec", "output/erd", "output/task",
+  "output/td", "output/timeline", "output/reports",
+];
+
+// fullPath -> mtime. Keyed by absolute path to avoid collisions between roots.
 const knownFiles = new Map<string, number>();
 
-export function startFileWatcher(rootPath: string = "", intervalMs = 2000) {
+// Safety net: if the process RSS balloons (a leak would otherwise run the
+// machine out of memory — observed at 100+ GB), kill ourselves so the Tauri
+// sidecar's crash recovery respawns a fresh process.
+const MAX_RSS_MB = 1200;
+
+function rssMB(): number {
+  try {
+    return Math.round((process.memoryUsage?.().rss ?? 0) / (1024 * 1024));
+  } catch {
+    return 0;
+  }
+}
+
+export function registerWatchRoot(rootPath: string) {
+  if (!rootPath) return;
+  watchRoots.add(path.resolve(rootPath));
+}
+
+export function unregisterWatchRoot(rootPath: string) {
+  watchRoots.delete(path.resolve(rootPath));
+}
+
+export function getWatchRoots(): string[] {
+  return Array.from(watchRoots);
+}
+
+export function startFileWatcher(intervalMs = 2000) {
   if (watcherActive) return;
   watcherActive = true;
-  currentRoot = rootPath || path.resolve(process.cwd(), "..");
 
-  const watchDirs = [
-    "input/fsd", "output/spec", "output/erd", "output/task",
-    "output/td", "output/timeline", "output/reports",
-  ];
+  // Fallback root when no project has been registered yet (web dev without
+  // opening a project).
+  const fallbackRoot = process.env.SA_ROOT
+    ? path.resolve(process.env.SA_ROOT)
+    : path.resolve(process.cwd(), "..");
 
+  let tick = 0;
   watcherTimer = setInterval(() => {
-    for (const dir of watchDirs) {
-      const fullDir = path.join(currentRoot, dir);
-      try {
-        if (!fs.existsSync(fullDir)) continue;
-        const entries = fs.readdirSync(fullDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (!entry.isFile() || entry.name.startsWith(".")) continue;
-          const fullPath = path.join(fullDir, entry.name);
-          const relPath = path.join(dir, entry.name);
-          const stat = fs.statSync(fullPath);
-          const mtime = stat.mtimeMs;
-          const prev = knownFiles.get(relPath);
-          if (prev !== undefined && Math.abs(mtime - prev) > 50) {
+    tick += 1;
+
+    // Memory watchdog: restart before we OOM the machine.
+    if (tick % 5 === 0) {
+      const rss = rssMB();
+      if (rss > MAX_RSS_MB) {
+        console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — exiting to force a clean restart`);
+        process.exit(1);
+      }
+    }
+
+    // Periodic WAL checkpoint so the SQLite journal doesn't grow unbounded.
+    if (tick % 30 === 0) {
+      void import("~/server/db/client").then((m) => m.checkpointWal()).catch(() => {});
+    }
+
+    const roots = Array.from(watchRoots);
+    if (roots.length === 0) roots.push(fallbackRoot);
+    const rootsSet = new Set(roots);
+
+    for (const root of roots) {
+      for (const dir of watchDirs) {
+        const fullDir = path.join(root, dir);
+        try {
+          if (!fs.existsSync(fullDir)) continue;
+          const entries = fs.readdirSync(fullDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (!entry.isFile() || entry.name.startsWith(".")) continue;
+            const fullPath = path.join(fullDir, entry.name);
+            const relPath = path.join(dir, entry.name);
+            const stat = fs.statSync(fullPath);
+            const mtime = stat.mtimeMs;
+            const prev = knownFiles.get(fullPath);
+            // Emit on creation (prev undefined) and on mtime change.
+            if (prev === undefined || Math.abs(mtime - prev) > 50) {
+              const route = detectRoute(relPath);
+              eventBus.emitFileChanged(route, relPath);
+            }
+            knownFiles.set(fullPath, mtime);
+          }
+        } catch {}
+      }
+      // Detect deletions
+      for (const [key, val] of knownFiles) {
+        try {
+          if (!key.startsWith(root + path.sep)) continue;
+          if (!fs.existsSync(key)) {
+            const relPath = key.slice(root.length + 1);
             const route = detectRoute(relPath);
             eventBus.emitFileChanged(route, relPath);
+            knownFiles.delete(key);
           }
-          knownFiles.set(relPath, mtime);
-        }
-        // Detect deletions
-          for (const [key, val] of knownFiles) {
-            try {
-              if (!fs.existsSync(path.join(currentRoot, key))) {
-              const route = detectRoute(key);
-              eventBus.emitFileChanged(route, key);
-              knownFiles.delete(key);
-            }
-          } catch {}
-        }
-      } catch {}
+        } catch {}
+      }
+    }
+
+    // Prune knownFiles entries that belong to projects no longer registered —
+    // otherwise the Map grows forever across open/close of many projects.
+    for (const key of knownFiles.keys()) {
+      const parentRoot = Array.from(rootsSet).find((r) => key.startsWith(r + path.sep));
+      if (!parentRoot) knownFiles.delete(key);
     }
   }, intervalMs);
 }

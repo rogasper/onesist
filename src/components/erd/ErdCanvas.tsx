@@ -2,6 +2,7 @@ import { useCallback, useMemo, useEffect, useState } from "react";
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   Controls,
   Panel,
   type Node,
@@ -143,14 +144,14 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}
-        colorMode="dark"
+        colorMode="light"
         minZoom={0.1}
         maxZoom={2}
         panOnScroll
         selectionOnDrag
         panOnDrag={false}
       >
-        <Background color="var(--color-kumo-line, #333)" gap={20} size={1} />
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
         <Controls position="bottom-right" className="!bg-kumo-surface !rounded-lg !border !border-kumo-line" />
         <Panel position="bottom-center">
           <div className="flex items-center gap-1 rounded-full border border-kumo-line bg-kumo-elevated/90 p-1 shadow-md">

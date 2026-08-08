@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 
-const ROOT = path.resolve(process.cwd(), "..");
+const ROOT = process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), "..");
 
 export function seedIfEmpty() {
   const rows = db.all("SELECT COUNT(*) as cnt FROM projects");

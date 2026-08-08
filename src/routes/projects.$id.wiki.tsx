@@ -94,18 +94,18 @@ function WikiPage() {
 
   const handleGenerateDocs = useCallback(async () => {
     try {
-      const detectRes = await fetch("/api/agent/detect");
+      const detectRes = await fetch("/api/agent/detect", { cache: "no-store" });
       const agents = await detectRes.json();
       const found = agents.find((a: any) => a.found);
       if (!found) { alert("No agent CLI found — run Analysis from FSD tab first"); return; }
 
       // Read all spec files and combine into one wiki page
-      const specRes = await fetch("/api/files/list?dir=output/spec");
+      const specRes = await fetch("/api/files/list?dir=output/spec", { cache: "no-store" });
       const specFiles = await specRes.json();
       let combinedContent = "# Technical Documentation\n\nAuto-generated from artifacts.\n\n";
 
       for (const file of specFiles.slice(0, 10)) {
-        const contentRes = await fetch(`/api/files/read?path=${encodeURIComponent(file.path)}`);
+        const contentRes = await fetch(`/api/files/read?path=${encodeURIComponent(file.path)}`, { cache: "no-store" });
         const { content } = await contentRes.json();
         if (content) {
           combinedContent += `\n---\n\n## ${file.name.replace(/\.md$/, "")}\n\n${content.slice(0, 3000)}\n`;

@@ -238,6 +238,8 @@ div[data-kumo-component="Sidebar"] {
   line-height: 1.6;
   color: #fefefe;
   background-color: #282c34;
+  /* Bottom breathing room so the last line isn't flush against the panel edge */
+  padding-bottom: 5rem;
 }
 
 /* Restore typography inside the editor content — Tailwind preflight strips
@@ -314,3 +316,108 @@ div[data-kumo-component="Sidebar"] {
   font-size: 12px;
 }
 
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* =========================================
+   Light mode overrides
+   Kumo tokens flip via [data-mode="dark"] on <html>; these hardcoded dark
+   colors (spec-markdown, panels, terminal, editor) must follow too.
+   ========================================= */
+
+html:not([data-mode="dark"]) .spec-markdown {
+  color: #1f2937;
+  background: #ffffff;
+}
+html:not([data-mode="dark"]) .spec-markdown h1,
+html:not([data-mode="dark"]) .spec-markdown h2,
+html:not([data-mode="dark"]) .spec-markdown h3,
+html:not([data-mode="dark"]) .spec-markdown h4,
+html:not([data-mode="dark"]) .spec-markdown strong {
+  color: #111827;
+}
+html:not([data-mode="dark"]) .spec-markdown h1 {
+  border-bottom-color: #e5e7eb;
+}
+html:not([data-mode="dark"]) .spec-markdown p,
+html:not([data-mode="dark"]) .spec-markdown li,
+html:not([data-mode="dark"]) .spec-markdown td {
+  color: #1f2937;
+}
+html:not([data-mode="dark"]) .spec-markdown code {
+  color: #111827;
+  background: #f3f4f6;
+}
+html:not([data-mode="dark"]) .spec-markdown pre {
+  color: #111827;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+html:not([data-mode="dark"]) .spec-markdown pre code {
+  color: #111827;
+  background: none;
+}
+html:not([data-mode="dark"]) .spec-markdown th {
+  background: #f3f4f6;
+  color: #111827;
+}
+html:not([data-mode="dark"]) .spec-markdown th,
+html:not([data-mode="dark"]) .spec-markdown td,
+html:not([data-mode="dark"]) .spec-markdown hr {
+  border-color: #e5e7eb;
+}
+html:not([data-mode="dark"]) .spec-markdown blockquote {
+  color: #4b5563;
+}
+
+html:not([data-mode="dark"]) .spec-markdown-inline {
+  color: #1f2937;
+  background: #ffffff;
+}
+html:not([data-mode="dark"]) .spec-markdown-inline code {
+  color: #111827;
+  background: #f3f4f6;
+}
+
+/* Panels that hardcode near-black surfaces */
+html:not([data-mode="dark"]) .bg-\[#0d0d0d\],
+html:not([data-mode="dark"]) .bg-\[#161616\],
+html:not([data-mode="dark"]) .bg-\[#1c1c1c\],
+html:not([data-mode="dark"]) .bg-\[#1a1a1a\],
+html:not([data-mode="dark"]) .bg-\[#282c34\] {
+  background-color: #ffffff !important;
+}
+html:not([data-mode="dark"]) .text-neutral-300,
+html:not([data-mode="dark"]) .text-neutral-400,
+html:not([data-mode="dark"]) .text-neutral-500 {
+  color: #1f2937 !important;
+}
+html:not([data-mode="dark"]) .border-\[#2a2a2a\],
+html:not([data-mode="dark"]) .border-\[#333\],
+html:not([data-mode="dark"]) .border-\[#3e4451\] {
+  border-color: #e5e7eb !important;
+}
+
+/* Terminal panel + agent stream */
+html:not([data-mode="dark"]) .xterm .xterm-viewport {
+  background-color: #ffffff;
+}
+html:not([data-mode="dark"]) .terminal-dark-bg {
+  background-color: #ffffff !important;
+}
+
+/* MDX editor surface (CodeMirror oneDark palette is dark-only; keep it dark
+   but soften the surrounding panel in light mode) */
+html:not([data-mode="dark"]) .mdxeditor.mdxeditor-full-height {
+  --basePageBg: #ffffff;
+  --baseBase: #f9fafb;
+  --baseBgSubtle: #f3f4f6;
+  --baseBg: #ffffff;
+  --baseBgHover: #f3f4f6;
+  --baseBgActive: #e5e7eb;
+  --baseLine: #d1d5db;
+  --baseBorder: #d1d5db;
+  --baseText: #1f2937;
+  --baseTextContrast: #111827;
+}

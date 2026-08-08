@@ -41,7 +41,7 @@ function ProjectLayout() {
 
   useEffect(() => {
     if (!project?.id) return;
-    fetch(`/api/projects/${project.id}/skills`).then((r) => r.ok ? r.json() : null).then((d) => {
+    fetch(`/api/projects/${project.id}/skills`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
       if (d) setSkillsState({ status: d.status, error: d.skills?.find((s: any) => s.status === "failed")?.error ?? null });
     }).catch(() => {});
   }, [project?.id]);
@@ -152,7 +152,7 @@ function ProjectLayout() {
                   await fetch(`/api/projects/${project.id}/skills/install`, { method: "POST" });
                   setSkillsState({ status: "installing", error: null });
                   const t = setInterval(async () => {
-                    const d = await (await fetch(`/api/projects/${project.id}/skills`)).json();
+                    const d = await (await fetch(`/api/projects/${project.id}/skills`, { cache: "no-store" })).json();
                     if (d.status === "ready" || d.status === "failed") {
                       clearInterval(t);
                       setSkillsState({ status: d.status, error: d.skills?.find((s: any) => s.status === "failed")?.error ?? null });
@@ -202,7 +202,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
 
   useEffect(() => {
     const pid = project?.id;
-    fetch(`/api/files/summary${pid ? `?projectId=${pid}` : ""}`).then((r) => r.ok ? r.json() : {}).then(setFileSummary).catch(() => {});
+    fetch(`/api/files/summary${pid ? `?projectId=${pid}` : ""}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then(setFileSummary).catch(() => {});
   }, [project?.id]);
 
   const loadDirs = useCallback(async () => {
@@ -211,7 +211,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
     const result: Record<string, any[]> = {};
     for (const dir of ["input/fsd", "output/spec", "output/erd", "output/task"]) {
       try {
-        const res = await fetch(`/api/files/list?projectId=${pid}&dir=${dir}`);
+        const res = await fetch(`/api/files/list?projectId=${pid}&dir=${dir}`, { cache: "no-store" });
         if (res.ok) result[dir] = await res.json();
       } catch {}
     }
@@ -222,7 +222,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
 
   const refreshAll = useCallback(() => {
     loadDirs();
-    fetch(`/api/files/summary${project?.id ? `?projectId=${project.id}` : ""}`).then((r) => r.ok ? r.json() : {}).then(setFileSummary).catch(() => {});
+    fetch(`/api/files/summary${project?.id ? `?projectId=${project.id}` : ""}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then(setFileSummary).catch(() => {});
   }, [loadDirs, project?.id]);
 
   const handleRename = async (path: string, newName: string) => {
@@ -230,6 +230,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
     if (!trimmed || trimmed === path.split("/").pop()) { setRenaming(null); return; }
     try {
       const res = await fetch("/api/files/rename", {
+        cache: "no-store",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: project.id, path, newName: trimmed }),

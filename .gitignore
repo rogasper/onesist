@@ -6,3 +6,8 @@ data.db-wal
 data.db-shm
 *.db
 src/routeTree.gen.ts
+.DS_Store
+.env
+.env.*
+!.env.example
+desktop-entry.ts
