@@ -117,6 +117,21 @@ jobs:
           # when the runner host arch differs (macos x86_64 on arm64 runner).
           SA_BUILD_TRIPLE: ${{ matrix.target_triple }}
 
+      - name: Make updater artifact names unique per platform
+        shell: bash
+        # macOS updater artifact is just "Onesist.app.tar.gz" (no arch in the
+        # name), so arm64 + x86_64 would collide in the GitHub Release. Prefix
+        # every updater artifact + its .sig with the platform key.
+        run: |
+          for sig in $(find "src-tauri/target/${{ matrix.target_triple }}/release/bundle" -name '*.sig'); do
+            art="${sig%.sig}"
+            dir="$(dirname "$art")"
+            name="$(basename "$art")"
+            newname="${{ matrix.platform_key }}-${name}"
+            mv "$art" "$dir/$newname"
+            mv "$sig" "$dir/$newname.sig"
+          done
+
       - name: Upload artifact bundle
         uses: actions/upload-artifact@v4
         with:
@@ -137,44 +152,41 @@ jobs:
       - name: Build update manifest
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          cat > manifest.json <<EOF
-          {
-            "version": "${VERSION}",
-            "notes": "Onesist ${VERSION}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-          EOF
+          python3 - <<'PY'
+          import datetime, glob, json, os, sys
 
-          # Each platform directory contains its updater artifact + .sig.
-          # The updater artifact is the one the .sig is generated for:
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          platforms = {}
+          # Each platform directory contains its updater artifact + .sig:
           #   darwin-*: *.app.tar.gz   (the .dmg has no .sig)
           #   windows-*: *.exe         (NSIS, the updater target)
-          first=1
-          for dir in artifacts/*/; do
-            platform="$(basename "$dir")"
-            sig="$(find "$dir" -name '*.sig' | head -1)"
-            if [ -z "$sig" ]; then
-              echo "!! no .sig found for $platform — skipping"
-              continue
-            fi
-            artifact="${sig%.sig}"
-            name="$(basename "$artifact")"
-            sig_content="$(cat "$sig")"
-            if [ "$first" -eq 0 ]; then printf ',\n' >> manifest.json; fi
-            first=0
-            cat >> manifest.json <<EOF
-              "${platform}": {
-                "signature": "${sig_content}",
-                "url": "https://github.com/rogasper/onesist/releases/latest/download/${name}"
+          for sig in glob.glob("artifacts/*/**/*.sig", recursive=True):
+              artifact = sig[:-4]  # strip .sig
+              name = os.path.basename(artifact)
+              platform = os.path.relpath(artifact, "artifacts").split(os.sep)[0]  # dir name = platform_key
+              with open(sig) as f:
+                  sig_content = f.read().strip()
+              platforms[platform] = {
+                  "signature": sig_content,
+                  "url": f"https://github.com/rogasper/onesist/releases/latest/download/{name}",
               }
-            EOF
-          done
+              print(f"  {platform} <- {name}")
 
-          printf '\n}\n' >> manifest.json
-          echo "=== manifest.json ==="
-          cat manifest.json
-          python3 -c "import json,sys; d=json.load(open('manifest.json')); assert d['platforms'], 'no platforms'" || exit 1
+          if not platforms:
+              print("!! no .sig artifacts found", file=sys.stderr)
+              sys.exit(1)
+
+          manifest = {
+              "version": version,
+              "notes": f"Onesist {version}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          with open("manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+          print("=== manifest.json ===")
+          print(open("manifest.json").read())
+          PY
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
