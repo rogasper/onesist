@@ -3,6 +3,7 @@ import path from "node:path";
 import { eventBus } from "~/server/events";
 import { buildGeneratePrompt, buildGapPrompt, buildTdPrompt, buildOpenapiPrompt } from "~/lib/agent-prompts";
 import { getProjectRoot } from "~/lib/file-router";
+import { needsShell, resolveExecutable } from "~/lib/agent-cli";
 
 interface AgentRunConfig {
   sessionId: string;
@@ -52,10 +53,17 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
   eventBus.emitAgentLog("info", `Spawning: ${command} ${args.slice(0, 3).join(" ")}...`, sessionId);
 
   try {
-    const proc = spawn(command, args, {
+    // Resolve the actual executable: on Windows the agent may be installed as
+    // <name>.exe or <name>.cmd (a shell script). spawn() cannot execute a bare
+    // .cmd name without shell:true, so resolve the absolute path and let
+    // needsShell() decide whether to run it through cmd.exe.
+    const exePath = resolveExecutable(command) || command;
+    const proc = spawn(exePath, args, {
       cwd: projectRoot,
       env: { ...process.env, PATH: process.env.PATH || "" },
       stdio: ["pipe", "pipe", "pipe"],
+      shell: needsShell(exePath),
+      windowsHide: true,
     });
 
     RUNNING_AGENTS.set(sessionId, { process: proc, startTime: Date.now() });

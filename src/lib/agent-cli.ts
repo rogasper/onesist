@@ -1,4 +1,7 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 export interface AgentCliConfig {
   name: string;
@@ -15,19 +18,101 @@ const AGENTS: { name: string; command: string; minVersion: string }[] = [
   { name: "codex", command: "codex", minVersion: "0.1.0" },
 ];
 
+const IS_WIN = process.platform === "win32";
+
+// Windows appends these extensions when resolving bare names (PATHEXT);
+// .cmd/.bat scripts additionally need a shell (cmd.exe) to run.
+const WIN_EXTS = (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
+  .split(";")
+  .filter(Boolean)
+  .map((e) => e.toLowerCase());
+
+/**
+ * Resolve a command name to an absolute executable path across platforms.
+ * Unix: scans $PATH for an executable (falls back to `which`). Windows:
+ * scans $PATH for name + each PATHEXT extension, since `which` doesn't
+ * exist natively and bare names aren't resolved by the filesystem.
+ */
+export function resolveExecutable(command: string): string | null {
+  const hasExt = path.extname(command) !== "";
+
+  if (IS_WIN) {
+    const searchDirs = (process.env.PATH || "").split(path.delimiter);
+    for (const dir of searchDirs) {
+      if (!dir) continue;
+      const candidates = hasExt
+        ? [path.join(dir, command)]
+        : WIN_EXTS.map((ext) => path.join(dir, command + ext));
+      for (const candidate of candidates) {
+        try {
+          if (fs.statSync(candidate).isFile()) return candidate;
+        } catch {}
+      }
+    }
+    // Last resort: `where` (available on Windows 10+, also in Git Bash).
+    try {
+      const out = execSync(`where ${command}`, {
+        encoding: "utf-8",
+        windowsHide: true,
+      }).trim();
+      const first = out.split("\r\n")[0].split("\n")[0].trim();
+      if (first) return first;
+    } catch {}
+    return null;
+  }
+
+  // Unix: scan $PATH for an executable file directly (no `which` dependency).
+  const searchDirs = (process.env.PATH || "").split(path.delimiter);
+  for (const dir of searchDirs) {
+    if (!dir) continue;
+    const candidate = path.join(dir, command);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      if (fs.statSync(candidate).isFile()) return candidate;
+    } catch {}
+  }
+  try {
+    const out = execSync(`which ${command} 2>/dev/null`, { encoding: "utf-8" }).trim();
+    if (out) return out;
+  } catch {}
+  return null;
+}
+
+/** True when the resolved path is a shell script (.cmd/.bat) on Windows. */
+export function needsShell(exePath: string | null): boolean {
+  if (!IS_WIN || !exePath) return false;
+  const ext = path.extname(exePath).toLowerCase();
+  return ext === ".cmd" || ext === ".bat";
+}
+
 export function detectAllAgents(): AgentCliConfig[] {
   return AGENTS.map((agent) => {
+    const exePath = resolveExecutable(agent.command);
+    if (!exePath) return { ...agent, found: false, version: null, path: null };
+
+    let version: string | null = null;
     try {
-      const path = execSync(`which ${agent.command} 2>/dev/null`, { encoding: "utf-8" }).trim();
-      if (!path) return { ...agent, found: false, version: null, path: null };
-      let version: string | null = null;
-      try {
-        version = execSync(`${agent.command} --version 2>/dev/null`, { encoding: "utf-8" }).trim().split("\n")[0] || null;
-      } catch {}
-      return { ...agent, found: true, version, path };
+      // execFileSync (not execSync) so args aren't reinterpreted by a shell;
+      // .cmd/.bat need the shell flag so cmd.exe executes them.
+      const out = execFileSync(exePath, ["--version"], {
+        encoding: "utf-8",
+        windowsHide: true,
+        shell: needsShell(exePath),
+        timeout: 5000,
+      });
+      version = out.trim().split("\n")[0] || null;
     } catch {
-      return { ...agent, found: false, version: null, path: null };
+      try {
+        // Some CLIs (older codex) print --version to stderr or take it as -v.
+        const out = execSync(`"${exePath}" --version 2>&1`, {
+          encoding: "utf-8",
+          windowsHide: true,
+          timeout: 5000,
+        });
+        version = out.trim().split("\n")[0] || null;
+      } catch {}
     }
+    return { ...agent, found: true, version, path: exePath };
   });
 }
 
