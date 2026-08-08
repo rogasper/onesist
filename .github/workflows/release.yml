@@ -18,16 +18,20 @@ jobs:
           - platform: macos-14
             platform_key: darwin-aarch64
             target_triple: aarch64-apple-darwin
+            rust_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --bundles app,dmg
-          # macOS x86_64 (Intel)
-          - platform: macos-13
+          # macOS x86_64 (Intel) — macos-13 runner deprecated; cross-compile
+          # on arm64 macos-14 via rust target + bun --target.
+          - platform: macos-14
             platform_key: darwin-x86_64
             target_triple: x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin --bundles app,dmg
           # Windows x86_64 (NSIS installer is the updater target)
           - platform: windows-latest
             platform_key: windows-x86_64
             target_triple: x86_64-pc-windows-msvc
+            rust_target: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc --bundles nsis
     runs-on: ${{ matrix.platform }}
     steps:
@@ -46,6 +50,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -107,6 +113,9 @@ jobs:
         run: bunx tauri build ${{ matrix.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cross-compile the compiled Bun sidecar for the target arch even
+          # when the runner host arch differs (macos x86_64 on arm64 runner).
+          SA_BUILD_TRIPLE: ${{ matrix.target_triple }}
 
       - name: Upload artifact bundle
         uses: actions/upload-artifact@v4
