@@ -17,27 +17,19 @@ jobs:
           # macOS arm64 (Apple Silicon)
           - platform: macos-14
             platform_key: darwin-aarch64
+            target_triple: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --bundles app,dmg
           # macOS x86_64 (Intel)
           - platform: macos-13
             platform_key: darwin-x86_64
+            target_triple: x86_64-apple-darwin
             args: --target x86_64-apple-darwin --bundles app,dmg
           # Windows x86_64 (NSIS installer is the updater target)
           - platform: windows-latest
             platform_key: windows-x86_64
+            target_triple: x86_64-pc-windows-msvc
             args: --target x86_64-pc-windows-msvc --bundles nsis
     runs-on: ${{ matrix.platform }}
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      TAURI_WINDOWS_CERTIFICATE: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
-      TAURI_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,7 +42,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -60,11 +52,38 @@ jobs:
         with:
           workspaces: ./src-tauri
 
-      - name: Import Apple Developer certificate (macOS)
-        if: startsWith(matrix.platform, 'macos') && env.APPLE_CERTIFICATE != ''
+      # Export only the code-signing env vars that are actually configured.
+      # Tauri CLI reads APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY / etc. as
+      # "configured" when the variable is SET — even to an empty string — and
+      # then tries to import/use the cert (fails with "failed to import
+      # keychain certificate"). So empty secrets must be left UNSET, not ''.
+      - name: Export configured signing env
+        shell: bash
+        run: |
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] && echo "TAURI_SIGNING_PRIVATE_KEY=$TAURI_SIGNING_PRIVATE_KEY" >> "$GITHUB_ENV"
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ] && echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" >> "$GITHUB_ENV"
+          [ -n "$APPLE_CERTIFICATE" ] && echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE" >> "$GITHUB_ENV"
+          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+          [ -n "$APPLE_SIGNING_IDENTITY" ] && echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          [ -n "$APPLE_ID" ] && echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+          [ -n "$APPLE_PASSWORD" ] && echo "APPLE_PASSWORD=$APPLE_PASSWORD" >> "$GITHUB_ENV"
+          [ -n "$APPLE_TEAM_ID" ] && echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+          [ -n "$TAURI_WINDOWS_CERTIFICATE" ] && echo "TAURI_WINDOWS_CERTIFICATE=$TAURI_WINDOWS_CERTIFICATE" >> "$GITHUB_ENV"
+          [ -n "$TAURI_WINDOWS_CERTIFICATE_PASSWORD" ] && echo "TAURI_WINDOWS_CERTIFICATE_PASSWORD=$TAURI_WINDOWS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_WINDOWS_CERTIFICATE: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
+          TAURI_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
+
+      - name: Import Apple Developer certificate (macOS)
+        if: startsWith(matrix.platform, 'macos') && env.APPLE_CERTIFICATE != ''
         run: |
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           KEYCHAIN=build.keychain
@@ -86,20 +105,12 @@ jobs:
         run: bunx tauri build ${{ matrix.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_WINDOWS_CERTIFICATE: ${{ secrets.TAURI_WINDOWS_CERTIFICATE }}
-          TAURI_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.TAURI_WINDOWS_CERTIFICATE_PASSWORD }}
 
       - name: Upload artifact bundle
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform_key }}
-          path: src-tauri/target/release/bundle/
+          path: src-tauri/target/${{ matrix.target_triple }}/release/bundle/
           if-no-files-found: error
 
   release:
