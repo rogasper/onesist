@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@cloudflare/kumo";
 import { BookOpen, MagnifyingGlass, X, ArrowsClockwise, DownloadSimple } from "@phosphor-icons/react";
@@ -192,14 +192,7 @@ function SpecPage() {
   return (
     <div className="app-page-height flex flex-col">
       <div className="mb-3 shrink-0 space-y-2">
-        {/* Row 1: Breadcrumb */}
-        <div className="text-xs text-kumo-subtle">
-          <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-default font-medium">API Spec</span>
-        </div>
-
-        {/* Row 2: Title + badges + Sync */}
+        {/* Title + badges + Sync */}
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><BookOpen size={14} className="text-kumo-brand" /></div>
           <h1 className="text-xl font-semibold tracking-tight text-kumo-default">API Spec</h1>

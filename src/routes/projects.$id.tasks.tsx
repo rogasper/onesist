@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useMemo } from "react";
 import { Badge } from "@cloudflare/kumo";
 import { ListChecks, ListDashes, ArrowsClockwise, MagnifyingGlass, X, CalendarDots, SquaresFour, Rows } from "@phosphor-icons/react";
@@ -29,7 +29,6 @@ const STATUS_FILTERS = [
 function TasksPage() {
   const { id } = Route.useParams();
   const loaderData = Route.useLoaderData() as { project: any; tasks: Task[] };
-  const project = loaderData?.project;
   const [tasks, setTasks] = useState<Task[]>(loaderData?.tasks ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -139,13 +138,6 @@ function TasksPage() {
   return (
     <div className="app-page-height flex flex-col">
       <div className="mb-3 shrink-0 space-y-2">
-        <div className="text-xs text-kumo-subtle">
-          <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-subtle">{project?.name ?? "..."}</span>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-default font-medium">Tasks</span>
-        </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><ListChecks size={14} className="text-kumo-brand" /></div>
           <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Tasks</h1>

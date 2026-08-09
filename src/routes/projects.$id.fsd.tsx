@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Badge, Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { MagnifyingGlass, Play, Stop, FloppyDisk, SealCheck, Plus, UploadSimple, Scan, PencilSimple, Trash, CopySimple, ClipboardText, CaretLeft, CaretRight, Eye, Columns, Check, CheckCircle, XCircle } from "@phosphor-icons/react";
@@ -364,11 +364,6 @@ function FsdPage() {
   return (
     <div className="app-page-height flex flex-col">
       <div className="mb-3 shrink-0">
-        <div className="text-xs text-kumo-subtle mb-1">
-          <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-subtle">FSD Analyzer</span>
-        </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><MagnifyingGlass size={14} className="text-kumo-brand" /></div>
           <h1 className="text-xl font-semibold tracking-tight text-kumo-default">FSD Analyzer</h1>

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback } from "react";
 import { Badge } from "@cloudflare/kumo";
 import { Notepad, FileText } from "@phosphor-icons/react";
@@ -31,8 +31,7 @@ export const Route = createFileRoute("/projects/$id/wiki")({
 
 function WikiPage() {
   const { id } = Route.useParams();
-  const loaderData = Route.useLoaderData() as { project: any; wikiPages: WikiPage[] };
-  const project = loaderData?.project;
+  const loaderData = Route.useLoaderData() as { wikiPages: WikiPage[] };
   const [pages, setPages] = useState<WikiPage[]>(loaderData?.wikiPages ?? []);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -136,13 +135,6 @@ function WikiPage() {
   return (
     <div className="app-page-height flex flex-col">
       <div className="mb-3 shrink-0">
-        <div className="text-xs text-kumo-subtle mb-1">
-          <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-subtle">{project?.name ?? "..."}</span>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-default font-medium">Wiki</span>
-        </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><Notepad size={14} className="text-kumo-brand" /></div>
           <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Wiki / Docs</h1>
