@@ -45,6 +45,10 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const wheelBoundRef = useRef(false);
   const visibleRef = useRef(visible);
   useEffect(() => { visibleRef.current = visible; }, [visible]);
+  // Live mirror of `connected` for the unmount cleanup (closure state there
+  // would be stale).
+  const connectedRef = useRef(false);
+  useEffect(() => { connectedRef.current = connected; }, [connected]);
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
@@ -140,7 +144,10 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             }
             const cmd = buildAgentCommand(agentName as AgentCli, { mode: "new" });
             lastSpawnTimeRef.current = Date.now();
-            ws.send(JSON.stringify({ type: "spawn", id: sid, command: cmd, cwd: projectRoot || "/tmp" }));
+            // Pass current dims so the PTY starts at the right size instead of
+            // the server default (120x40) until the first resize lands.
+            const dims = fitRef.current?.proposeDimensions?.() ?? { cols: 120, rows: 40 };
+            ws.send(JSON.stringify({ type: "spawn", id: sid, command: cmd, cwd: projectRoot || "/tmp", cols: dims.cols, rows: dims.rows }));
           }
         } else if (msg.type === "replay") {
           if (!termRef.current && visibleRef.current) createXterm();
@@ -301,12 +308,18 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     return () => {
       observerRef.current?.disconnect();
       observerRef.current = null;
+      // Kill any still-running session so no agent process lingers after the
+      // panel unmounts (leaving the project page) — no background orphans.
+      if (connectedRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+        try { wsRef.current.send(JSON.stringify({ type: "kill", id: sessionIdRef.current })); } catch {}
+      }
       if (wsRef.current) {
         wsRef.current.onerror = null;
         wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }
+      destroyCache(sessionIdRef.current);
     };
   }, []);
 
@@ -381,7 +394,11 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
                 <Play size={13} />
               </button>
             )}
-            <button onClick={onClose} className="text-neutral-500 hover:text-neutral-200 transition-colors ml-1">
+            <button
+              onClick={() => { handleEndSession(); onClose(); }}
+              title="Close terminal (kills the running session)"
+              className="text-neutral-500 hover:text-neutral-200 transition-colors ml-1"
+            >
               <X size={14} />
             </button>
           </div>

@@ -21,12 +21,16 @@ const sessions = new Map<string, AgentSession>();
 
 const pythonBin = process.platform === "win32" ? "python" : "python3";
 
-// node-pty hangs under Bun's runtime on POSIX (fork never emits) — but on
-// Windows it uses ConPTY (no fork) and works fine under Bun; it is the only
-// way to get a resizable TTY there. Fall back to the cmd.exe pipe (Windows)
-// or Python PTY bridge (POSIX) when unavailable or on failure.
+// node-pty hangs under Bun's runtime on POSIX (fork never emits). On Windows
+// under Bun its ConPTY OUTPUT works, but the INPUT socket is created via
+// `new net.Socket({ fd })` which Bun doesn't support — every write throws
+// ERR_SOCKET_CLOSED (dead keyboard, local echo only). So node-pty/ConPTY is
+// only usable under Node.js, or on non-Windows. Bun+win32 falls back to the
+// cmd.exe pipe (input works via stdin, no TUI).
+const nodePtySupported = typeof Bun === "undefined" || process.platform !== "win32";
+
 let nodePty: typeof import("node-pty") | null = null;
-if (typeof Bun === "undefined" || process.platform === "win32") {
+if (nodePtySupported) {
   try {
     nodePty = await import("node-pty");
     if (typeof nodePty.spawn !== "function") nodePty = null;
@@ -64,6 +68,7 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
 
   const session: AgentSession = { id, cwd, cols, rows, sizeFile, buffer: "" };
   sessions.set(id, session);
+  const startedAt = Date.now();
 
   const broadcast = (data: string) => {
     session.buffer += data;
@@ -85,7 +90,7 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
     sessions.delete(id);
   };
 
-  // Backend 1: node-pty (native; Node.js + Windows/ConPTY under Bun)
+  // Backend 1: node-pty (native; Node.js + Windows/ConPTY under Node)
   if (nodePty) {
     try {
       // Windows: opencode/claude are .cmd shims that CreateProcess can't run
@@ -119,8 +124,27 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
             },
           });
       session.pty = pty;
+      // node-pty's Windows ConPTY pipes emit 'error' on writes after the
+      // process dies: outSocket rethrows unless the pty has an 'error'
+      // listener, and inSocket has NO listener at all (unhandled 'error'
+      // noise). Swallow both — onExit drives the cleanup.
+      try {
+        (pty as any).on?.("error", () => {});
+        const agent = (pty as any)._agent;
+        agent?.inSocket?.on?.("error", () => {});
+        agent?.outSocket?.on?.("error", () => {});
+      } catch {}
+      console.log(`[terminal] session ${id} backend=${isWin ? "conpty" : "node-pty"} (${cols}x${rows})`);
       pty.onData((data) => broadcast(data));
-      pty.onExit(({ exitCode }) => handleExit(exitCode));
+      pty.onExit(({ exitCode }) => {
+        // Drop the pty reference first so no late write can hit the dead
+        // ConPTY socket (the error the user saw), then clean up.
+        session.pty = undefined;
+        if (exitCode !== 0 && Date.now() - startedAt < 15000 && session.buffer.length > 0) {
+          console.error(`[terminal] session ${id} exited early (code ${exitCode}) — output tail:\n${session.buffer.slice(-1500)}`);
+        }
+        handleExit(exitCode);
+      });
       return session;
     } catch (err) {
       console.error("[terminal] node-pty spawn failed, falling back:", err);
@@ -137,11 +161,17 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
     try {
       const proc = spawn(comspec, ["/d", "/s", "/c", command], {
         cwd,
-        env: { ...process.env, TERM: "xterm-256color" },
+        env: {
+          ...process.env,
+          TERM: "xterm-256color",
+          COLUMNS: String(cols),
+          LINES: String(rows),
+        },
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
       session.proc = proc;
+      console.log(`[terminal] session ${id} backend=cmdpipe (${cols}x${rows})`);
       proc.stdout?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
       proc.stderr?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
       proc.on("close", (code: number | null) => handleExit(code));
@@ -215,6 +245,7 @@ while True:
     stdio: ["pipe", "pipe", "pipe"],
   });
   session.proc = proc;
+  console.log(`[terminal] session ${id} backend=python (${cols}x${rows})`);
 
   proc.stdout?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
 
@@ -234,7 +265,9 @@ function writeStdin(id: string, data: string) {
     } else if (session.proc?.stdin?.writable) {
       session.proc.stdin.write(data);
     }
-  } catch {}
+  } catch {
+    // PTY died mid-write (ERR_SOCKET_CLOSED) — the onExit handler cleans up.
+  }
 }
 
 function resizeSession(id: string, cols: number, rows: number) {
@@ -294,7 +327,7 @@ function handleMessage(ws: any, msg: string | Buffer) {
   try {
     const parsed = JSON.parse(typeof msg === "string" ? msg : msg.toString());
     if (parsed.type === "spawn") {
-      const s = runAgent(parsed.id, parsed.command, parsed.cwd || (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), "..")));
+      const s = runAgent(parsed.id, parsed.command, parsed.cwd || (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), "..")), parsed.cols || 120, parsed.rows || 40);
       if (s) {
         setTimeout(() => {
           try {

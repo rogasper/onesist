@@ -80,6 +80,65 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
     return json({ status: "ok" });
   }
 
+  // /api/helpers/platform — OS platform so the frontend can pick the right
+  // folder-picker flow (web folder browser on Windows, native elsewhere).
+  if (resource === "helpers" && segments[1] === "platform" && method === "GET") {
+    return json({ platform: process.platform });
+  }
+
+  // /api/helpers/list-dirs — list directories for the web folder picker.
+  // No native dialog involved: instant, no PowerShell, works everywhere.
+  // POST { path: "" } returns drive/mount roots; POST { path: "C:\\" } lists
+  // its subdirectories.
+  if (resource === "helpers" && segments[1] === "list-dirs" && method === "POST") {
+    const body = await parseBody(request);
+    const requested = String(body.path ?? "").trim();
+    const fsMod = await import("node:fs");
+
+    const rootCandidates = (): { name: string; path: string }[] => {
+      const out: { name: string; path: string }[] = [];
+      if (process.platform === "win32") {
+        for (let i = 65; i <= 90; i++) {
+          const letter = String.fromCharCode(i);
+          try { if (fsMod.existsSync(`${letter}:\\`)) out.push({ name: `${letter}:\\`, path: `${letter}:\\` }); } catch {}
+        }
+        const home = process.env.USERPROFILE || process.env.SA_ROOT;
+        if (home && fsMod.existsSync(home)) out.push({ name: `~ (${home.split("\\").pop()})`, path: home });
+      } else {
+        out.push({ name: "/", path: "/" });
+        const home = process.env.HOME || process.env.SA_ROOT;
+        if (home && fsMod.existsSync(home)) out.push({ name: `~ (${path.basename(home)})`, path: home });
+      }
+      return out;
+    };
+
+    if (!requested) {
+      return json({ path: "", parent: null, roots: rootCandidates(), entries: [] });
+    }
+
+    let current = requested;
+    try { current = path.normalize(current); } catch {}
+
+    let entries: { name: string; path: string }[] = [];
+    try {
+      const items = fsMod.readdirSync(current, { withFileTypes: true });
+      for (const item of items) {
+        if (item.name.startsWith(".")) continue;
+        try {
+          if (item.isDirectory()) {
+            entries.push({ name: item.name, path: path.join(current, item.name) });
+          }
+        } catch {}
+      }
+    } catch (e: any) {
+      return json({ error: e?.message || String(e) }, 400);
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    if (entries.length > 500) entries = entries.slice(0, 500);
+    const parent = path.dirname(current) === current ? null : path.dirname(current);
+    return json({ path: current, parent, roots: [], entries });
+  }
+
   // /api/helpers/choose-folder — open native OS folder picker
   if (resource === "helpers" && segments[1] === "choose-folder" && method === "POST") {
     async function pickFolder(): Promise<string> {

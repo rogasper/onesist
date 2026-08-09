@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button, Badge, DialogRoot, Dialog, DialogTitle, DialogDescription } from "@cloudflare/kumo";
-import { Folder, Cube, MagnifyingGlass, Trash, Plus } from "@phosphor-icons/react";
+import { Folder, Cube, MagnifyingGlass, Trash, Plus, ArrowUp, FolderOpen } from "@phosphor-icons/react";
 
 // Native folder picker when running inside the Tauri desktop shell; falls
 // back to the web API (osascript/zenity/powershell) otherwise.
@@ -79,6 +79,15 @@ function DashboardPage() {
   const [opening, setOpening] = useState(false);
   const [browsing, setBrowsing] = useState(false);
 
+  // Web folder browser modal state (Windows — native dialogs are unreliable)
+  const [dirOpen, setDirOpen] = useState(false);
+  const [dirPath, setDirPath] = useState("");
+  const [dirParent, setDirParent] = useState<string | null>(null);
+  const [dirRoots, setDirRoots] = useState<{ name: string; path: string }[]>([]);
+  const [dirEntries, setDirEntries] = useState<{ name: string; path: string }[]>([]);
+  const [dirLoading, setDirLoading] = useState(false);
+  const [dirError, setDirError] = useState("");
+
   // Skill setup state
   const [setupState, setSetupState] = useState<{
     phase: "idle" | "creating" | "installing" | "ready" | "failed";
@@ -136,23 +145,67 @@ function DashboardPage() {
     }).catch(() => {});
   }, []);
 
+  const applyPickedPath = (p: string) => {
+    setFolderPath(p);
+    if (!projectName) {
+      const cleanPath = p.replace(/[/\\]$/, "");
+      const parts = cleanPath.split(/[/\\]/);
+      setProjectName(parts[parts.length - 1] || "Project");
+    }
+  };
+
   const handleBrowse = async () => {
     setBrowsing(true);
     setError("");
     try {
       const path = await pickFolder();
-      if (path) {
-        setFolderPath(path);
-        if (!projectName) {
-          const cleanPath = path.replace(/[/\\]$/, "");
-          const parts = cleanPath.split(/[/\\]/);
-          setProjectName(parts[parts.length - 1] || "Project");
-        }
-      }
+      if (path) applyPickedPath(path);
     } catch (e: any) {
       setError(e?.message || "Failed to open folder picker");
     } finally {
       setBrowsing(false);
+    }
+  };
+
+  // Web folder browser — server lists directories, no native dialog. Primary
+  // on Windows (PowerShell/COM dialogs are slow/unreliable); macOS/Linux keep
+  // the native picker (untouched).
+  const loadDirs = async (p: string) => {
+    setDirLoading(true);
+    setDirError("");
+    try {
+      const res = await fetch("/api/helpers/list-dirs", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: p }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setDirError(data.error || "Failed to list folders"); return; }
+      setDirPath(data.path ?? "");
+      setDirParent(data.parent ?? null);
+      setDirRoots(data.roots ?? []);
+      setDirEntries(data.entries ?? []);
+    } catch (e: any) {
+      setDirError(e?.message || "Failed to list folders");
+    } finally {
+      setDirLoading(false);
+    }
+  };
+
+  const openFolderBrowser = async () => {
+    setError("");
+    try {
+      const res = await fetch("/api/helpers/platform", { cache: "no-store" });
+      const { platform } = await res.json();
+      if (platform === "win32") {
+        setDirOpen(true);
+        loadDirs("");
+      } else {
+        handleBrowse();
+      }
+    } catch {
+      handleBrowse();
     }
   };
 
@@ -288,7 +341,7 @@ function DashboardPage() {
                     className="flex items-center text-xs text-kumo-default px-3 py-2 flex-1 border border-kumo-line rounded bg-kumo-elevated/30 focus:border-kumo-brand focus:outline-none"
                   />
                   <button
-                    onClick={handleBrowse}
+                    onClick={openFolderBrowser}
                     disabled={browsing}
                     className="flex items-center gap-1.5 px-3 py-2 text-xs rounded bg-kumo-elevated border border-kumo-line text-kumo-default hover:bg-kumo-elevated/80 transition-colors disabled:opacity-50 shrink-0"
                   >
@@ -296,6 +349,13 @@ function DashboardPage() {
                     {browsing ? "Browsing..." : "Browse"}
                   </button>
                 </div>
+                <button
+                  onClick={handleBrowse}
+                  className="mt-1 text-[10px] text-kumo-subtle underline hover:text-kumo-default"
+                  title="Pakai dialog sistem (PowerShell) sebagai cadangan"
+                >
+                  pakai dialog sistem
+                </button>
               </div>
               
               <div>
@@ -352,6 +412,77 @@ function DashboardPage() {
                   {opening ? "Opening..." : "Open Project"}
                 </Button>
               </div>
+            </div>
+          </div>
+        </Dialog>
+      </DialogRoot>
+
+      {/* Web folder browser (Windows) */}
+      <DialogRoot open={dirOpen} onOpenChange={setDirOpen}>
+        <Dialog>
+          <div className="p-5 w-[480px] max-w-full">
+            <DialogTitle>Select Project Folder</DialogTitle>
+            <div className="mt-3 flex items-center gap-2">
+              <span
+                className="flex-1 text-[11px] font-mono text-kumo-subtle truncate px-2 py-1.5 border border-kumo-line rounded bg-kumo-elevated/30"
+                title={dirPath}
+              >
+                {dirPath || "Pilih drive / folder"}
+              </span>
+              <button
+                onClick={() => dirParent && loadDirs(dirParent)}
+                disabled={!dirParent || dirLoading}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded bg-kumo-elevated border border-kumo-line text-kumo-default hover:bg-kumo-elevated/80 transition-colors disabled:opacity-40 shrink-0"
+              >
+                <ArrowUp size={12} />
+                Up
+              </button>
+            </div>
+            <div className="mt-3 max-h-72 overflow-y-auto border border-kumo-line rounded bg-kumo-elevated/20">
+              {dirLoading ? (
+                <div className="p-4 text-xs text-kumo-subtle">Loading folders…</div>
+              ) : dirError ? (
+                <div className="p-4 text-xs text-red-400">{dirError}</div>
+              ) : (
+                <div>
+                  {dirRoots.map((r) => (
+                    <button
+                      key={r.path}
+                      onClick={() => loadDirs(r.path)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-kumo-default hover:bg-kumo-brand/10 transition-colors text-left"
+                    >
+                      <FolderOpen size={13} className="text-kumo-brand shrink-0" />
+                      <span className="font-medium">{r.name}</span>
+                    </button>
+                  ))}
+                  {dirEntries.map((e) => (
+                    <button
+                      key={e.path}
+                      onClick={() => loadDirs(e.path)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-kumo-default hover:bg-kumo-brand/10 transition-colors text-left"
+                    >
+                      <Folder size={13} className="text-kumo-subtle shrink-0" />
+                      <span className="truncate">{e.name}</span>
+                    </button>
+                  ))}
+                  {dirRoots.length === 0 && dirEntries.length === 0 && (
+                    <div className="p-4 text-xs text-kumo-subtle">Tidak ada subfolder</div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="ghost" size="sm" onClick={() => setDirOpen(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!dirPath}
+                onClick={() => {
+                  if (dirPath) { applyPickedPath(dirPath); setDirOpen(false); }
+                }}
+              >
+                Select This Folder
+              </Button>
             </div>
           </div>
         </Dialog>
