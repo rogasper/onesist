@@ -245,7 +245,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
       <div className="flex-1 overflow-y-auto py-1" onContextMenu={(e) => { e.preventDefault(); }}>
         {query ? (
           searchResults.length === 0 ? (
-            <div className="px-3 py-2 text-[10px] text-kumo-subtle italic">No files match</div>
+            <div className="px-3 py-2 text-[10px] text-kumo-subtle">No files match</div>
           ) : (
             searchResults.map((f) => {
               const disabled = isDisabled?.(f) ?? false;
@@ -266,7 +266,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
             })
           )
         ) : trees.length === 0 ? (
-          <div className="px-3 py-2 text-[11px] text-kumo-subtle italic">{emptyText}</div>
+          <div className="px-3 py-2 text-[11px] text-kumo-subtle">{emptyText}</div>
         ) : (
           trees.map((node) => {
             if (node.type === "folder") {

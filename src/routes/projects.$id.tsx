@@ -14,6 +14,9 @@ import { AppButton } from "~/components/ui/AppButton";
 import { FileRow } from "~/components/ui/FileRow";
 import { ContextMenu } from "~/components/ui/ContextMenu";
 import type { ContextMenuItem } from "~/components/ui/ContextMenu";
+import { EmptyState } from "~/components/ui/EmptyState";
+import { ErrorState } from "~/components/ui/ErrorState";
+import { ListSkeleton } from "~/components/ui/Skeleton";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: async ({ params }) => {
@@ -42,12 +45,30 @@ function ProjectLayout() {
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
   const [skillsState, setSkillsState] = useState<{ status: string; error: string | null } | null>(null);
+  // Live defaultAgent — the route loader is cached/stale; refresh via the
+  // "project-updated" event fired by Settings after saving.
+  const [freshAgent, setFreshAgent] = useState<string | null>(null);
+  const agent = freshAgent ?? project?.defaultAgent ?? "opencode";
 
   useEffect(() => {
     if (!project?.id) return;
     fetch(`/api/projects/${project.id}/skills`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
       if (d) setSkillsState({ status: d.status, error: d.skills?.find((s: any) => s.status === "failed")?.error ?? null });
     }).catch(() => {});
+  }, [project?.id]);
+
+  // Listen for project updates (e.g. defaultAgent changed in Settings) so the
+  // terminal picks up the new agent without a manual refresh.
+  useEffect(() => {
+    const pid = project?.id;
+    if (!pid) return;
+    const refresh = () => {
+      fetch(`/api/projects/${pid}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
+        if (d?.defaultAgent) setFreshAgent(d.defaultAgent);
+      }).catch(() => {});
+    };
+    window.addEventListener("project-updated", refresh);
+    return () => window.removeEventListener("project-updated", refresh);
   }, [project?.id]);
 
   const activeTab = location.pathname.includes("/erd") ? "erd"
@@ -104,7 +125,7 @@ function ProjectLayout() {
           </div>
           <div className="flex items-center gap-2">
             <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
-            <h1 className="text-lg font-semibold text-kumo-default">{project.name}</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-kumo-default">{project.name}</h1>
             {project.company && <Badge variant="neutral" className="text-[11px]">{project.company}</Badge>}
             <AppButton
               onClick={() => setTerminalOpen((p) => !p)}
@@ -181,7 +202,7 @@ function ProjectLayout() {
       </div>
 
       <Suspense fallback={null}>
-        <AgentTermPanel visible={terminalOpen} onClose={() => setTerminalOpen(false)} projectId={project.id} defaultAgent={project.defaultAgent} />
+        <AgentTermPanel visible={terminalOpen} onClose={() => setTerminalOpen(false)} projectId={project.id} defaultAgent={agent} />
       </Suspense>
     </div>
   );
@@ -377,11 +398,18 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
 
   if (totalFiles === 0) {
     return (
-      <div className="rounded-lg border border-kumo-line p-6 text-center">
-        <FolderOpen size={32} className="text-kumo-subtle mb-2 mx-auto" />
-        <p className="text-sm text-kumo-subtle mb-1">No project files found yet</p>
-        <p className="text-xs text-kumo-subtle">Use the terminal to run an FSD analysis or add files to <code className="text-[11px] text-kumo-default font-mono bg-kumo-elevated px-1 rounded">input/</code> and <code className="text-[11px] text-kumo-default font-mono bg-kumo-elevated px-1 rounded">output/</code> directories.</p>
-      </div>
+      <EmptyState
+        icon={<FolderOpen size={32} />}
+        title="No project files found yet"
+        description={
+          <>
+            Use the terminal to run an FSD analysis or add files to{" "}
+            <code className="text-[11px] text-kumo-default font-mono bg-kumo-elevated px-1 rounded">input/</code> and{" "}
+            <code className="text-[11px] text-kumo-default font-mono bg-kumo-elevated px-1 rounded">output/</code> directories.
+          </>
+        }
+        className="rounded-lg border border-kumo-line"
+      />
     );
   }
 
@@ -442,7 +470,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
           <div className="flex-1 overflow-x-auto overflow-y-auto text-xs" onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}>
             {query ? (
               searchResults.length === 0 ? (
-                <div className="px-3 py-2 text-[10px] text-kumo-subtle italic">No files match</div>
+                <div className="px-3 py-2 text-[10px] text-kumo-subtle">No files match</div>
               ) : (
                 searchResults.map((f) => {
                   const isMarkdown = f.path.endsWith(".md");
@@ -485,7 +513,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                       <span className="text-xs truncate">{dirLabel(dir)}</span>
                     </button>
                     {!collapsedDirs.has(dir) && (
-                      <div className="pl-4 py-1 text-[11px] text-kumo-subtle italic">(empty)</div>
+                      <div className="pl-4 py-1 text-[11px] text-kumo-subtle">(empty)</div>
                     )}
                     </div>
                   );
@@ -546,31 +574,21 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
           {/* Content viewer */}
           <div className="flex-1 min-h-0 overflow-y-auto">
             {!activeTabPath ? (
-              <div className="flex items-center justify-center h-full px-4 py-8 text-center text-xs text-kumo-subtle">
-                <div>
-                  <FileText size={24} className="text-kumo-subtle mb-2 mx-auto opacity-40" />
-                  <p>Select a markdown file from the browser to view its content</p>
-                </div>
-              </div>
+              <EmptyState
+                icon={<FileText size={24} />}
+                title="No file selected"
+                description="Select a markdown file from the browser to view its content."
+              />
             ) : contentLoading ? (
-              <div className="flex items-center justify-center h-full text-xs text-kumo-subtle">Loading...</div>
+              <div className="p-4"><ListSkeleton rows={6} /></div>
             ) : activeContent === null ? (
-              <div className="flex items-center justify-center h-full px-4 py-8 text-center text-xs text-kumo-subtle">
-                <div>
-                  <p className="mb-1">Unable to read this file</p>
-                  <p className="text-[10px] text-kumo-subtle mb-3">Check that the project root path is set in settings</p>
-                  <button
-                    type="button"
-                    onClick={refreshContent}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-kumo-line hover:bg-kumo-elevated hover:text-kumo-default transition-colors"
-                  >
-                    <ArrowCounterClockwise size={12} />
-                    Retry
-                  </button>
-                </div>
-              </div>
+              <ErrorState
+                message="Unable to read this file"
+                detail="Check that the project root path is set in settings"
+                retry={refreshContent}
+              />
             ) : activeContent === "" ? (
-              <div className="flex items-center justify-center h-full text-xs text-kumo-subtle">File is empty</div>
+              <EmptyState icon={<FileText size={24} />} title="File is empty" />
             ) : (
               <div className="px-4 py-3 spec-markdown">
                 <MarkdownViewer content={activeContent ?? ""} />

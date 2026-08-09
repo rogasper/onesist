@@ -76,15 +76,15 @@ export function AgentPicker({ selected, onSelect }: AgentPickerProps) {
       {open && (
         <div
           ref={dropdownRef}
-          className="fixed z-[100] w-56 bg-[#1c1c1c] border border-[#333] rounded-lg shadow-2xl"
+          className="fixed z-[100] w-56 bg-kumo-elevated border border-kumo-line rounded-lg shadow-2xl"
           style={{ top: pos.top, left: pos.left }}
         >
-          <div className="px-2.5 py-1.5 text-[10px] text-kumo-subtle border-b border-[#2a2a2a]">AI Agent CLI</div>
+          <div className="px-2.5 py-1.5 text-[10px] text-kumo-subtle border-b border-kumo-line">AI Agent CLI</div>
           {agents.map((a) => (
             <button
               key={a.name}
               onClick={() => { onSelect(a.found ? { name: a.name, command: a.command } : null); setOpen(false); }}
-              className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2 hover:bg-[#2a2a2a] transition-colors ${
+              className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2 hover:bg-kumo-elevated hover:brightness-110 transition-colors ${
                 selected === a.command ? "liquid-wash font-medium" : a.found ? "text-kumo-default" : "text-kumo-subtle"
               }`}
               disabled={!a.found}

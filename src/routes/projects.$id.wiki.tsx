@@ -35,6 +35,7 @@ function WikiPage() {
   const project = loaderData?.project;
   const [pages, setPages] = useState<WikiPage[]>(loaderData?.wikiPages ?? []);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const activePage = pages.find((p) => p.id === activeId) ?? null;
 
   const handleAdd = useCallback(async () => {
@@ -93,11 +94,12 @@ function WikiPage() {
   }, [id, activeId]);
 
   const handleGenerateDocs = useCallback(async () => {
+    setError(null);
     try {
       const detectRes = await fetch("/api/agent/detect", { cache: "no-store" });
       const agents = await detectRes.json();
       const found = agents.find((a: any) => a.found);
-      if (!found) { alert("No agent CLI found — run Analysis from FSD tab first"); return; }
+      if (!found) { setError("No agent CLI found — run Analysis from FSD tab first"); return; }
 
       // Read all spec files and combine into one wiki page
       const specRes = await fetch("/api/files/list?dir=output/spec", { cache: "no-store" });
@@ -132,7 +134,7 @@ function WikiPage() {
   }, [id]);
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 70px)" }}>
+    <div className="app-page-height flex flex-col">
       <div className="mb-3 shrink-0">
         <div className="text-xs text-kumo-subtle mb-1">
           <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
@@ -143,13 +145,16 @@ function WikiPage() {
         </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><Notepad size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-lg text-kumo-default">Wiki / Docs</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Wiki / Docs</h1>
           {pages.length > 0 && <Badge variant="neutral" className="text-[11px]">{pages.length} pages</Badge>}
           <button onClick={handleGenerateDocs}
             className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white bg-kumo-brand rounded-full hover:opacity-90 transition-opacity">
             <FileText size={12} /> Generate from artifacts
           </button>
         </div>
+        {error && (
+          <div className="mt-2 text-xs text-red-400 p-2 bg-red-400/10 rounded">{error}</div>
+        )}
       </div>
 
       <div className="flex flex-1 min-h-0 glass-container overflow-hidden">

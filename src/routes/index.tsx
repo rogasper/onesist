@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button, Badge, DialogRoot, Dialog, DialogTitle, DialogDescription } from "@cloudflare/kumo";
 import { Folder, Cube, MagnifyingGlass, Trash, Plus, ArrowUp, FolderOpen } from "@phosphor-icons/react";
+import { CardGridSkeleton } from "~/components/ui/Skeleton";
+import { EmptyState } from "~/components/ui/EmptyState";
 
 // Native folder picker when running inside the Tauri desktop shell; falls
 // back to the web API (osascript/zenity/powershell) otherwise.
@@ -315,7 +317,7 @@ function DashboardPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg text-kumo-default">Projects</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Projects</h1>
           {projects.length > 0 && <Badge variant="neutral" className="text-xs px-2 py-0.5">{projects.length}</Badge>}
         </div>
         <Button variant="primary" size="sm" onClick={openProjectDialog} className="flex items-center gap-1.5">
@@ -389,7 +391,7 @@ function DashboardPage() {
                             ? "border-kumo-brand bg-kumo-brand/10"
                             : a.found
                               ? "border-kumo-line bg-kumo-elevated/30 hover:bg-kumo-elevated/60 cursor-pointer"
-                              : "border-[#2a2a2a] bg-[#1a1a1a] opacity-50 cursor-not-allowed"
+                              : "border-kumo-line bg-kumo-recessed opacity-50 cursor-not-allowed"
                         }`}
                       >
                         <div className={`w-2 h-2 rounded-full shrink-0 ${a.found ? "bg-green-400" : "bg-red-400/50"}`} />
@@ -550,13 +552,14 @@ function DashboardPage() {
       </DialogRoot>
 
       {loading ? (
-        <div className="text-kumo-subtle text-sm">Loading...</div>
+        <CardGridSkeleton count={6} />
       ) : projects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-kumo-subtle">
-          <Folder size={32} className="opacity-30" />
-          <span className="text-sm">No projects yet</span>
-          <span className="text-xs text-kumo-subtle">Click "Browse" and select a project folder</span>
-        </div>
+        <EmptyState
+          icon={<Folder size={32} />}
+          title="No projects yet"
+          description={'Click "Browse" and select a project folder to get started.'}
+          className="py-16"
+        />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((p) => (

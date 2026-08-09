@@ -137,7 +137,7 @@ function TasksPage() {
   }, [id]);
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 70px)" }}>
+    <div className="app-page-height flex flex-col">
       <div className="mb-3 shrink-0 space-y-2">
         <div className="text-xs text-kumo-subtle">
           <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
@@ -148,7 +148,7 @@ function TasksPage() {
         </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><ListChecks size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-lg text-kumo-default">Tasks</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Tasks</h1>
           {tasks.length > 0 && (
             <>
               <Badge variant="neutral" className="text-[11px]">{tasks.length} tasks</Badge>

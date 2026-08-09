@@ -121,7 +121,7 @@ export function TaskBoard({ tasks, selectedId, onSelect, onStatusChange }: TaskB
                 );
               })}
               {items.length === 0 && (
-                <div className="text-[11px] text-kumo-subtle text-center py-6 italic">No tasks</div>
+                <div className="text-[11px] text-kumo-subtle text-center py-6">No tasks</div>
               )}
             </div>
           </div>

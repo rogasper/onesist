@@ -68,6 +68,7 @@ function SettingsPage() {
       if (res.ok) {
         saveTerminalPrefs(terminalPrefs);
         setSaved(true);
+        window.dispatchEvent(new Event("project-updated"));
         setTimeout(() => setSaved(false), 2000);
       }
     } catch {}
@@ -90,7 +91,7 @@ function SettingsPage() {
         </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><Gear size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-lg text-kumo-default">Settings</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Settings</h1>
         </div>
       </div>
 

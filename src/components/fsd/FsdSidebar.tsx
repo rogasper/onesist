@@ -94,7 +94,7 @@ export function FsdSidebar({ sessions, activeId, search, onSearchChange, onSelec
                 <span className="text-[9px] text-kumo-subtle">{s.sourceType}</span>
               )}
               <span className="flex items-center gap-0.5 text-[9px] text-kumo-subtle ml-auto">
-                <Clock size={8} />{timeAgo(s.createdAt)}
+                <Clock size={10} />{timeAgo(s.createdAt)}
               </span>
             </div>
           </FileRow>

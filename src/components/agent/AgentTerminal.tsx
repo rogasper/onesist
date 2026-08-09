@@ -61,15 +61,11 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     }).catch(() => {});
   }, [projectId]);
 
-  // Fetch latest project data to get current defaultAgent (route loader may be stale)
-  useEffect(() => {
-    if (!projectId) return;
-    fetch(`/api/projects/${projectId}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
-      if (d?.defaultAgent && d.defaultAgent !== agentName) setAgentName(d.defaultAgent);
-    }).catch(() => {});
-  }, [projectId]);
-
-  // Sync agent name from defaultAgent prop
+  // Sync agent name from the defaultAgent prop. The parent (projects.$id)
+  // keeps this fresh by listening to the "project-updated" event, so the
+  // terminal reflects Settings changes without a manual refresh. Changing the
+  // agent mid-session only updates the label — the running session continues
+  // (the auto-connect effect reattaches rather than respawning).
   useEffect(() => { setAgentName(defaultAgent); }, [defaultAgent]);
 
   // Auto-connect when panel opens; reattach the running session instead of respawning
@@ -378,7 +374,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         style={{ width, display: visible ? undefined : "none" }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-[#2a2a2a]">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-kumo-line/60">
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-neutral-600"}`} />
             <span className="text-xs font-medium text-neutral-300">Terminal</span>
@@ -386,18 +382,18 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
           </div>
           <div className="flex items-center gap-1">
             {connected ? (
-              <button onClick={handleEndSession} title="End agent session" className="text-neutral-500 hover:text-red-400 transition-colors">
+              <button onClick={handleEndSession} title="End agent session" className="p-1 rounded text-neutral-300 hover:text-red-400 hover:bg-white/10 transition-colors">
                 <Square size={13} />
               </button>
             ) : (
-              <button onClick={() => setRestartTick((t) => t + 1)} title="Start agent session" className="text-neutral-400 hover:text-green-400 transition-colors">
+              <button onClick={() => setRestartTick((t) => t + 1)} title="Start agent session" className="p-1 rounded text-neutral-300 hover:text-green-400 hover:bg-white/10 transition-colors">
                 <Play size={13} />
               </button>
             )}
             <button
               onClick={() => { handleEndSession(); onClose(); }}
               title="Close terminal (kills the running session)"
-              className="text-neutral-500 hover:text-neutral-200 transition-colors ml-1"
+              className="p-1 rounded text-neutral-300 hover:text-white hover:bg-white/10 transition-colors ml-1"
             >
               <X size={14} />
             </button>
