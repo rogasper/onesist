@@ -22,7 +22,18 @@ const knownFiles = new Map<string, number>();
 // Safety net: if the process RSS balloons (a leak would otherwise run the
 // machine out of memory — observed at 100+ GB), kill ourselves so the Tauri
 // sidecar's crash recovery respawns a fresh process.
-const MAX_RSS_MB = 1200;
+// The default is generous because `bun run dev` shares one process with the
+// Vite bundler (dep optimizer, dev transforms, hot reload) — normal dev RSS
+// easily exceeds 1.2GB. A bare compiled sidecar sits far below this (200-400MB),
+// so a genuine leak still gets caught quickly. Override with SA_MAX_RSS_MB.
+const MAX_RSS_MB = parseInt(process.env.SA_MAX_RSS_MB || "3000", 10) || 3000;
+
+// In dev the server shares its process with the Vite bundler (optimizer, dev
+// transforms, SSR) — high RSS is normal bloat, not a leak, so never kill the
+// developer's session. Production keeps the hard restart.
+const IS_DEV = process.env.NODE_ENV === "development";
+
+let lastRss: number | null = null;
 
 function rssMB(): number {
   try {
@@ -30,6 +41,16 @@ function rssMB(): number {
   } catch {
     return 0;
   }
+}
+
+/** RSS after a forced GC pass. Bun/JSC holds onto freed memory lazily, so the
+ *  raw RSS drifts up under dev workloads (Vite transforms, SSR renders) and
+ *  would falsely trigger the watchdog. Measure *live* memory instead. */
+function liveRssMB(): number {
+  try {
+    (globalThis as any).Bun?.gc?.(true);
+  } catch {}
+  return rssMB();
 }
 
 export function registerWatchRoot(rootPath: string) {
@@ -61,10 +82,21 @@ export function startFileWatcher(intervalMs = 2000) {
 
     // Memory watchdog: restart before we OOM the machine.
     if (tick % 5 === 0) {
-      const rss = rssMB();
+      const rss = liveRssMB();
+      // Periodic RSS heartbeat + growth rate (leak = steady climb, dev bloat
+      // = plateau) so the trend is visible in the console.
+      if (tick % 30 === 0) {
+        const delta = lastRss === null ? 0 : rss - lastRss;
+        lastRss = rss;
+        console.log(`[watcher] RSS ${rss}MB (max ${MAX_RSS_MB}MB, ${delta >= 0 ? "+" : ""}${delta}MB/min)`);
+      }
       if (rss > MAX_RSS_MB) {
-        console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — exiting to force a clean restart`);
-        process.exit(1);
+        if (IS_DEV) {
+          console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — dev: warning only (production would restart)`);
+        } else {
+          console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — exiting to force a clean restart`);
+          process.exit(1);
+        }
       }
     }
 

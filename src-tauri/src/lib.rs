@@ -6,15 +6,23 @@ use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 /// Native folder picker for the "Open Project" flow. Returns the selected
 /// directory path or null when cancelled.
+///
+/// Uses the non-blocking callback API (runs the dialog on the main thread,
+/// parented to the WebView window) instead of blocking_pick_folder, which is
+/// reported to deadlock with the WebView2 event loop on Windows and loses the
+/// parent window context. The command awaits the callback result asynchronously.
 #[tauri::command]
-async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+async fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    Ok(app
+    let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+    let builder = window
         .dialog()
         .file()
-        .set_title("Select Project Folder")
-        .blocking_pick_folder()
-        .map(|p| p.to_string()))
+        .set_title("Select Project Folder");
+    builder.pick_folder(move |path| {
+        let _ = tx.send(path.map(|p| p.to_string()));
+    });
+    rx.recv().map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

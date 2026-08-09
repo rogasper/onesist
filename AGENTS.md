@@ -115,7 +115,7 @@ Tauri shell (Rust) ──spawn──▶ onesist-server (compiled Bun)
 - **Ports:** HTTP = first free of 4321 (checks IPv4 AND IPv6), terminal = first free of 4331
 - **Asset sync:** `ensure_server_dir` re-copies `web-dist` from resources on EVERY launch (stale assets = 404 = React never boots = "Loading..." forever)
 - **Quit:** never rely on `app.exit()` on macOS with a tray icon (hangs). Tray Quit and `ExitRequested` both do: `mark_quitting()` → spawn detached thread `std::process::exit(0)` after 150ms → `state.stop()`.
-- **Crash recovery:** sidecar auto-restarts max 3×/60s; memory watchdog exits the server if RSS > 1200MB (forces clean restart).
+- **Crash recovery:** sidecar auto-restarts max 3×/60s; memory watchdog exits the server if RSS > `SA_MAX_RSS_MB` (default 3000MB — dev shares the process with the Vite optimizer; a bare compiled server normally sits ~300MB, so a leak still gets caught quickly). In dev (`NODE_ENV=development`) the watchdog only warns — dev RSS (1.5-2GB with the bundler) is bloat, not a leak, and killing the dev session is worse.
 
 ## Auto-update (Phase 3)
 

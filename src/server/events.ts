@@ -11,6 +11,15 @@ interface EventPayload {
 class AppEventBus extends EventEmitter {
   private tickets = new Map<string, number>();
 
+  /** Drop expired tickets so the Map never grows without bound (each SSE
+   *  connection creates one; unvalidated tickets would linger forever). */
+  private pruneTickets() {
+    const now = Date.now();
+    for (const [ticket, expires] of this.tickets) {
+      if (now > expires) this.tickets.delete(ticket);
+    }
+  }
+
   emitFileChanged(route: string, filePath: string) {
     this.emitAppEvent({ type: "file:changed", data: { route, path: filePath } });
   }
@@ -46,6 +55,7 @@ class AppEventBus extends EventEmitter {
 
   createTicket(): string {
     const ticket = crypto.randomUUID();
+    if (this.tickets.size > 512) this.pruneTickets();
     this.tickets.set(ticket, Date.now() + 60000);
     return ticket;
   }

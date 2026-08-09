@@ -2,8 +2,12 @@ import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tansta
 import { Badge, Button, DialogRoot, Dialog, DialogTitle, DialogDescription } from "@cloudflare/kumo";
 import { Cube, Terminal as TerminalIcon, FileText, File, FolderOpen, X, CaretDown, CaretRight, CaretLeft, ArrowCounterClockwise, Folder, ArrowDownLeft, ArrowUpRight, MagnifyingGlass, PencilSimple, Trash, CopySimple, ClipboardText } from "@phosphor-icons/react";
 import { loadAllData } from "~/lib/project-queries";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { AgentTermPanel } from "~/components/agent/AgentTerminal";
+import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
+// xterm is ~700KB min — keep it out of the project layout chunk; the panel is
+// hidden until the user opens the terminal anyway.
+const AgentTermPanel = lazy(() =>
+  import("~/components/agent/AgentTerminal").then((m) => ({ default: m.AgentTermPanel }))
+);
 import { useFileContent } from "~/lib/use-file-data";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { AppButton } from "~/components/ui/AppButton";
@@ -176,7 +180,9 @@ function ProjectLayout() {
         </div>
       </div>
 
-      <AgentTermPanel visible={terminalOpen} onClose={() => setTerminalOpen(false)} projectId={project.id} defaultAgent={project.defaultAgent} />
+      <Suspense fallback={null}>
+        <AgentTermPanel visible={terminalOpen} onClose={() => setTerminalOpen(false)} projectId={project.id} defaultAgent={project.defaultAgent} />
+      </Suspense>
     </div>
   );
 }

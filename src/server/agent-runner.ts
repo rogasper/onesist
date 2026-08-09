@@ -56,9 +56,12 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
     // Resolve the actual executable: on Windows the agent may be installed as
     // <name>.exe or <name>.cmd (a shell script). spawn() cannot execute a bare
     // .cmd name without shell:true, so resolve the absolute path and let
-    // needsShell() decide whether to run it through cmd.exe.
+    // needsShell() decide whether to run it through cmd.exe. With a shell,
+    // the executable path must be quoted manually ("C:\Program Files\..."
+    // would otherwise be split at the first space).
     const exePath = resolveExecutable(command) || command;
-    const proc = spawn(exePath, args, {
+    const runnable = needsShell(exePath) ? `"${exePath}"` : exePath;
+    const proc = spawn(runnable, args, {
       cwd: projectRoot,
       env: { ...process.env, PATH: process.env.PATH || "" },
       stdio: ["pipe", "pipe", "pipe"],

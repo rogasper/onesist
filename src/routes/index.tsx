@@ -19,13 +19,32 @@ async function pickFolder(): Promise<string | null> {
     }
   }
   try {
-    const res = await fetch("/api/helpers/choose-folder", { method: "POST", cache: "no-store" });
-    if (res.ok) {
-      const data = await res.json();
-      return data.path ?? null;
+    // Never wait forever: a hung powershell picker (or dead server) must
+    // surface as an error instead of leaving the Open button disabled.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 120000);
+    try {
+      const res = await fetch("/api/helpers/choose-folder", {
+        method: "POST",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Server distinguishes "cancelled" (path:null, no error) from
+        // "picker failed" (error set) — surface failures, not cancels.
+        if (data.error) throw new Error(data.error);
+        return data.path ?? null;
+      }
+    } finally {
+      clearTimeout(timer);
     }
   } catch (e) {
     console.error("[pick_folder] web API failed:", e);
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error("Folder picker timed out (120s). Coba lagi, atau ketik path folder langsung di kolom Project Folder.");
+    }
+    throw new Error(`Folder picker failed: ${e instanceof Error ? e.message : String(e)}`);
   }
   return null;
 }
@@ -119,6 +138,7 @@ function DashboardPage() {
 
   const handleBrowse = async () => {
     setBrowsing(true);
+    setError("");
     try {
       const path = await pickFolder();
       if (path) {
@@ -129,8 +149,11 @@ function DashboardPage() {
           setProjectName(parts[parts.length - 1] || "Project");
         }
       }
-    } catch {}
-    setBrowsing(false);
+    } catch (e: any) {
+      setError(e?.message || "Failed to open folder picker");
+    } finally {
+      setBrowsing(false);
+    }
   };
 
   const handleOpenFolder = async () => {
@@ -256,9 +279,14 @@ function DashboardPage() {
               <div>
                 <label className="block text-xs text-kumo-subtle mb-1.5">Project Folder</label>
                 <div className="flex gap-2">
-                  <span className="flex items-center text-xs text-kumo-default px-3 py-2 flex-1 border border-kumo-line rounded bg-kumo-elevated/30 truncate">
-                    {folderPath || "No folder selected"}
-                  </span>
+                  <input
+                    type="text"
+                    value={folderPath}
+                    onChange={(e) => setFolderPath(e.target.value)}
+                    placeholder="No folder selected — atau ketik path manual"
+                    title="Paste path folder project jika picker bermasalah"
+                    className="flex items-center text-xs text-kumo-default px-3 py-2 flex-1 border border-kumo-line rounded bg-kumo-elevated/30 focus:border-kumo-brand focus:outline-none"
+                  />
                   <button
                     onClick={handleBrowse}
                     disabled={browsing}

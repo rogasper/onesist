@@ -9,16 +9,43 @@ function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex").slice(0, 12);
 }
 
-function runCommand(cmd: string, args: string[]): Promise<string> {
+interface CommandResult {
+  code: number;
+  out: string;
+}
+
+function runCommand(cmd: string, args: string[], timeoutMs = 45000): Promise<CommandResult> {
   return new Promise((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = (code: number, out: string) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve({ code, out });
+    };
     try {
-      const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"] });
+      const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let out = "";
+      let errOut = "";
       proc.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
-      proc.on("close", (code) => resolve(code === 0 ? out.trim() : ""));
-      proc.on("error", () => resolve(""));
+      proc.stderr.on("data", (chunk: Buffer) => (errOut += chunk.toString()));
+      proc.on("close", (code) => {
+        if (code !== 0 && errOut.trim()) console.error(`[runCommand] ${cmd} stderr:`, errOut.trim().slice(0, 400));
+        done(code ?? -1, out.trim());
+      });
+      proc.on("error", (err) => {
+        console.error(`[runCommand] spawn ${cmd} failed:`, err.message);
+        done(-1, "");
+      });
+      // Some Windows pickers keep the child alive after the dialog closes;
+      // never let the caller hang forever.
+      timer = setTimeout(() => {
+        try { proc.kill(); } catch {}
+        done(-1, "");
+      }, timeoutMs);
     } catch {
-      resolve("");
+      done(-1, "");
     }
   });
 }
@@ -56,29 +83,67 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
   // /api/helpers/choose-folder — open native OS folder picker
   if (resource === "helpers" && segments[1] === "choose-folder" && method === "POST") {
     async function pickFolder(): Promise<string> {
-      const os = process.platform;
-      if (os === "darwin") {
-        return runCommand("osascript", ["-e", "tell me to activate", "-e", "POSIX path of (choose folder)"]);
+      const platform = process.platform;
+      if (platform === "darwin") {
+        const r = await runCommand("osascript", ["-e", "tell me to activate", "-e", "POSIX path of (choose folder)"], 60000);
+        return r.code === 0 ? r.out : "";
       }
-      if (os === "linux") {
-        const zenity = await runCommand("zenity", ["--file-selection", "--directory", "--title=Select Project Folder"]);
-        if (zenity) return zenity;
-        return runCommand("kdialog", ["--getexistingdirectory"]);
+      if (platform === "linux") {
+        const zenity = await runCommand("zenity", ["--file-selection", "--directory", "--title=Select Project Folder"], 60000);
+        if (zenity.code === 0 && zenity.out) return zenity.out;
+        const kdialog = await runCommand("kdialog", ["--getexistingdirectory"], 60000);
+        return kdialog.code === 0 ? kdialog.out : "";
       }
-      if (os === "win32") {
-        return runCommand("powershell", ["-NoProfile", "-Command",
-          `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath } else { '' }`
-        ]);
+      if (platform === "win32") {
+        // PowerShell is the only reliable picker on Windows 11 24H2+: cscript/
+        // VBScript is deprecated there and WSH fails to run .vbs scripts.
+        // Both variants below use a marker protocol (SEL:/CANCEL) so we can
+        // distinguish "user cancelled" from "mechanism failed" — a failed
+        // picker must fall through to the next mechanism, not be treated as
+        // a silent cancel. [Environment]::Exit(0) forces powershell.exe to
+        // terminate after the dialog (it otherwise stays alive forever).
+        const psBase = ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command"];
+
+        // 1) Shell COM BrowseForFolder — modern Vista-style dialog, no
+        // WinForms/.NET dependency.
+        const comCmd = [
+          "$sh = New-Object -ComObject Shell.Application",
+          "$f = $sh.BrowseForFolder(0, 'Select Project Folder', 1)",
+          "if ($f -ne $null) { Write-Output ('SEL:' + $f.Self.Path) } else { Write-Output 'CANCEL' }",
+          "[Environment]::Exit(0)",
+        ].join("; ");
+        console.log("[folder-picker] launching powershell COM dialog...");
+        const com = await runCommand("powershell", [...psBase, comCmd], 60000);
+        console.log(`[folder-picker] com exit=${com.code} out="${com.out.slice(0, 300)}"`);
+        if (com.out.startsWith("SEL:")) return com.out.slice(4);
+        if (com.out.trim() === "CANCEL") return ""; // user cancelled — stop here
+
+        // 2) Fallback: WinForms FolderBrowserDialog (-STA required).
+        const winformsCmd = [
+          "Add-Type -AssemblyName System.Windows.Forms",
+          "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
+          "$r = $d.ShowDialog()",
+          "if ($r -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output ('SEL:' + $d.SelectedPath) } else { Write-Output 'CANCEL' }",
+          "[Environment]::Exit(0)",
+        ].join("; ");
+        console.log("[folder-picker] com failed — trying WinForms fallback");
+        const wf = await runCommand("powershell", [...psBase, winformsCmd], 60000);
+        console.log(`[folder-picker] winforms exit=${wf.code} out="${wf.out.slice(0, 300)}"`);
+        if (wf.out.startsWith("SEL:")) return wf.out.slice(4);
+        if (wf.out.trim() === "CANCEL") return "";
+        throw new Error(`Folder picker failed (win32): ${wf.out.trim() || `powershell exit ${wf.code}`}`);
       }
       return "";
     }
     let selectedPath = "";
+    let pickerError: string | null = null;
     try {
       selectedPath = await pickFolder();
     } catch (e: any) {
-      if (e?.exitCode !== 1) console.error("[folder-picker]", e?.message || e);
+      pickerError = e?.message || String(e);
+      if (e?.exitCode !== 1) console.error("[folder-picker]", pickerError);
     }
-    return json({ path: selectedPath || null });
+    return json({ path: selectedPath || null, error: pickerError });
   }
 
   // /api/projects
