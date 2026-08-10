@@ -31,18 +31,6 @@
   }
 }
 
-/* Subtle grain overlay to break digital flatness (pointer-events none so it
-   never interferes with interaction). */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: 0.018;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-}
-
 .spec-markdown { color: #e0e0e0; background: #161616; padding: 0.5rem 1rem; border-radius: 6px; }
 .spec-markdown h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: #fefefe; border-bottom: 1px solid #3a3a3a; padding-bottom: 0.5rem; }
 .spec-markdown h2 { font-size: 1.2rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: #fefefe; }
@@ -100,12 +88,6 @@ body::after {
 .app-card {
   background-color: var(--color-kumo-elevated);
   border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 70%, transparent);
-}
-
-/* Sub-page height: fills the viewport below the shared header/terminal strip.
-   Use instead of the duplicated calc(100vh - 70px) inline style. */
-.app-page-height {
-  height: calc(100vh - 70px);
 }
 
 /* App input: pill, elevated surface, brand focus ring */
@@ -428,17 +410,8 @@ html:not([data-mode="dark"]) .spec-markdown-inline code {
   background: #f3f4f6;
 }
 
-/* Terminal panel stays dark in both themes (like an IDE), so no light-mode
-   flip for it. The remaining hex in components has been consolidated to kumo
-   tokens; the xterm/ANSI palette hex lives in AgentTerminal's theme object. */
-
-/* Terminal panel + agent stream */
-html:not([data-mode="dark"]) .xterm .xterm-viewport {
-  background-color: #ffffff;
-}
-html:not([data-mode="dark"]) .terminal-dark-bg {
-  background-color: #ffffff !important;
-}
+/* Terminal panel stays dark in both themes (like an IDE) — no light-mode
+   flip. The xterm/ANSI palette hex lives in AgentTerminal's theme object. */
 
 /* MDX editor light theme — full token set (mirrors the dark block above) so
    the toolbar, dropdowns, selects and content all flip together. Without the
