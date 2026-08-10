@@ -21,13 +21,14 @@ const sessions = new Map<string, AgentSession>();
 
 const pythonBin = process.platform === "win32" ? "python" : "python3";
 
-// node-pty hangs under Bun's runtime on POSIX (fork never emits). On Windows
+// node-pty hangs under Bun's runtime on POSIX (fork never emits — spawn
+// "succeeds" but no output ever arrives, so TUIs render empty). On Windows
 // under Bun its ConPTY OUTPUT works, but the INPUT socket is created via
 // `new net.Socket({ fd })` which Bun doesn't support — every write throws
 // ERR_SOCKET_CLOSED (dead keyboard, local echo only). So node-pty/ConPTY is
-// only usable under Node.js, or on non-Windows. Bun+win32 falls back to the
-// cmd.exe pipe (input works via stdin, no TUI).
-const nodePtySupported = typeof Bun === "undefined" || process.platform !== "win32";
+// ONLY usable under Node.js. Bun always uses the Python PTY bridge (POSIX)
+// or the cmd.exe pipe (win32) below.
+const nodePtySupported = typeof Bun === "undefined";
 
 let nodePty: typeof import("node-pty") | null = null;
 if (nodePtySupported) {
