@@ -190,7 +190,7 @@ function SpecPage() {
   }, [openapiContent, selectedOpenapi]);
 
   return (
-    <div className="app-page-height flex flex-col">
+    <div className="h-full flex flex-col">
       <div className="mb-3 shrink-0 space-y-2">
         {/* Title + badges + Sync */}
         <div className="flex items-center gap-2">

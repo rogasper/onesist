@@ -362,7 +362,7 @@ function FsdPage() {
   const artifactCount = (artifacts.spec?.length ?? 0) + (artifacts.erd?.length ?? 0) + (artifacts.task?.length ?? 0);
 
   return (
-    <div className="app-page-height flex flex-col">
+    <div className="h-full flex flex-col">
       <div className="mb-3 shrink-0">
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><MagnifyingGlass size={14} className="text-kumo-brand" /></div>

@@ -68,7 +68,7 @@ function ErdPage() {
   const selectedTableDef = parsed.tables.find((t) => t.name === selectedTable) ?? null;
 
   return (
-    <div className="app-page-height flex flex-col">
+    <div className="h-full flex flex-col">
       <div className="mb-3 shrink-0">
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
