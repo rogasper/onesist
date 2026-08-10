@@ -31,9 +31,10 @@ const TAB_ITEMS = [
   { value: "overview", label: "Overview" },
   { value: "erd", label: "ERD" },
   { value: "spec", label: "API Spec" },
-  { value: "wiki", label: "Wiki" },
   { value: "tasks", label: "Tasks" },
   { value: "fsd", label: "FSD Analyzer" },
+  { value: "docs", label: "Docs" },
+  { value: "wiki", label: "Wiki" },
   { value: "settings", label: "Settings" },
 ];
 
@@ -42,6 +43,7 @@ function ProjectLayout() {
   const location = useLocation();
   const { project } = Route.useLoaderData() as any;
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalRunning, setTerminalRunning] = useState(false);
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
   const [skillsState, setSkillsState] = useState<{ status: string; error: string | null } | null>(null);
@@ -76,6 +78,7 @@ function ProjectLayout() {
     : location.pathname.includes("/wiki") ? "wiki"
     : location.pathname.includes("/tasks") ? "tasks"
     : location.pathname.includes("/fsd") ? "fsd"
+    : location.pathname.includes("/docs") ? "docs"
     : location.pathname.includes("/settings") ? "settings"
     : "overview";
 
@@ -136,7 +139,10 @@ function ProjectLayout() {
               icon={<TerminalIcon size={12} />}
               className="ml-auto px-3"
             >
-              Terminal
+              <span className="flex items-center gap-1.5">
+                {terminalRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" title="Agent session running" />}
+                Terminal
+              </span>
             </AppButton>
           </div>
         </div>
@@ -202,7 +208,7 @@ function ProjectLayout() {
       </div>
 
       <Suspense fallback={null}>
-        <AgentTermPanel visible={terminalOpen} onClose={() => setTerminalOpen(false)} projectId={project.id} defaultAgent={agent} />
+        <AgentTermPanel visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
       </Suspense>
     </div>
   );

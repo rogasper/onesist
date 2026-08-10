@@ -59,6 +59,13 @@
 .spec-markdown strong { color: #fefefe; font-weight: 500; }
 .spec-markdown blockquote { border-left: 2px solid #64b5f6; padding-left: 1rem; margin: 0.5rem 0; color: #d4d4d4; }
 
+/* Docs preview — keep wide mermaid diagrams and tables inside the pane (no horizontal scroll). */
+.docs-preview { min-width: 0; overflow-x: hidden; }
+.docs-preview .mermaid-wrap { max-width: 100%; }
+.docs-preview .mermaid-wrap svg { max-width: 100%; height: auto; }
+.docs-preview table { table-layout: fixed; }
+.docs-preview th, .docs-preview td { overflow-wrap: anywhere; word-break: break-word; }
+
 .spec-markdown-inline { color: #e0e0e0; background: #1a1a1a; }
 .spec-markdown-inline p { font-size: 0.8125rem; color: #e8e8e8; margin: 0.25rem 0; }
 .spec-markdown-inline h1, .spec-markdown-inline h2, .spec-markdown-inline h3, .spec-markdown-inline h4 { font-size: 0.8125rem; font-weight: 500; color: #f8f8f8; margin: 0.25rem 0; }
@@ -405,9 +412,32 @@ html:not([data-mode="dark"]) .spec-markdown-inline {
   color: #1f2937;
   background: #ffffff;
 }
+html:not([data-mode="dark"]) .spec-markdown-inline h1,
+html:not([data-mode="dark"]) .spec-markdown-inline h2,
+html:not([data-mode="dark"]) .spec-markdown-inline h3,
+html:not([data-mode="dark"]) .spec-markdown-inline h4,
+html:not([data-mode="dark"]) .spec-markdown-inline strong {
+  color: #111827;
+}
+html:not([data-mode="dark"]) .spec-markdown-inline p,
+html:not([data-mode="dark"]) .spec-markdown-inline li,
+html:not([data-mode="dark"]) .spec-markdown-inline ul,
+html:not([data-mode="dark"]) .spec-markdown-inline ol,
+html:not([data-mode="dark"]) .spec-markdown-inline td {
+  color: #1f2937;
+}
 html:not([data-mode="dark"]) .spec-markdown-inline code {
   color: #111827;
   background: #f3f4f6;
+}
+html:not([data-mode="dark"]) .spec-markdown-inline pre {
+  color: #111827;
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+html:not([data-mode="dark"]) .spec-markdown-inline pre code {
+  color: #111827;
+  background: none;
 }
 
 /* Terminal panel stays dark in both themes (like an IDE) — no light-mode

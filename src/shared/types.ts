@@ -11,6 +11,14 @@ export interface WikiPage {
   updatedAt: string;
 }
 
+export interface DocMeta {
+  customerName: string;
+  projectName: string;
+  projectId: string;
+  version: string;
+  author: string;
+}
+
 export interface Task {
   id: string;
   projectId: string;

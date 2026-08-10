@@ -10,7 +10,7 @@ function ensureMermaid() {
   if (!initPromise) {
     initPromise = import("mermaid").then((mermaid) => {
       mermaid.default.initialize({
-        theme: "dark",
+        theme: "default",
         startOnLoad: false,
         securityLevel: "strict",
       });
@@ -32,6 +32,10 @@ export function MermaidBlock({ code }: MermaidBlockProps) {
     (async () => {
       try {
         const mermaid = await ensureMermaid();
+        // Re-assert the dark theme before every render: the docs export may
+        // temporarily switch the global mermaid config to a light theme, and we
+        // must not leak that into previews (dark text on a dark background).
+        mermaid.default.initialize({ theme: "default", startOnLoad: false, securityLevel: "strict" });
         if (!mounted || !ref.current) return;
         const { svg } = await mermaid.default.render(`mermaid-${id}`, code);
         if (mounted && ref.current) ref.current.innerHTML = svg;

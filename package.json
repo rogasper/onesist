@@ -45,6 +45,7 @@
     "@xterm/xterm": "^6.1.0-beta.292",
     "@xyflow/react": "^12.11.2",
     "better-sqlite3": "^13.0.3",
+    "docx": "^9.7.1",
     "drizzle-orm": "^0.45.2",
     "mermaid": "^11.16.0",
     "node-pty": "^1.1.0",

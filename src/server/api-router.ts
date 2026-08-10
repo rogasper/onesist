@@ -4,6 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import type { DocMeta } from "~/shared/types";
 
 function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex").slice(0, 12);
@@ -769,6 +770,117 @@ async function handleProjects(
       return json(page, 201);
     }
     return json({ error: "Method not allowed" }, 405);
+  }
+
+  // /api/projects/:id/docs
+  if (sub === "docs") {
+    const proj = db.select().from(projects).where(eq(projects.id, id)).get() as any;
+    const rootPath = proj?.rootPath || (process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), ".."));
+    const { readFile, writeFile } = await import("~/lib/file-router");
+    const { DOC_TEMPLATE_PATH, DEFAULT_TEMPLATE } = await import("~/lib/doc-template");
+
+    const defaultMeta = {
+      customerName: proj?.customerName ?? "",
+      projectName: proj?.name ?? "",
+      projectId: id,
+      version: proj?.docVersion ?? "1.0.0",
+      author: proj?.docAuthor ?? "",
+    };
+
+    // /api/projects/:id/docs/meta
+    if (segments[2] === "meta") {
+      if (method === "GET") {
+        return json(defaultMeta);
+      }
+      if (method === "PUT") {
+        const data = await parseBody(request);
+        const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+        if (data.customerName !== undefined) updates.customerName = String(data.customerName);
+        if (data.version !== undefined) updates.docVersion = String(data.version);
+        if (data.author !== undefined) updates.docAuthor = String(data.author);
+        db.update(projects).set(updates).where(eq(projects.id, id)).run();
+        return json({ saved: true, ...defaultMeta, ...updates });
+      }
+      return json({ error: "Method not allowed" }, 405);
+    }
+
+    // /api/projects/:id/docs/template/reset
+    if (segments[2] === "template" && segments[3] === "reset" && method === "POST") {
+      const ok = writeFile(rootPath, DOC_TEMPLATE_PATH, DEFAULT_TEMPLATE);
+      return json({ saved: ok, path: DOC_TEMPLATE_PATH });
+    }
+
+    // /api/projects/:id/docs/template
+    if (segments[2] === "template") {
+      if (method === "GET") {
+        let content = readFile(rootPath, DOC_TEMPLATE_PATH);
+        if (content === null) {
+          content = DEFAULT_TEMPLATE;
+          writeFile(rootPath, DOC_TEMPLATE_PATH, content);
+        }
+        return json({ content, path: DOC_TEMPLATE_PATH, exists: readFile(rootPath, DOC_TEMPLATE_PATH) !== null });
+      }
+      if (method === "PUT") {
+        const data = await parseBody(request);
+        const ok = writeFile(rootPath, DOC_TEMPLATE_PATH, String(data.content ?? ""));
+        return json({ saved: ok, path: DOC_TEMPLATE_PATH });
+      }
+      return json({ error: "Method not allowed" }, 405);
+    }
+
+    // /api/projects/:id/docs/export
+    if (segments[2] === "export" && method === "POST") {
+      const data = await parseBody(request);
+      const contentMd = String(data.contentMd ?? "");
+      const diagramPngs: string[] = Array.isArray(data.diagramPngs) ? data.diagramPngs.map((d: unknown) => String(d)) : [];
+      const meta: Record<string, string> = {
+        customerName: String((data.meta as any)?.customerName ?? proj?.customerName ?? ""),
+        projectName: String((data.meta as any)?.projectName ?? proj?.name ?? ""),
+        projectId: String((data.meta as any)?.projectId ?? id),
+        version: String((data.meta as any)?.version ?? proj?.docVersion ?? "1.0.0"),
+        author: String((data.meta as any)?.author ?? proj?.docAuthor ?? ""),
+      };
+      if (!contentMd) return json({ error: "Missing contentMd" }, 400);
+      const { buildDocx } = await import("~/lib/docx-export");
+      const buf = await buildDocx({ contentMd, diagramPngs, meta: meta as unknown as DocMeta });
+      const safeName = (meta.projectName || "project").replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 40) || "project";
+      const filename = `Technical-Documentation-${safeName}-${meta.version || "1.0.0"}.docx`;
+      return new Response(new Uint8Array(buf), {
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    // /api/projects/:id/docs/files — flat list of project files for @mentions
+    if (segments[2] === "files" && method === "GET") {
+      const { scanDirectory } = await import("~/lib/file-router");
+      const fsMod = await import("node:fs");
+      const ALLOWED = /\.(md|dbml|ya?ml|json)$/i;
+      const seen = new Set<string>();
+      const files: { name: string; path: string }[] = [];
+      for (const dir of ["input", "output"]) {
+        for (const f of scanDirectory(rootPath, dir)) {
+          if (ALLOWED.test(f.name) && !seen.has(f.path)) {
+            seen.add(f.path);
+            files.push({ name: f.name, path: f.path });
+          }
+        }
+      }
+      try {
+        for (const entry of fsMod.readdirSync(rootPath, { withFileTypes: true })) {
+          if (entry.isFile() && ALLOWED.test(entry.name) && !seen.has(entry.name)) {
+            files.push({ name: entry.name, path: entry.name });
+          }
+        }
+      } catch {}
+      files.sort((a, b) => a.path.localeCompare(b.path));
+      return json({ files });
+    }
+
+    return json({ error: "Not found" }, 404);
   }
 
   // /api/projects/:id/tasks

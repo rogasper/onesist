@@ -10,6 +10,9 @@ export const projects = sqliteTable("projects", {
   skillsStatus: text("skills_status").default("pending"),
   skillsError: text("skills_error"),
   skillsUpdatedAt: text("skills_updated_at"),
+  customerName: text("customer_name"),
+  docVersion: text("doc_version"),
+  docAuthor: text("doc_author"),
   createdAt: text("created_at").default("datetime('now')"),
   updatedAt: text("updated_at").default("datetime('now')"),
 });

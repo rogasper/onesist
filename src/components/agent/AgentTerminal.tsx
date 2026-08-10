@@ -13,13 +13,15 @@ interface AgentTermPanelProps {
   onClose: () => void;
   defaultAgent?: string;
   projectId?: string;
+  /** Reports whether a terminal session is currently running (for UI indicators). */
+  onRunningChange?: (running: boolean) => void;
 }
 
 const MIN_WIDTH = 280;
 const DEFAULT_WIDTH = 420;
 const MAX_WIDTH = 1200;
 
-export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", projectId }: AgentTermPanelProps) {
+export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", projectId, onRunningChange }: AgentTermPanelProps) {
   const [connected, setConnected] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgent);
   const [port, setPort] = useState(4323);
@@ -49,6 +51,15 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   // would be stale).
   const connectedRef = useRef(false);
   useEffect(() => { connectedRef.current = connected; }, [connected]);
+
+  // Keep the latest onRunningChange callback without re-binding effects.
+  const onRunningChangeRef = useRef(onRunningChange);
+  useEffect(() => { onRunningChangeRef.current = onRunningChange; }, [onRunningChange]);
+
+  // Surface running-state to the parent (drives the Terminal toggle indicator).
+  useEffect(() => {
+    onRunningChangeRef.current?.(connected);
+  }, [connected]);
 
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
@@ -313,6 +324,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
   useEffect(() => {
     return () => {
+      onRunningChangeRef.current?.(false);
       observerRef.current?.disconnect();
       observerRef.current = null;
       // Kill any still-running session so no agent process lingers after the
@@ -402,8 +414,8 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
               </button>
             )}
             <button
-              onClick={() => { handleEndSession(); onClose(); }}
-              title="Close terminal (kills the running session)"
+              onClick={onClose}
+              title="Close terminal (session keeps running)"
               className="p-1 rounded text-neutral-300 hover:text-white hover:bg-white/10 transition-colors ml-1"
             >
               <X size={14} />
