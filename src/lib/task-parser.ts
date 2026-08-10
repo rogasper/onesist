@@ -168,14 +168,13 @@ function parseTaskFile(content: string, filename: string): ParsedTask[] {
     }
   }
 
-  // Find task sections "## Task N: Title" and extract their content
+  // Find task sections "## Task <ID>: Title" and extract their content
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const sectionMatch = line.match(/^##\s+Task\s+([\d.]+[a-z]?)\s*:\s*(.*)/i);
+    const sectionMatch = line.match(/^##\s+Task\s+([A-Za-z0-9._-]+)\s*:\s*(.*)/i);
     if (sectionMatch) {
-      const code = `${moduleName}-T${sectionMatch[1]}`;
+      const code = `${moduleName}-${sectionMatch[1]}`;
       const title = sectionMatch[2].trim();
-      const sp = spMap[`Task ${sectionMatch[1]}`] ?? null;
 
       // Extract content from this ## heading to the next ## heading or end
       let sectionEnd = lines.length;
@@ -184,9 +183,17 @@ function parseTaskFile(content: string, filename: string): ParsedTask[] {
       }
       const sectionContent = lines.slice(i, sectionEnd).join("\n");
 
+      // SP: prefer the task's own detail table, fall back to the summary spMap
+      const spMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)\s*\|/i);
+      const sp = spMatch ? parseFloat(spMatch[1]) : (spMap[sectionMatch[1]] ?? null);
+
+      // Assignee: from the detail table `| Developer | <name> |`, else null
+      const devMatch = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
+      const assignee = devMatch ? devMatch[1].trim() : null;
+
       tasks.push({
         code, title, storyPoints: sp,
-        assignee: null, module: moduleName, parentCode: null,
+        assignee, module: moduleName, parentCode: null,
         status: "todo", phase: null,
         contentMd: sectionContent,
         sourcePath: `output/task/${filename}`,

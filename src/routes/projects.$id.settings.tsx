@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadAllData } from "~/lib/project-queries";
 import { Gear, Check } from "@phosphor-icons/react";
@@ -68,6 +68,7 @@ function SettingsPage() {
       if (res.ok) {
         saveTerminalPrefs(terminalPrefs);
         setSaved(true);
+        window.dispatchEvent(new Event("project-updated"));
         setTimeout(() => setSaved(false), 2000);
       }
     } catch {}
@@ -81,16 +82,9 @@ function SettingsPage() {
   return (
     <div className="max-w-lg">
       <div className="mb-5">
-        <div className="text-xs text-kumo-subtle mb-1">
-          <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-subtle">{project.name}</span>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-default font-medium">Settings</span>
-        </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><Gear size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-lg text-kumo-default">Settings</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Settings</h1>
         </div>
       </div>
 

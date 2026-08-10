@@ -160,7 +160,7 @@ function RootComponent() {
               </Sidebar.Content>
               <AppSidebarFooter />
             </Sidebar>
-            <main className="flex-1 overflow-auto p-5 min-w-0"><Outlet /></main>
+            <main className="flex-1 overflow-y-auto p-5 min-w-0"><div className="mx-auto h-full w-full max-w-[1600px]"><Outlet /></div></main>
           </Sidebar.Provider>
         </div>
         <Scripts />

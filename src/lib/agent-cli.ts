@@ -93,8 +93,11 @@ export function detectAllAgents(): AgentCliConfig[] {
     let version: string | null = null;
     try {
       // execFileSync (not execSync) so args aren't reinterpreted by a shell;
-      // .cmd/.bat need the shell flag so cmd.exe executes them.
-      const out = execFileSync(exePath, ["--version"], {
+      // .cmd/.bat need the shell flag so cmd.exe executes them. When a shell
+      // is used, the executable path must be pre-quoted — Node does NOT quote
+      // it for you, and "C:\Program Files\..." would be split at the space.
+      const shellCmd = needsShell(exePath) ? `"${exePath}"` : exePath;
+      const out = execFileSync(shellCmd, ["--version"], {
         encoding: "utf-8",
         windowsHide: true,
         shell: needsShell(exePath),

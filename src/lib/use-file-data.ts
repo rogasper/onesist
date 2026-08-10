@@ -48,6 +48,7 @@ export function useFileWatch(routeType: string, onFileChanged?: (path: string) =
   handlerRef.current = onFileChanged;
   useEffect(() => {
     let es: EventSource | null = null;
+    let errors = 0;
     const connect = async () => {
       try {
         const res = await fetch("/api/events/ticket", { method: "POST" });
@@ -57,6 +58,12 @@ export function useFileWatch(routeType: string, onFileChanged?: (path: string) =
           const data = JSON.parse(e.data);
           if (data.route === routeType) handlerRef.current?.(data.path);
         });
+        // WebView/browser EventSource auto-reconnects forever; give up after
+        // a handful of failures so we don't accumulate dead streams.
+        es.onerror = () => {
+          errors += 1;
+          if (errors >= 5) es?.close();
+        };
       } catch {}
     };
     connect();
@@ -69,6 +76,7 @@ export function useFsdConversion(onEvent?: (data: { sessionId: string; status: s
   handlerRef.current = onEvent;
   useEffect(() => {
     let es: EventSource | null = null;
+    let errors = 0;
     const connect = async () => {
       try {
         const res = await fetch("/api/events/ticket", { method: "POST" });
@@ -80,6 +88,10 @@ export function useFsdConversion(onEvent?: (data: { sessionId: string; status: s
             handlerRef.current?.(payload.data ?? payload);
           } catch {}
         });
+        es.onerror = () => {
+          errors += 1;
+          if (errors >= 5) es?.close();
+        };
       } catch {}
     };
     connect();

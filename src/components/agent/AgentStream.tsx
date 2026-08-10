@@ -113,7 +113,7 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
   };
 
   return (
-    <div className="border border-kumo-line rounded-lg overflow-hidden bg-[#161616]">
+    <div className="border border-kumo-line rounded-lg overflow-hidden bg-kumo-recessed">
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-kumo-line bg-kumo-elevated/50">
         <span className="text-[10px] text-kumo-subtle font-medium">Agent Output</span>
         <span className={`text-[10px] px-1.5 py-0.5 rounded ${

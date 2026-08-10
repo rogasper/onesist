@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Badge, Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { MagnifyingGlass, Play, Stop, FloppyDisk, SealCheck, Plus, UploadSimple, Scan, PencilSimple, Trash, CopySimple, ClipboardText, CaretLeft, CaretRight, Eye, Columns, Check, CheckCircle, XCircle } from "@phosphor-icons/react";
@@ -362,16 +362,11 @@ function FsdPage() {
   const artifactCount = (artifacts.spec?.length ?? 0) + (artifacts.erd?.length ?? 0) + (artifacts.task?.length ?? 0);
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 70px)" }}>
+    <div className="h-full flex flex-col">
       <div className="mb-3 shrink-0">
-        <div className="text-xs text-kumo-subtle mb-1">
-          <Link to="/projects/$id" params={{ id }} className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
-          <span className="mx-1.5 text-kumo-subtle">/</span>
-          <span className="text-kumo-subtle">FSD Analyzer</span>
-        </div>
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><MagnifyingGlass size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-lg text-kumo-default">FSD Analyzer</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">FSD Analyzer</h1>
           {sessions.length > 0 && <Badge variant="neutral" className="text-[11px]">{sessions.length} documents</Badge>}
           {activeSession?.status === "ready" && <Badge variant="neutral" className="text-[11px] text-green-400/80">ready for analysis</Badge>}
           {activeSession?.conversionStatus === "failed" && <Badge variant="neutral" className="text-[11px] text-red-400/80">conversion failed</Badge>}

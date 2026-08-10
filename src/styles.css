@@ -1,6 +1,35 @@
 @source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @import "@cloudflare/kumo/styles/tailwind";
 @import "tailwindcss";
+
+/* Brand font stack — Geist Variable (self-hosted via @fontsource so the Tauri
+   desktop CSP `font-src 'self' data:` allows it). Overrides kumo's system-sans
+   default and the mono stack for code/terminal. */
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "SF Mono", ui-monospace, "Cascadia Code", monospace;
+}
+
+/* Base polish: tabular figures for data, balance for headings, sensible
+   focus + press feedback app-wide. */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    text-wrap: balance;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-kumo-brand);
+    outline-offset: 2px;
+  }
+  button:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+}
 
 .spec-markdown { color: #e0e0e0; background: #161616; padding: 0.5rem 1rem; border-radius: 6px; }
 .spec-markdown h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: #fefefe; border-bottom: 1px solid #3a3a3a; padding-bottom: 0.5rem; }
@@ -213,31 +242,32 @@ div[data-kumo-component="Sidebar"] {
 }
 
 .mdxeditor .mdxeditor-toolbar {
-  background: #282c34;
+  background-color: var(--baseBg);
+  color: var(--baseText);
   border: none;
-  border-bottom: 1px solid #3e4451;
+  border-bottom: 1px solid var(--baseLine);
   padding: 2px 0 6px;
 }
 
 .mdxeditor .mdxeditor-toolbar .mdxeditor-button[aria-label] {
-  color: var(--baseText, #abb2bf);
+  color: var(--baseTextContrast, #abb2bf);
 }
 
 .mdxeditor .mdxeditor-toolbar .mdxeditor-button:hover:not([disabled]) {
-  background-color: #353b45;
-  color: #ffffff;
+  background-color: var(--baseBgActive);
+  color: var(--baseTextContrast);
 }
 
 .mdxeditor .mdxeditor-toolbar .mdxeditor-button[data-state="on"] {
-  background-color: color-mix(in srgb, var(--color-kumo-brand, #2563eb) 20%, transparent);
-  color: #ffffff;
+  background-color: var(--accentBg);
+  color: var(--accentTextContrast);
 }
 
 .mdxeditor .mdxeditor-root-contenteditable {
   font-size: 13px;
   line-height: 1.6;
-  color: #fefefe;
-  background-color: #282c34;
+  color: var(--baseText, #fefefe);
+  background-color: var(--baseBg, #282c34);
   /* Bottom breathing room so the last line isn't flush against the panel edge */
   padding-bottom: 5rem;
 }
@@ -245,16 +275,16 @@ div[data-kumo-component="Sidebar"] {
 /* Restore typography inside the editor content — Tailwind preflight strips
    the browser defaults MDXEditor relies on (headings/lists would render
    identical to plain text otherwise). Mirrors .spec-markdown styling. */
-.mdxeditor-root-contenteditable h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: #fefefe; border-bottom: 1px solid #3a3a3a; padding-bottom: 0.5rem; }
-.mdxeditor-root-contenteditable h2 { font-size: 1.2rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: #fefefe; }
-.mdxeditor-root-contenteditable h3 { font-size: 1.05rem; font-weight: 500; margin: 1rem 0 0.25rem; color: #f4f4f4; }
-.mdxeditor-root-contenteditable h4 { font-size: 0.9rem; font-weight: 500; margin: 0.75rem 0 0.2rem; color: #f0f0f0; }
-.mdxeditor-root-contenteditable p { font-size: 0.875rem; line-height: 1.75; color: #e0e0e0; margin: 0.5rem 0; }
+.mdxeditor-root-contenteditable h1 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: var(--baseTextContrast, #fefefe); border-bottom: 1px solid var(--baseLine, #3a3a3a); padding-bottom: 0.5rem; }
+.mdxeditor-root-contenteditable h2 { font-size: 1.2rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: var(--baseTextContrast, #fefefe); }
+.mdxeditor-root-contenteditable h3 { font-size: 1.05rem; font-weight: 500; margin: 1rem 0 0.25rem; color: var(--baseTextContrast, #f4f4f4); }
+.mdxeditor-root-contenteditable h4 { font-size: 0.9rem; font-weight: 500; margin: 0.75rem 0 0.2rem; color: var(--baseTextContrast, #f0f0f0); }
+.mdxeditor-root-contenteditable p { font-size: 0.875rem; line-height: 1.75; color: var(--baseText, #e0e0e0); margin: 0.5rem 0; }
 .mdxeditor-root-contenteditable ul,
 .mdxeditor-root-contenteditable ol {
   font-size: 0.875rem;
   line-height: 1.7;
-  color: #e0e0e0;
+  color: var(--baseText, #e0e0e0);
   padding-left: 1.5rem;
   margin: 0.35rem 0;
 }
@@ -264,40 +294,40 @@ div[data-kumo-component="Sidebar"] {
 .mdxeditor-root-contenteditable ol { list-style: decimal; }
 .mdxeditor-root-contenteditable ol ol { list-style-type: lower-alpha; }
 .mdxeditor-root-contenteditable ol ol ol { list-style-type: lower-roman; }
-.mdxeditor-root-contenteditable li { margin: 0.25rem 0; color: #e0e0e0; }
+.mdxeditor-root-contenteditable li { margin: 0.25rem 0; color: var(--baseText, #e0e0e0); }
 .mdxeditor-root-contenteditable li > p { margin: 0.15rem 0; }
 .mdxeditor-root-contenteditable code {
   font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
   font-size: 0.75rem;
-  color: #e8e8e8;
-  background: #252525;
+  color: var(--baseTextContrast, #e8e8e8);
+  background: var(--baseBgSubtle, #252525);
   padding: 0.15em 0.4em;
   border-radius: 3px;
 }
 .mdxeditor-root-contenteditable pre {
-  color: #e0e0e0;
-  background: #1e1e1e;
+  color: var(--baseText, #e0e0e0);
+  background: var(--baseBg, #1e1e1e);
   padding: 0.75rem 1rem;
   border-radius: 6px;
   overflow-x: auto;
   margin: 0.5rem 0;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--baseLine, #3a3a3a);
 }
-.mdxeditor-root-contenteditable pre code { background: none; padding: 0; font-size: 0.7rem; color: #e0e0e0; }
+.mdxeditor-root-contenteditable pre code { background: none; padding: 0; font-size: 0.7rem; color: var(--baseText, #e0e0e0); }
 .mdxeditor-root-contenteditable table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 0.75rem 0; }
 .mdxeditor-root-contenteditable th,
-.mdxeditor-root-contenteditable td { border: 1px solid #3a3a3a; padding: 0.5rem 0.75rem; text-align: left; }
-.mdxeditor-root-contenteditable th { background: #252525; font-weight: 500; color: #f4f4f4; }
-.mdxeditor-root-contenteditable td { color: #e0e0e0; }
-.mdxeditor-root-contenteditable hr { border: none; border-top: 1px solid #3a3a3a; margin: 1.5rem 0; }
-.mdxeditor-root-contenteditable a { color: var(--color-kumo-brand, #64b5f6); text-decoration: none; }
+.mdxeditor-root-contenteditable td { border: 1px solid var(--baseLine, #3a3a3a); padding: 0.5rem 0.75rem; text-align: left; }
+.mdxeditor-root-contenteditable th { background: var(--baseBgSubtle, #252525); font-weight: 500; color: var(--baseTextContrast, #f4f4f4); }
+.mdxeditor-root-contenteditable td { color: var(--baseText, #e0e0e0); }
+.mdxeditor-root-contenteditable hr { border: none; border-top: 1px solid var(--baseLine, #3a3a3a); margin: 1.5rem 0; }
+.mdxeditor-root-contenteditable a { color: var(--accentSolid, var(--color-kumo-brand, #64b5f6)); text-decoration: none; }
 .mdxeditor-root-contenteditable a:hover { text-decoration: underline; }
-.mdxeditor-root-contenteditable strong { color: #fefefe; font-weight: 600; }
+.mdxeditor-root-contenteditable strong { color: var(--baseTextContrast, #fefefe); font-weight: 600; }
 .mdxeditor-root-contenteditable blockquote {
-  border-left: 2px solid var(--color-kumo-brand, #64b5f6);
+  border-left: 2px solid var(--accentSolid, var(--color-kumo-brand, #64b5f6));
   padding-left: 1rem;
   margin: 0.5rem 0;
-  color: #d4d4d4;
+  color: var(--baseText, #d4d4d4);
 }
 
 .mdxeditor .mdxeditor-root-contenteditable:focus {
@@ -305,11 +335,11 @@ div[data-kumo-component="Sidebar"] {
 }
 
 .mdxeditor .mdxeditor-root-contenteditable .mdxeditor-link {
-  color: var(--color-kumo-brand, #2563eb);
+  color: var(--accentSolid, var(--color-kumo-brand, #2563eb));
 }
 
 .mdxeditor .mdxeditor-root-contenteditable table {
-  border-color: #3e4451;
+  border-color: var(--baseLine, #3e4451);
 }
 
 .mdxeditor .mdxeditor-source-editor .cm-editor {
@@ -380,35 +410,12 @@ html:not([data-mode="dark"]) .spec-markdown-inline code {
   background: #f3f4f6;
 }
 
-/* Panels that hardcode near-black surfaces */
-html:not([data-mode="dark"]) .bg-\[#0d0d0d\],
-html:not([data-mode="dark"]) .bg-\[#161616\],
-html:not([data-mode="dark"]) .bg-\[#1c1c1c\],
-html:not([data-mode="dark"]) .bg-\[#1a1a1a\],
-html:not([data-mode="dark"]) .bg-\[#282c34\] {
-  background-color: #ffffff !important;
-}
-html:not([data-mode="dark"]) .text-neutral-300,
-html:not([data-mode="dark"]) .text-neutral-400,
-html:not([data-mode="dark"]) .text-neutral-500 {
-  color: #1f2937 !important;
-}
-html:not([data-mode="dark"]) .border-\[#2a2a2a\],
-html:not([data-mode="dark"]) .border-\[#333\],
-html:not([data-mode="dark"]) .border-\[#3e4451\] {
-  border-color: #e5e7eb !important;
-}
+/* Terminal panel stays dark in both themes (like an IDE) — no light-mode
+   flip. The xterm/ANSI palette hex lives in AgentTerminal's theme object. */
 
-/* Terminal panel + agent stream */
-html:not([data-mode="dark"]) .xterm .xterm-viewport {
-  background-color: #ffffff;
-}
-html:not([data-mode="dark"]) .terminal-dark-bg {
-  background-color: #ffffff !important;
-}
-
-/* MDX editor surface (CodeMirror oneDark palette is dark-only; keep it dark
-   but soften the surrounding panel in light mode) */
+/* MDX editor light theme — full token set (mirrors the dark block above) so
+   the toolbar, dropdowns, selects and content all flip together. Without the
+   accent/solid overrides the dropdowns keep dark values and render broken. */
 html:not([data-mode="dark"]) .mdxeditor.mdxeditor-full-height {
   --basePageBg: #ffffff;
   --baseBase: #f9fafb;
@@ -418,6 +425,47 @@ html:not([data-mode="dark"]) .mdxeditor.mdxeditor-full-height {
   --baseBgActive: #e5e7eb;
   --baseLine: #d1d5db;
   --baseBorder: #d1d5db;
+  --baseBorderHover: #2563eb;
+  --baseSolid: #6b7280;
+  --baseSolidHover: #111827;
   --baseText: #1f2937;
   --baseTextContrast: #111827;
+  --accentBase: #2563eb;
+  --accentBgSubtle: #eff6ff;
+  --accentBg: #dbeafe;
+  --accentBgHover: #bfdbfe;
+  --accentBgActive: #93c5fd;
+  --accentLine: #93c5fd;
+  --accentBorder: #60a5fa;
+  --accentBorderHover: #2563eb;
+  --accentSolid: #2563eb;
+  --accentSolidHover: #1d4ed8;
+  --accentText: #1d4ed8;
+  --accentTextContrast: #ffffff;
+}
+
+/* MDX dropdown popup containers (select menus, tooltips) follow the page bg */
+html:not([data-mode="dark"]) .mdxeditor .mdxeditor-popup-container,
+html:not([data-mode="dark"]) .mdxeditor [role="menu"],
+html:not([data-mode="dark"]) .mdxeditor [data-radix-popper-content-wrapper] {
+  background-color: var(--basePageBg);
+  color: var(--baseText);
+  border-color: var(--baseLine);
+}
+
+/* CodeMirror source-editor in light mode */
+html:not([data-mode="dark"]) .mdxeditor .cm-editor {
+  background-color: #ffffff;
+  color: #1f2937;
+}
+html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-gutters {
+  background-color: #f9fafb;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+}
+html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLine {
+  background-color: #f3f4f6;
+}
+html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
+  background-color: #f3f4f6;
 }

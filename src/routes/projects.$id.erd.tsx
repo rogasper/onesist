@@ -1,11 +1,13 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@cloudflare/kumo";
-import { Cube } from "@phosphor-icons/react";
+import { Cube, Database } from "@phosphor-icons/react";
 import { ErdCanvas } from "~/components/erd/ErdCanvas";
 import { DbmlEditor } from "~/components/erd/DbmlEditor";
 import { ErdToolbar } from "~/components/erd/ErdToolbar";
 import { TableEditor } from "~/components/erd/TableEditor";
+import { EmptyState } from "~/components/ui/EmptyState";
+import { ListSkeleton } from "~/components/ui/Skeleton";
 import { parseDbml, serializeDbml, type TableDef, type ParsedDbml } from "~/lib/dbml";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
@@ -66,11 +68,11 @@ function ErdPage() {
   const selectedTableDef = parsed.tables.find((t) => t.name === selectedTable) ?? null;
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 70px)" }}>
+    <div className="h-full flex flex-col">
       <div className="mb-3 shrink-0">
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-lg text-kumo-default flex-1">ERD Canvas</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default flex-1">ERD Canvas</h1>
           {parsed.tables.length > 0 && <Badge variant="neutral" className="text-[11px]">{parsed.tables.length} tables</Badge>}
           <div className="ml-3 flex items-center gap-1 py-2 px-1.5 overflow-x-auto min-w-0 max-w-[80%] shrink">
             {files.map((f) => (
@@ -83,11 +85,16 @@ function ErdPage() {
       </div>
 
       {filesLoading ? (
-        <div className="flex items-center justify-center flex-1 text-kumo-subtle text-sm">Loading ERD files...</div>
-      ) : !selectedFile ? (
-        <div className="flex items-center justify-center flex-1 text-kumo-subtle text-sm">
-          No ERD files found in output/erd/
+        <div className="flex items-center justify-center flex-1">
+          <ListSkeleton rows={4} className="w-full max-w-xs px-4" />
         </div>
+      ) : !selectedFile ? (
+        <EmptyState
+          icon={<Database size={24} />}
+          title="No ERD files found"
+          description="Add a .dbml or ERD markdown file to output/erd/ to see the diagram."
+          className="flex-1"
+        />
       ) : (
         <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
           <div className="shrink-0 border-r border-kumo-line flex flex-col transition-all duration-200"
