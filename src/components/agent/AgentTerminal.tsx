@@ -61,6 +61,17 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     }).catch(() => {});
   }, [projectId]);
 
+  // Fetch latest project data to get the current defaultAgent. The route
+  // loader is cached/stale, so this guarantees agentName matches what's saved
+  // in the DB — without it a stale/empty defaultAgent prop leaves agentName
+  // wrong and the agent never spawns (terminal shows only a cursor bar).
+  useEffect(() => {
+    if (!projectId) return;
+    fetch(`/api/projects/${projectId}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.defaultAgent && d.defaultAgent !== agentName) setAgentName(d.defaultAgent);
+    }).catch(() => {});
+  }, [projectId]);
+
   // Sync agent name from the defaultAgent prop. The parent (projects.$id)
   // keeps this fresh by listening to the "project-updated" event, so the
   // terminal reflects Settings changes without a manual refresh. Changing the

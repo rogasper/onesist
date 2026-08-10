@@ -48,7 +48,7 @@ function ProjectLayout() {
   // Live defaultAgent — the route loader is cached/stale; refresh via the
   // "project-updated" event fired by Settings after saving.
   const [freshAgent, setFreshAgent] = useState<string | null>(null);
-  const agent = freshAgent ?? project?.defaultAgent ?? "opencode";
+  const agent = freshAgent || project?.defaultAgent || "opencode";
 
   useEffect(() => {
     if (!project?.id) return;
