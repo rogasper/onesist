@@ -56,6 +56,18 @@ export function register(id: string, term: Terminal, fit: FitAddon, el: HTMLElem
   cache.set(id, { id, el, term, fit, destroyed: false });
 }
 
+function fitWhenReady(entry: CachedTerminal, container: HTMLElement, attempts = 0) {
+  if (entry.destroyed || entry.el.parentElement !== container) return;
+  const rect = container.getBoundingClientRect();
+  const dims = entry.term.dimensions;
+  const dimsReady = !!dims && dims.css.cell.width > 0 && dims.css.cell.height > 0;
+  if (rect.width >= 50 && rect.height >= 50 && dimsReady) {
+    try { entry.fit.fit(); } catch {}
+  } else if (attempts < 90) {
+    requestAnimationFrame(() => fitWhenReady(entry, container, attempts + 1));
+  }
+}
+
 export function attach(id: string, container: HTMLElement): { term: Terminal; fit: FitAddon } | null {
   const entry = cache.get(id);
   if (!entry || entry.destroyed) return null;
@@ -65,9 +77,7 @@ export function attach(id: string, container: HTMLElement): { term: Terminal; fi
   }
   container.appendChild(entry.el);
 
-  requestAnimationFrame(() => {
-    try { entry.fit.fit(); } catch {}
-  });
+  fitWhenReady(entry, container);
 
   return { term: entry.term, fit: entry.fit };
 }
