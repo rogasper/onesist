@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { createRequire } from "node:module";
 import type { IPty } from "node-pty";
 
 interface AgentSession {
@@ -33,8 +34,15 @@ const nodePtySupported = typeof Bun === "undefined";
 let nodePty: typeof import("node-pty") | null = null;
 if (nodePtySupported) {
   try {
-    nodePty = await import("node-pty");
-    if (typeof nodePty.spawn !== "function") nodePty = null;
+    // createRequire-based require: node-pty is a CJS package and ESM named
+    // interop (cjs-module-lexer) can miss `exports.spawn`; require() never
+    // does. Resolution walks up from this file's directory, so the desktop
+    // resource copy (web-dist/server/server/node_modules/node-pty) is found
+    // by the spawned Node.js terminal server.
+    const nodeRequire = createRequire(import.meta.url);
+    const loaded = nodeRequire("node-pty") as typeof import("node-pty") | null;
+    if (loaded && typeof loaded.spawn === "function") nodePty = loaded;
+    else nodePty = null;
   } catch {
     nodePty = null;
   }
@@ -318,6 +326,24 @@ for (const sig of ["exit", "SIGINT", "SIGTERM", "SIGHUP"] as const) {
     killAllSessions();
     if (sig !== "exit") process.exit(0);
   });
+}
+
+// Desktop: this module runs as a detached `node terminal-server.node.js` child
+// on Windows. If the Tauri shell (grandparent) dies, exit ourselves — never
+// leak an orphaned process holding the terminal port. (On POSIX the module
+// runs in-process inside the sidecar, whose own server.ts watchdog covers it;
+// this check is a no-op there because PPID stays alive.)
+if (process.env.SA_DESKTOP === "1" && typeof process.ppid === "number") {
+  const parentPid = process.ppid;
+  const watchdog = setInterval(() => {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      killAllSessions();
+      process.exit(0);
+    }
+  }, 3000);
+  watchdog.unref?.();
 }
 
 const activeSockets = new Set<any>();

@@ -59,7 +59,14 @@ async function ensureTerminalServer() {
     try {
       const { spawn } = await import("node:child_process");
       const clientDir = process.env.SA_CLIENT_DIR || path.resolve(import.meta.dirname ?? ".", "..", "client");
-      const nodeServerPath = path.resolve(clientDir, "..", "server", "terminal-server.node.js");
+      // The web-dist layout nests the terminal server build two levels deep
+      // (web-dist/server/server/terminal-server.node.js), so relative to the
+      // client dir it's ../server/server/. Check both shapes defensively.
+      const candidates = [
+        path.resolve(clientDir, "..", "server", "server", "terminal-server.node.js"),
+        path.resolve(clientDir, "..", "server", "terminal-server.node.js"),
+      ];
+      const nodeServerPath = candidates.find((p) => fs.existsSync(p)) ?? candidates[0];
       const child = spawn("node", [nodeServerPath], {
         env: { ...process.env, TERMINAL_PORT: String(port) },
         stdio: ["ignore", "pipe", "pipe"],
@@ -72,7 +79,7 @@ async function ensureTerminalServer() {
         if (await portInUse(port)) return;
         await new Promise((r) => setTimeout(r, 200));
       }
-      console.error("[server] terminal-server.node.js did not start within 10s, falling back to in-process");
+      console.error(`[server] ${nodeServerPath} did not start within 10s, falling back to in-process`);
     } catch (e) {
       console.error("[server] Failed to spawn terminal server under Node.js:", e);
     }

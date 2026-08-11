@@ -160,6 +160,10 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
               ws.close();
               return;
             }
+            // Create the terminal BEFORE spawning so proposeDimsAsync() can
+            // measure the real panel size — otherwise every first spawn falls
+            // back to 120x40 and the PTY starts at the wrong grid.
+            if (!termRef.current && visibleRef.current) createXterm();
             const cmd = buildAgentCommand(agentName as AgentCli, { mode: "new" });
             lastSpawnTimeRef.current = Date.now();
             // Pass current dims so the PTY starts at the right size instead of
