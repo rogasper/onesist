@@ -43,10 +43,14 @@ export function scanDirectory(rootPath: string, subDir: string): FileEntry[] {
           const fullPath = path.join(dir, entry.name);
           const stat = fs.statSync(fullPath);
           const relPath = relPrefix ? path.join(relPrefix, entry.name) : entry.name;
+          // Normalize to forward slashes so paths are identical on Windows
+          // (path.join uses backslashes there) and match DB markdown_path values
+          // which are stored with "/".
+          const normPath = path.join(subDir, relPath).replace(/\\/g, "/");
           files.push({
             name: entry.name,
-            path: path.join(subDir, relPath),
-            type: detectRoute(path.join(subDir, relPath)) as FileEntry["type"],
+            path: normPath,
+            type: detectRoute(normPath) as FileEntry["type"],
             ext: path.extname(entry.name).toLowerCase(),
             size: stat.size,
             modifiedAt: stat.mtimeMs,

@@ -383,14 +383,16 @@ export async function handleApiRequest(request: Request): Promise<Response | nul
       const renamed = renameFile(resolveRoot(projectId), filePath, newName);
       if (renamed && projectId) {
         // Keep FSD sessions pointing at the renamed markdown file (input/fsd/*).
-        const newPath = filePath.slice(0, filePath.lastIndexOf("/") + 1) + newName;
-        if (filePath.startsWith("input/fsd/")) {
+        // Normalize separators so this works identically on Windows.
+        const normFile = filePath.replace(/\\/g, "/");
+        const newPath = normFile.slice(0, normFile.lastIndexOf("/") + 1) + newName;
+        if (normFile.startsWith("input/fsd/")) {
           try {
             const projId = projectId;
             db.update(fsdSessions)
               .set({ markdownPath: newPath, fsdInputPath: newName, updatedAt: new Date().toISOString() })
               .where(eq(fsdSessions.projectId, projId))
-              .where(eq(fsdSessions.markdownPath, filePath))
+              .where(eq(fsdSessions.markdownPath, normFile))
               .run();
           } catch {}
         }
@@ -1044,7 +1046,7 @@ async function handleProjects(
             const full = pathMod.join(dir, entry.name);
             if (entry.isFile()) {
               if (!entry.name.endsWith(".md") || entry.name === "README.md" || entry.name.startsWith(".")) continue;
-              const rel = relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name;
+              const rel = (relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name).replace(/\\/g, "/");
               const relPath = `input/fsd/${rel}`;
               const content = fs.default.readFileSync(full, "utf-8");
               const hash = hashContent(content);
@@ -1116,7 +1118,7 @@ async function handleProjects(
             const twinTopLevel = pathMod.join(fsdDir(), `${stem}.md`);
             const twinSameFolder = pathMod.join(dir, `${stem}.md`);
             if (fs.default.existsSync(twinTopLevel) || fs.default.existsSync(twinSameFolder)) {
-              const sourceRel = `input/fsd/sources/${relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name}`;
+              const sourceRel = `input/fsd/sources/${(relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name).replace(/\\/g, "/")}`;
               const existingTwin = byPath.get(sourceRel);
               if (existingTwin) {
                 db.delete(fsdSessions).where(eq(fsdSessions.id, existingTwin.id)).run();
@@ -1125,7 +1127,7 @@ async function handleProjects(
               }
               continue;
             }
-            const rel = relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name;
+            const rel = (relPrefix ? pathMod.join(relPrefix, entry.name) : entry.name).replace(/\\/g, "/");
             const sourcePath = `input/fsd/sources/${rel}`;
             const existingRow = byPath.get(sourcePath);
             if (existingRow) continue;

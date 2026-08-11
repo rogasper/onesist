@@ -34,6 +34,9 @@ interface FsdSession {
   updatedAt: string;
 }
 
+/** Normalize path separators to forward slashes (Windows uses backslashes). */
+const normPath = (p?: string | null) => (p ?? "").replace(/\\/g, "/");
+
 export const Route = createFileRoute("/projects/$id/fsd")({
   component: FsdPage,
 });
@@ -211,7 +214,7 @@ function FsdPage() {
 
   const handleFileRename = useCallback(async (path: string, newName: string) => {
     const trimmed = newName.trim();
-    if (!trimmed || trimmed === path.split("/").pop()) return;
+    if (!trimmed || trimmed === normPath(path).split("/").pop()) return;
     try {
       const res = await fetch("/api/files/rename", {
         cache: "no-store",
@@ -235,7 +238,7 @@ function FsdPage() {
     const { path, name } = fileDeleteTarget;
     // If a session owns this markdown file, delete via the session endpoint
     // (removes file from disk + session row). Otherwise plain file delete.
-    const session = sessions.find((s) => s.markdownPath === path || s.sourceFilePath === path);
+    const session = sessions.find((s) => normPath(s.markdownPath) === normPath(path) || normPath(s.sourceFilePath) === normPath(path));
     if (session) {
       await fetch(`/api/projects/${id}/fsd/${session.id}`, { method: "DELETE" });
       setSessions((p) => p.filter((s) => s.id !== session.id));
@@ -438,7 +441,7 @@ function FsdPage() {
             <DialogTitle>Delete file</DialogTitle>
             <DialogDescription>
               Are you sure you want to delete <b>{fileDeleteTarget?.name}</b>? This cannot be undone.
-              {fileDeleteTarget && sessions.some((s) => s.markdownPath === fileDeleteTarget.path || s.sourceFilePath === fileDeleteTarget.path) && (
+              {fileDeleteTarget && sessions.some((s) => normPath(s.markdownPath) === normPath(fileDeleteTarget.path) || normPath(s.sourceFilePath) === normPath(fileDeleteTarget.path)) && (
                 <span className="block mt-1">Its FSD session will also be removed.</span>
               )}
             </DialogDescription>
@@ -525,12 +528,16 @@ function FsdPage() {
           ref={fileTreeRef}
           files={fsdFiles}
           rootDir="input/fsd"
-          activePath={activeSession?.markdownPath ?? activeSession?.fsdInputPath ? `input/fsd/${activeSession.fsdInputPath}` : undefined}
+          activePath={activeSession?.markdownPath
+            ? normPath(activeSession.markdownPath)
+            : activeSession?.fsdInputPath
+              ? `input/fsd/${normPath(activeSession.fsdInputPath)}`
+              : undefined}
           emptyText="No FSD documents — click 'New FSD' or 'Upload document' to start"
           isDisabled={(f) => !f.path.endsWith(".md")}
           onFileClick={(f) => {
             // Select the session that owns this markdown file
-            const session = sessions.find((s) => s.markdownPath === f.path);
+            const session = sessions.find((s) => normPath(s.markdownPath) === normPath(f.path));
             if (session) setActiveId(session.id);
           }}
           onFileContextMenu={(e, file) => openMenu(e, { kind: "file", file })}
