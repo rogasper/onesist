@@ -265,11 +265,16 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
     term.loadAddon(fit);
     term.loadAddon(webLinks);
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {}
+    // WebView2 (Tauri desktop) is notorious for WebGL context loss, which can
+    // leave the terminal blank or stuck — the canvas renderer is just as
+    // correct there. Keep WebGL only in browsers.
+    if (!(window as any).__TAURI_INTERNALS__) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        term.loadAddon(webgl);
+      } catch {}
+    }
 
     term.open(containerRef.current);
     register(sessionIdRef.current, term, fit, term.element ?? containerRef.current);
@@ -308,6 +313,13 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       }
     });
 
+    // Any renderer-driven size change (font settle, renderer fallback after
+    // WebGL context loss) can leave the grid out of sync with the panel —
+    // re-fit so it always fills the parent.
+    term.onDimensionsChange(() => {
+      requestAnimationFrame(() => { try { safeFit(); } catch {} });
+    });
+
     termRef.current = term;
     fitRef.current = fit;
 
@@ -329,6 +341,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       requestAnimationFrame(() => { try { safeFit(); } catch {} });
     });
     observerRef.current.observe(panelRef.current!);
+    observerRef.current.observe(containerRef.current!);
   };
 
   // Park xterm when hidden, reattach when shown
@@ -381,6 +394,40 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       try { safeFit(); } catch {}
     }
   }, [width, visible]);
+
+  // WebView2 doesn't always fire ResizeObserver on window resizes — a plain
+  // resize listener is cheap insurance that the terminal follows its parent.
+  useEffect(() => {
+    const onWindowResize = () => {
+      requestAnimationFrame(() => { try { safeFit(); } catch {} });
+    };
+    window.addEventListener("resize", onWindowResize);
+    return () => window.removeEventListener("resize", onWindowResize);
+  }, [safeFit]);
+
+  // Self-healing watchdog: for ~36s after the panel opens, periodically check
+  // the grid against the container and re-fit if any resize trigger was missed
+  // (WebView2 first-paint / rAF / RO quirks). Pure client-side check, no
+  // server traffic — fit is skipped when the grid already matches.
+  useEffect(() => {
+    if (!visible) return;
+    let checks = 0;
+    const timer = window.setInterval(() => {
+      checks++;
+      if (checks > 24) {
+        window.clearInterval(timer);
+        return;
+      }
+      const t = termRef.current;
+      const f = fitRef.current;
+      if (!t || !f) return;
+      try {
+        const dims = f.proposeDimensions();
+        if (dims && (dims.cols !== t.cols || dims.rows !== t.rows)) safeFit();
+      } catch {}
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [visible, safeFit]);
 
   const handleResizeStart = useCallback(() => setDragging(true), []);
   const handleResizeEnd = useCallback(() => setDragging(false), []);

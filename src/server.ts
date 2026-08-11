@@ -48,6 +48,39 @@ async function ensureTerminalServer() {
     } catch {}
     if (await portInUse(port)) return; // still busy → someone else's port, skip
   }
+
+  // On Windows under Bun, node-pty is unavailable (Bun's runtime doesn't
+  // support net.Socket({ fd }) which ConPTY requires for input). Without
+  // node-pty the terminal falls back to a cmd.exe pipe that cannot resize,
+  // so TUIs (opencode, claude) are stuck at their initial grid and never
+  // track the panel size. Fix: spawn the terminal server under Node.js where
+  // node-pty works and ConPTY resize events propagate correctly.
+  if (process.platform === "win32" && typeof Bun !== "undefined") {
+    try {
+      const { spawn } = await import("node:child_process");
+      const clientDir = process.env.SA_CLIENT_DIR || path.resolve(import.meta.dirname ?? ".", "..", "client");
+      const nodeServerPath = path.resolve(clientDir, "..", "server", "terminal-server.node.js");
+      const child = spawn("node", [nodeServerPath], {
+        env: { ...process.env, TERMINAL_PORT: String(port) },
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      });
+      child.unref();
+      child.stdout?.on("data", (d: Buffer) => process.stdout.write(d));
+      child.stderr?.on("data", (d: Buffer) => process.stderr.write(d));
+      for (let i = 0; i < 50; i++) {
+        if (await portInUse(port)) return;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      console.error("[server] terminal-server.node.js did not start within 10s, falling back to in-process");
+    } catch (e) {
+      console.error("[server] Failed to spawn terminal server under Node.js:", e);
+    }
+  }
+
+  // Non-Windows or spawn failed: run in-process (Bun uses Bun.serve +
+  // Python PTY bridge on POSIX; on Windows without node-pty it uses the
+  // cmd.exe pipe which cannot resize — TUIs won't track panel size).
   await import("~/server/terminal-server");
 }
 
