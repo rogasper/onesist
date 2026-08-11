@@ -1,7 +1,7 @@
 import { createStartHandler, defaultStreamHandler } from "@tanstack/react-start/server";
 import { handleApiRequest } from "~/server/api-router";
 import { seedIfEmpty } from "~/server/db/seed";
-import { startFileWatcher, registerWatchRoot } from "~/server/file-watcher";
+import { startFileWatcher, registerWatchRoot } from "~/server/realtime/file-watcher";
 import path from "node:path";
 import net from "node:net";
 import fs from "node:fs";
@@ -88,7 +88,7 @@ async function ensureTerminalServer() {
   // Non-Windows or spawn failed: run in-process (Bun uses Bun.serve +
   // Python PTY bridge on POSIX; on Windows without node-pty it uses the
   // cmd.exe pipe which cannot resize — TUIs won't track panel size).
-  await import("~/server/terminal-server");
+  await import("~/server/terminal/terminal-server");
 }
 
 ensureTerminalServer();

@@ -54,12 +54,13 @@ app/
 │   │   │   ├── client.ts   # Drizzle + SQLite + runtime ALTER TABLE migrations + checkpointWal()
 │   │   │   ├── schema.ts   # Drizzle schema (projects, tasks, wiki, fsd, erd, etc.)
 │   │   │   └── migrations/ # Drizzle SQL migrations (MUST match schema.ts)
-│   │   ├── api-router.ts   # Monolithic API router (/api/* endpoints)
-│   │   ├── events.ts       # SSE event bus for real-time updates
-│   │   ├── file-watcher.ts # Watches registered project roots, emits file:changed
-│   │   ├── agent-runner.ts # Spawns OpenCode CLI as child process
-│   │   ├── ws-terminal.ts  # WebSocket terminal handler
-│   │   └── terminal-server.ts # xterm.js WebSocket server (port TERMINAL_PORT)
+│   │   ├── api-router.ts   # HTTP entry: dispatch /api/* ke route modules
+│   │   ├── http/           # HTTP infra: router.ts (mini Router), response.ts, route-utils.ts
+│   │   ├── routes/         # Handler per-resource (/api/*): index, system, sse, files, projects/
+│   │   ├── services/       # Business logic: fsd-service.ts, agent-runner.ts
+│   │   ├── realtime/       # events.ts (SSE event bus) + file-watcher.ts (file:changed)
+│   │   ├── terminal/       # terminal-server.ts (xterm.js WebSocket, port TERMINAL_PORT)
+│   │   └── functions/      # TanStack createServerFn server functions
 │   ├── lib/
 │   │   ├── agent-cli.ts    # Detect installed agents (opencode, claude, codex)
 │   │   ├── agent-command.ts # Build agent CLI command strings
@@ -130,7 +131,7 @@ Tauri shell (Rust) ──spawn──▶ onesist-server (compiled Bun)
 
 ## API Endpoints
 
-The monolithic router at `server/api-router.ts` handles all `/api/*` routes:
+The API is split into route modules under `server/routes/`, composed by the entry at `server/api-router.ts` (declarative mini-router in `server/http/router.ts`). All `/api/*` routes:
 
 | Route | Methods | Purpose |
 |-------|---------|---------|
@@ -171,8 +172,8 @@ The monolithic router at `server/api-router.ts` handles all `/api/*` routes:
 - **File paths:** Use `readFile(rootPath, relPath)` from file-router, not raw fs reads
 - **Database:** Use Drizzle queries through `db` instance from `server/db/client`. Runtime migrations add columns via `ALTER TABLE ... ADD COLUMN` in `client.ts`
 - **API layer:** All routes go through `handleApiRequest` → delegates to `handleProjects` for `/api/projects/*` routes
-- **Real-time updates:** SSE via `server/events.ts` event bus. `file-watcher.ts` watches REGISTERED project roots (via `registerWatchRoot`) and emits `file:changed` — frontend listens, never polls
-- **Agent execution:** `agent-runner.ts` spawns OpenCode CLI with `--format json --auto`. Log output parsed line-by-line as JSONL
+- **Real-time updates:** SSE via `server/realtime/events.ts` event bus. `server/realtime/file-watcher.ts` watches REGISTERED project roots (via `registerWatchRoot`) and emits `file:changed` — frontend listens, never polls
+- **Agent execution:** `server/services/agent-runner.ts` spawns OpenCode CLI with `--format json --auto`. Log output parsed line-by-line as JSONL
 - **Styles:** Use kumo tokens (`kumo-default`, `kumo-subtle`, `kumo-brand`, `kumo-elevated`, `kumo-line`). Avoid custom hex colors
 - **TypeScript:** Strict mode. `bun run typecheck` before commits
 - **Desktop paths:** NEVER rely on `process.cwd()` for absolute paths — macOS launches with CWD=`/`. Always read from env (`SA_DB_PATH`, `SA_ROOT`, etc.) or resolve against `process.env.SA_ROOT`.
@@ -180,7 +181,7 @@ The monolithic router at `server/api-router.ts` handles all `/api/*` routes:
 ## Do's and Don'ts (from production bugs)
 
 ### Cache & freshness
-- **DO** set `Cache-Control: no-store` on every new API response (the `json()` helper in api-router already does this globally — don't remove it).
+- **DO** set `Cache-Control: no-store` on every new API response (the `json()` helper in `server/http/response.ts` already does this globally — don't remove it).
 - **DO** pass `{ cache: "no-store" }` on every frontend `fetch("/api/...")`.
 - **DON'T** add client-side polling when SSE events exist. If file changes don't arrive, fix the emitter (`registerWatchRoot`), don't add `setInterval`.
 - **DO** refresh dynamic lists (agent detection, project list) when a dialog opens, not only on mount — mount-time fetch may run before the server is ready.

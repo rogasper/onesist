@@ -115,7 +115,7 @@ function terminalServerPlugin() {
         }
       }
       process.env.TERMINAL_PORT = String(port);
-      const script = path.resolve(__dirname, "src/server/terminal-server.ts");
+      const script = path.resolve(__dirname, "src/server/terminal/terminal-server.ts");
       const isBun = typeof Bun !== "undefined";
       const nodeMajor = Number(process.versions.node?.split(".")[0] || 0);
       // On Windows the terminal server MUST run under Node: node-pty's ConPTY
