@@ -23,3 +23,19 @@ syncCopy(
   path.join(root, "vendor", "skills"),
   path.join(root, "src-tauri", "vendor-skills")
 );
+// Ship node-pty (native module) so the Windows terminal server — spawned as a
+// separate Node.js process — can resolve it from its own directory at
+// web-dist/server/server/node_modules. node-pty is pure-package at runtime
+// (loads its own prebuilds/*.node), no extra deps needed.
+const nodePtySrc = path.join(root, "node_modules", "node-pty");
+const nodePtyDest = path.join(
+  root, "src-tauri", "web-dist", "server", "server", "node_modules", "node-pty"
+);
+if (!existsSync(nodePtySrc)) {
+  console.error(`[prepare-resources] node-pty not installed: ${nodePtySrc}`);
+  process.exit(1);
+}
+if (existsSync(nodePtyDest)) rmSync(nodePtyDest, { recursive: true, force: true });
+mkdirSync(path.dirname(nodePtyDest), { recursive: true });
+cpSync(nodePtySrc, nodePtyDest, { recursive: true });
+console.log(`[prepare-resources] ${nodePtySrc} -> ${nodePtyDest}`);

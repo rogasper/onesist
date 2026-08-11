@@ -13,7 +13,7 @@
     "dev": "bun run --bun vite",
     "build": "bun run --bun vite build",
     "start": "bun run --bun vite",
-    "build:server": "bun run --bun vite build && bun build src/server/terminal-server.ts --outdir dist/server/server --target bun --external node-pty && bun scripts/post-build.mjs && bun scripts/build-server-bin.mjs && rm -f desktop-entry.ts",
+    "build:server": "bun run --bun vite build && bun build src/server/terminal-server.ts --outdir dist/server/server --target bun --external node-pty && bun build src/server/terminal-server.ts --outfile dist/server/server/terminal-server.node.js --target node --external node-pty && bun scripts/post-build.mjs && bun scripts/build-server-bin.mjs && rm -f desktop-entry.ts",
     "generate:routes": "node scripts/generate-routes.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",

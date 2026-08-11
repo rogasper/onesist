@@ -136,7 +136,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       ws.send(JSON.stringify({ type: "status", id: sid }));
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.id !== sid) return;
@@ -160,11 +160,17 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
               ws.close();
               return;
             }
+            // Create the terminal BEFORE spawning so proposeDimsAsync() can
+            // measure the real panel size — otherwise every first spawn falls
+            // back to 120x40 and the PTY starts at the wrong grid.
+            if (!termRef.current && visibleRef.current) createXterm();
             const cmd = buildAgentCommand(agentName as AgentCli, { mode: "new" });
             lastSpawnTimeRef.current = Date.now();
             // Pass current dims so the PTY starts at the right size instead of
-            // the server default (120x40) until the first resize lands.
-            const dims = fitRef.current?.proposeDimensions?.() ?? { cols: 120, rows: 40 };
+            // the server default (120x40) until the first resize lands. Retry
+            // a few frames first — proposeDimensions() returns undefined while
+            // the renderer is still measuring the cell size.
+            const dims = await proposeDimsAsync();
             ws.send(JSON.stringify({ type: "spawn", id: sid, command: cmd, cwd: projectRoot || "/tmp", cols: dims.cols, rows: dims.rows }));
           }
         } else if (msg.type === "replay") {
@@ -212,6 +218,35 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     }
   }, []);
 
+  // fit() silently no-ops while the renderer hasn't measured the cell size yet
+  // (dimensions.css.cell stays 0 until the font metrics are known — fonts
+  // resolve slower on Windows where the mono fallback chain differs). Retry
+  // until the container has real size AND the metrics are ready.
+  const fitWithRetry = useCallback((attempts = 0, max = 90) => {
+    const el = containerRef.current;
+    const t = termRef.current;
+    if (!el || !t) return;
+    const rect = el.getBoundingClientRect();
+    const dims = t.dimensions;
+    const dimsReady = !!dims && dims.css.cell.width > 0 && dims.css.cell.height > 0;
+    if (rect.width >= 50 && rect.height >= 50 && dimsReady) {
+      try { safeFit(); } catch {}
+    } else if (attempts < max) {
+      requestAnimationFrame(() => fitWithRetry(attempts + 1, max));
+    }
+  }, [safeFit]);
+
+  // Same for the spawn-size negotiation: retry a few frames before falling
+  // back to the server default so the PTY starts at the panel's real size.
+  const proposeDimsAsync = useCallback(async () => {
+    for (let i = 0; i < 12; i++) {
+      const d = fitRef.current?.proposeDimensions?.();
+      if (d) return d;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    return { cols: 120, rows: 40 };
+  }, []);
+
   const createXterm = () => {
     if (!containerRef.current || termRef.current) return;
 
@@ -219,7 +254,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     const webLinks = new WebLinksAddon();
     const term = new Terminal({
       cursorBlink: true, cursorStyle: "bar", fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, Menlo, monospace",
       theme: {
         background: "#0d0d0d", foreground: "#e0e0e0", cursor: "#4ade80",
         selectionBackground: "#4ade8040",
@@ -234,11 +269,16 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
     term.loadAddon(fit);
     term.loadAddon(webLinks);
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch {}
+    // WebView2 (Tauri desktop) is notorious for WebGL context loss, which can
+    // leave the terminal blank or stuck — the canvas renderer is just as
+    // correct there. Keep WebGL only in browsers.
+    if (!(window as any).__TAURI_INTERNALS__) {
+      try {
+        const webgl = new WebglAddon();
+        webgl.onContextLoss(() => webgl.dispose());
+        term.loadAddon(webgl);
+      } catch {}
+    }
 
     term.open(containerRef.current);
     register(sessionIdRef.current, term, fit, term.element ?? containerRef.current);
@@ -277,24 +317,35 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       }
     });
 
+    // Any renderer-driven size change (font settle, renderer fallback after
+    // WebGL context loss) can leave the grid out of sync with the panel —
+    // re-fit so it always fills the parent.
+    term.onDimensionsChange(() => {
+      requestAnimationFrame(() => { try { safeFit(); } catch {} });
+    });
+
     termRef.current = term;
     fitRef.current = fit;
 
-    const tryFit = (attempts = 0) => {
-      const rect = containerRef.current!.getBoundingClientRect();
-      if (rect.width >= 50 && rect.height >= 50) {
-        try { safeFit(); } catch {}
-      } else if (attempts < 40) {
-        requestAnimationFrame(() => tryFit(attempts + 1));
-      }
-    };
-    tryFit();
+    // Keep re-fitting until the panel has real dimensions AND the renderer has
+    // measured the cell metrics (otherwise fit() silently no-ops and the
+    // terminal stays stuck at the default grid, not filling the panel).
+    fitWithRetry();
+
+    // If a font in the fallback chain is still loading, its swap changes the
+    // cell metrics — re-fit once it settles so the terminal fills the parent.
+    try {
+      document.fonts.ready.then(() => {
+        requestAnimationFrame(() => { try { safeFit(); } catch {} });
+      });
+    } catch {}
 
     if (observerRef.current) observerRef.current.disconnect();
     observerRef.current = new ResizeObserver(() => {
       requestAnimationFrame(() => { try { safeFit(); } catch {} });
     });
     observerRef.current.observe(panelRef.current!);
+    observerRef.current.observe(containerRef.current!);
   };
 
   // Park xterm when hidden, reattach when shown
@@ -347,6 +398,40 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       try { safeFit(); } catch {}
     }
   }, [width, visible]);
+
+  // WebView2 doesn't always fire ResizeObserver on window resizes — a plain
+  // resize listener is cheap insurance that the terminal follows its parent.
+  useEffect(() => {
+    const onWindowResize = () => {
+      requestAnimationFrame(() => { try { safeFit(); } catch {} });
+    };
+    window.addEventListener("resize", onWindowResize);
+    return () => window.removeEventListener("resize", onWindowResize);
+  }, [safeFit]);
+
+  // Self-healing watchdog: for ~36s after the panel opens, periodically check
+  // the grid against the container and re-fit if any resize trigger was missed
+  // (WebView2 first-paint / rAF / RO quirks). Pure client-side check, no
+  // server traffic — fit is skipped when the grid already matches.
+  useEffect(() => {
+    if (!visible) return;
+    let checks = 0;
+    const timer = window.setInterval(() => {
+      checks++;
+      if (checks > 24) {
+        window.clearInterval(timer);
+        return;
+      }
+      const t = termRef.current;
+      const f = fitRef.current;
+      if (!t || !f) return;
+      try {
+        const dims = f.proposeDimensions();
+        if (dims && (dims.cols !== t.cols || dims.rows !== t.rows)) safeFit();
+      } catch {}
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [visible, safeFit]);
 
   const handleResizeStart = useCallback(() => setDragging(true), []);
   const handleResizeEnd = useCallback(() => setDragging(false), []);
