@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { eventBus } from "~/server/events";
+import { eventBus } from "./events";
 import { detectRoute } from "~/lib/file-router";
 
 let watcherActive = false;

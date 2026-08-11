@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { eventBus } from "~/server/events";
+import { eventBus } from "~/server/realtime/events";
 import { buildGeneratePrompt, buildGapPrompt, buildTdPrompt, buildOpenapiPrompt } from "~/lib/agent-prompts";
 import { getProjectRoot } from "~/lib/file-router";
 import { needsShell, resolveExecutable } from "~/lib/agent-cli";
