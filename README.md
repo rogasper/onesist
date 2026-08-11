@@ -26,10 +26,22 @@ flowchart TD
 | **Timeline** | Rendered Gantt chart viewer (`output/timeline.html`) |
 | **Terminal** | Built-in agent terminal for running CLI commands |
 
+## Prerequisites
+
+The dashboard delegates AI analysis (FSD → API specs, ERD, tasks, timeline) to a local CLI agent. **You must have at least one of these installed and on your `PATH`** — the app auto-detects them in this priority order:
+
+| Agent | Install command |
+|-------|-----------------|
+| **OpenCode** | `npm i -g opencode-ai` or see [opencode.ai](https://opencode.ai) |
+| **Claude Code** | `npm i -g @anthropic-ai/claude-code` |
+| **Codex** | `npm i -g @openai/codex` |
+
+The FSD **Run Analysis** button, agent terminal, and skills auto-install all depend on a detected agent.
+
 ## Quick Start
 
 ```bash
-# Requirements: Bun 1.3+, OpenCode CLI 1.18+
+# Requirements: Bun 1.3+, one of OpenCode / Claude Code / Codex (see above)
 
 cd app
 bun install
@@ -47,6 +59,8 @@ bun run dev
 Onesist also ships as a native desktop app for **macOS (arm64/x64)** and **Windows**, built with Tauri 2. The web app runs as a self-contained compiled Bun server (sidecar) inside the desktop shell.
 
 ### Prerequisites (developer machine)
+
+The same [agent CLI requirement](#prerequisites) applies to the desktop app: install at least one of **OpenCode**, **Claude Code**, or **Codex** and make sure it's on your `PATH` (the sidecar spawns it via `which`).
 
 ```bash
 # Rust toolchain
