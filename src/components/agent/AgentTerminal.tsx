@@ -35,6 +35,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const panelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
+  const backendRef = useRef<string | null>(null);
   const sessionId = `agent-${projectId ?? "default"}`;
   const sessionIdRef = useRef(sessionId);
   const boundSidRef = useRef<string | null>(null);
@@ -142,6 +143,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         if (msg.id !== sid) return;
         if (msg.type === "status") {
           if (msg.exists) {
+            if (msg.backend) backendRef.current = msg.backend;
             // Agent still running — just attach to the live session
             setConnected(true);
             if (!termRef.current && visibleRef.current) createXterm();
@@ -179,6 +181,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             termRef.current.write(msg.data);
           }
         } else if (msg.type === "ready") {
+          if (msg.backend) backendRef.current = msg.backend;
           setConnected(true);
           if (!termRef.current && visibleRef.current) createXterm();
         } else if (msg.type === "output") {
@@ -187,6 +190,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             termRef.current.write(msg.data);
           }
         } else if (msg.type === "exit") {
+          backendRef.current = null;
           if (!termRef.current && visibleRef.current) createXterm();
           if (termRef.current) termRef.current.writeln(`\x1b[33m\nExited (code ${msg.code ?? "?"})\x1b[0m`);
           setConnected(false);
@@ -310,8 +314,18 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     });
 
     term.onData((data: string) => {
-      term.write(data);
-      if (data === "\r") term.write("\n");
+      // Local echo ONLY for the non-PTY cmd.exe pipe fallback, which has no
+      // terminal to echo keystrokes back (its stdin is a plain pipe). Every
+      // real PTY backend (ConPTY, node-pty, python bridge) echoes in cooked
+      // mode and full-screen TUIs redraw their own screen on every keystroke —
+      // echoing locally there renders every character twice (the Windows
+      // "doubled text" bug; a resize only hides it because the TUI repaints
+      // the whole screen and clears our duplicate).
+      const needsLocalEcho = backendRef.current === "cmdpipe";
+      if (needsLocalEcho) {
+        term.write(data);
+        if (data === "\r") term.write("\n");
+      }
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "input", id: sessionIdRef.current, data }));
       }
@@ -438,6 +452,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
   const handleEndSession = () => {
     manualEndRef.current = true;
+    backendRef.current = null;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "kill", id: sessionIdRef.current }));
       wsRef.current.close();

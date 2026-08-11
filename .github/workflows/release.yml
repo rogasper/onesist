@@ -188,11 +188,38 @@ jobs:
           print(open("manifest.json").read())
           PY
 
+      - name: Generate release notes
+        shell: bash
+        run: |
+          {
+            echo "## Changelog (${{ github.ref_name }})"
+            echo ""
+            # Group commits since the previous tag (or all commits for the first release)
+            PREV_TAG=$(git tag --sort=-version:refname | sed -n '2p' || true)
+            if [ -n "$PREV_TAG" ]; then
+              RANGE="${PREV_TAG}..${GITHUB_SHA}"
+            else
+              RANGE=""
+            fi
+            # Build a bullet list from commit subjects
+            {
+              if [ -n "$RANGE" ]; then
+                git log --format='%s' "$RANGE"
+              else
+                git log --format='%s'
+              fi
+            } | sed 's/^/- /' > /tmp/notes_body.md
+            cat /tmp/notes_body.md
+          } > /tmp/release_notes.md
+          echo "=== release notes ==="
+          cat /tmp/release_notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Onesist ${{ github.ref_name }}
+          body_path: /tmp/release_notes.md
           draft: false
           prerelease: false
           files: |

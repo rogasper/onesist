@@ -14,6 +14,8 @@ interface AgentSession {
   rows: number;
   sizeFile: string;
   buffer: string;
+  /** Which PTY backend spawned this session (drives frontend local-echo). */
+  backend: "conpty" | "cmdpipe" | "python" | "node-pty";
 }
 
 const MAX_REPLAY = 64 * 1024;
@@ -75,7 +77,7 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
   const sizeFile = path.join(os.tmpdir(), `pty_size_${id}_${Date.now()}.txt`);
   try { fs.writeFileSync(sizeFile, `${rows} ${cols}`); } catch {}
 
-  const session: AgentSession = { id, cwd, cols, rows, sizeFile, buffer: "" };
+  const session: AgentSession = { id, cwd, cols, rows, sizeFile, buffer: "", backend: "python" };
   sessions.set(id, session);
   const startedAt = Date.now();
 
@@ -133,6 +135,7 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
             },
           });
       session.pty = pty;
+      session.backend = isWin ? "conpty" : "node-pty";
       // node-pty's Windows ConPTY pipes emit 'error' on writes after the
       // process dies: outSocket rethrows unless the pty has an 'error'
       // listener, and inSocket has NO listener at all (unhandled 'error'
@@ -180,6 +183,7 @@ function runAgent(id: string, command: string, cwd: string, cols = 120, rows = 4
         windowsHide: true,
       });
       session.proc = proc;
+      session.backend = "cmdpipe";
       console.log(`[terminal] session ${id} backend=cmdpipe (${cols}x${rows})`);
       proc.stdout?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
       proc.stderr?.on("data", (chunk: Buffer) => broadcast(chunk.toString("utf-8")));
@@ -358,7 +362,7 @@ function handleMessage(ws: any, msg: string | Buffer) {
       if (s) {
         setTimeout(() => {
           try {
-            ws.send(JSON.stringify({ type: "ready", id: parsed.id, cwd: s.cwd }));
+            ws.send(JSON.stringify({ type: "ready", id: parsed.id, cwd: s.cwd, backend: s.backend }));
           } catch {}
         }, 300);
       }
@@ -368,7 +372,7 @@ function handleMessage(ws: any, msg: string | Buffer) {
         if (s.buffer) {
           ws.send(JSON.stringify({ type: "replay", id: parsed.id, data: s.buffer }));
         }
-        ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: true }));
+        ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: true, backend: s.backend }));
       } else {
         ws.send(JSON.stringify({ type: "status", id: parsed.id, exists: false }));
       }
