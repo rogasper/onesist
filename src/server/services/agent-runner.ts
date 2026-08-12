@@ -71,11 +71,8 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
 
     RUNNING_AGENTS.set(sessionId, { process: proc, startTime: Date.now() });
 
-    let outputBuffer = "";
-
     proc.stdout?.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf-8");
-      outputBuffer += text;
 
       if (useJson) {
         // Parse JSON lines for opencode

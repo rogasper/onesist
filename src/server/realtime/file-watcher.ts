@@ -33,6 +33,11 @@ const MAX_RSS_MB = parseInt(process.env.SA_MAX_RSS_MB || "3000", 10) || 3000;
 // developer's session. Production keeps the hard restart.
 const IS_DEV = process.env.NODE_ENV === "development";
 
+// Even in dev a runaway is a runaway: far above normal dev bloat (~2GB), hard
+// exit so a leak can never reach the 100+GB runaway we saw before the
+// watchdog existed.
+const DEV_HARD_CAP_MB = 12000;
+
 let lastRss: number | null = null;
 
 function rssMB(): number {
@@ -70,6 +75,11 @@ export function startFileWatcher(intervalMs = 2000) {
   if (watcherActive) return;
   watcherActive = true;
 
+  // Log the baseline so the watchdog's measurement is verifiable in the log
+  // (a broken process.memoryUsage() in the compiled sidecar would otherwise
+  // silently disable the kill).
+  console.log(`[watcher] RSS watchdog active: max=${MAX_RSS_MB}MB devHardCap=${DEV_HARD_CAP_MB}MB baseline=${rssMB()}MB`);
+
   // Fallback root when no project has been registered yet (web dev without
   // opening a project).
   const fallbackRoot = process.env.SA_ROOT
@@ -92,6 +102,10 @@ export function startFileWatcher(intervalMs = 2000) {
       }
       if (rss > MAX_RSS_MB) {
         if (IS_DEV) {
+          if (rss > DEV_HARD_CAP_MB) {
+            console.error(`[watcher] RSS ${rss}MB exceeds dev hard cap ${DEV_HARD_CAP_MB}MB — exiting to force a clean restart`);
+            process.exit(1);
+          }
           console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — dev: warning only (production would restart)`);
         } else {
           console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — exiting to force a clean restart`);
