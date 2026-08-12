@@ -12,6 +12,19 @@ flowchart TD
     C & D & E & F --> G["💻 SA Dashboard<br/>localhost:4321"]
 ```
 
+[![GitHub Stars](https://img.shields.io/github/stars/rogasper/onesist?style=flat-square&label=Stars)](https://github.com/rogasper/onesist)
+
+<!--
+Star history chart: GitHub restricted the stargazers API (June 2026) to repo
+owners/collaborators, so the plain api.star-history.com URL is blocked. To
+restore the live graph for this repo:
+  1. Create a GitHub token scoped to rogasper/onesist (fine-grained: Metadata
+     Read + Contents Read-and-write; or classic token with `public_repo` scope).
+  2. On https://star-history.com add the token, then use "Show real-time chart
+     on your README.md" → Generate embed code (the token is encrypted).
+  3. Replace the badge below with the generated embed URL.
+-->
+
 ## Features
 
 | Page | What it does |
@@ -25,6 +38,15 @@ flowchart TD
 | **FSD Analyzer** | Notion-like Markdown editor, completeness checklist, PDF/DOCX upload → Markdown conversion, Run Analysis via OpenCode |
 | **Timeline** | Rendered Gantt chart viewer (`output/timeline.html`) |
 | **Terminal** | Built-in agent terminal for running CLI commands |
+
+## Documentation
+
+Detailed bilingual usage guides live in [`docs/`](docs/README.md), covering the full SA workflow with Mermaid diagrams, a copy-paste prompt library, and best practices:
+
+- **Indonesian** — [`docs/id/`](docs/id/): alur kerja lengkap (FSD → Markdown via markitdown → split FD → discovery → ERD → Spec API + OpenAPI → Tasks + Timeline → Technical Documentation), [Prompt Library](docs/id/08-prompt-library.md), dan [Best Practices](docs/id/09-best-practices.md).
+- **English** — [`docs/en/`](docs/en/): [overview](docs/en/00-overview.md), [prompt library](docs/en/08-prompt-library.md), and [best practices](docs/en/09-best-practices.md).
+
+The guides follow an **agent-CLI first** approach: every action (convert, split, generate ERD/spec/tasks, timeline, docs) is run as a prompt in the embedded agent terminal, and the UI tabs are used for reviewing the generated artifacts. UI action buttons are considered experimental.
 
 ## Prerequisites
 
