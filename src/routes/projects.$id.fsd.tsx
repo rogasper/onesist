@@ -1,16 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Badge, Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
-import { MagnifyingGlass, Play, Stop, FloppyDisk, SealCheck, Plus, UploadSimple, Scan, PencilSimple, Trash, CopySimple, ClipboardText, CaretLeft, CaretRight, Eye, Columns, Check, CheckCircle, XCircle } from "@phosphor-icons/react";
+import { MagnifyingGlass, Play, Stop, FloppyDisk, SealCheck, Plus, UploadSimple, Scan, PencilSimple, Trash, CaretLeft, CaretRight, Eye, Columns, Check, CheckCircle, XCircle } from "@phosphor-icons/react";
 import { FsdEditor, type EditorMode } from "~/components/fsd/FsdEditor";
 import { FsdCompleteness } from "~/components/fsd/FsdCompleteness";
 import { FsdUploadDialog } from "~/components/fsd/FsdUploadDialog";
 import { AgentStream } from "~/components/agent/AgentStream";
 import { FileTree, type FileTreeHandle } from "~/components/ui/FileTree";
 import { ContextMenu } from "~/components/ui/ContextMenu";
-import type { ContextMenuItem } from "~/components/ui/ContextMenu";
 import { AppButton } from "~/components/ui/AppButton";
-import { useFsdConversion } from "~/lib/use-file-data";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { ExplorerShell } from "~/components/ui/ExplorerShell";
+import { Placeholder } from "~/components/ui/Placeholder";
+import { useFileContextMenu } from "~/lib/use-file-context-menu";
+import { useFsdConversion, useFileList, usePageVisible } from "~/lib/use-file-data";
 import type { CompletenessResult } from "~/lib/fsd-completeness";
 
 interface FsdSession {
@@ -65,9 +69,7 @@ function FsdPage() {
   const [createError, setCreateError] = useState("");
 
   // File tree state
-  const [fsdFiles, setFsdFiles] = useState<{ name: string; path: string; size: number }[]>([]);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; target: { kind: "file"; file: any } | { kind: "dir"; dir: string } } | null>(null);
-  const [clipboard, setClipboard] = useState<{ path: string; name: string } | null>(null);
+  const { files: fsdFiles, refresh: refreshFsdFiles } = useFileList("input/fsd", id);
   const [fileDeleteTarget, setFileDeleteTarget] = useState<{ path: string; name: string } | null>(null);
   const [explorerCollapsed, setExplorerCollapsed] = useState(false);
   const fileTreeRef = useRef<FileTreeHandle>(null);
@@ -107,19 +109,14 @@ function FsdPage() {
     } catch {}
   }, [id]);
 
-  const loadFsdFiles = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/files/list?projectId=${id}&dir=input/fsd`, { cache: "no-store" });
-      if (res.ok) setFsdFiles(await res.json());
-    } catch {}
-  }, [id]);
-
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
   // Refresh file tree + sessions via SSE file:changed events. No polling —
   // the server file watcher now scans actual project roots, so project file
   // changes arrive as events. Debounce 400ms to coalesce burst events.
+  const pageVisible = usePageVisible();
   useEffect(() => {
+    if (!pageVisible) return;
     let es: EventSource | null = null;
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -129,7 +126,7 @@ function FsdPage() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         if (!mounted) return;
-        void loadFsdFiles();
+        void refreshFsdFiles();
         void loadSessions();
       }, 400);
     };
@@ -160,7 +157,7 @@ function FsdPage() {
       if (timer) clearTimeout(timer);
       es?.close();
     };
-  }, [loadFsdFiles, loadSessions]);
+  }, [refreshFsdFiles, loadSessions, pageVisible]);
 
   // Reset the draft when switching to a different document
   useEffect(() => {
@@ -171,11 +168,9 @@ function FsdPage() {
   const handleScan = useCallback(async () => {
     setScanning(true);
     try { await fetch(`/api/projects/${id}/fsd/scan`, { method: "POST" }); await loadSessions(); } catch {}
-    void loadFsdFiles();
+    void refreshFsdFiles();
     setScanning(false);
-  }, [id, loadSessions, loadFsdFiles]);
-
-  useEffect(() => { loadFsdFiles(); }, [loadFsdFiles]);
+  }, [id, loadSessions, refreshFsdFiles]);
 
   // New FSD — create a Markdown template file with the given name.
   const handleCreate = useCallback(async () => {
@@ -201,16 +196,17 @@ function FsdPage() {
     setCreateOpen(false);
     setCreateName("");
     setCreateError("");
-    void loadFsdFiles();
-  }, [id, createName, loadFsdFiles]);
+    void refreshFsdFiles();
+  }, [id, createName, refreshFsdFiles]);
 
   const openCreate = useCallback(() => { setCreateError(""); setCreateName(""); setCreateOpen(true); }, []);
 
-  const openMenu = useCallback((e: React.MouseEvent, target: { kind: "file"; file: any } | { kind: "dir"; dir: string }) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY, target });
-  }, []);
+  const { ctxMenu, menuItems, openMenu, closeMenu } = useFileContextMenu({
+    projectId: id,
+    onRefresh: () => { void refreshFsdFiles(); void loadSessions(); },
+    onRename: (file) => fileTreeRef.current?.requestRename(file.path),
+    onDelete: (file) => handleFileDelete(file.path, file.name),
+  });
 
   const handleFileRename = useCallback(async (path: string, newName: string) => {
     const trimmed = newName.trim();
@@ -223,11 +219,11 @@ function FsdPage() {
         body: JSON.stringify({ projectId: id, path, newName: trimmed }),
       });
       if (res.ok && (await res.json()).renamed) {
-        void loadFsdFiles();
+        void refreshFsdFiles();
         void loadSessions();
       }
     } catch {}
-  }, [id, loadFsdFiles, loadSessions]);
+  }, [id, refreshFsdFiles, loadSessions]);
 
   const handleFileDelete = useCallback(async (path: string, name: string) => {
     setFileDeleteTarget({ path, name });
@@ -246,41 +242,11 @@ function FsdPage() {
     } else {
       await fetch(`/api/files/delete?projectId=${id}&path=${encodeURIComponent(path)}`, { method: "DELETE" });
     }
-    void loadFsdFiles();
+    void refreshFsdFiles();
     setFileDeleteTarget(null);
     void loadSessions();
-  }, [fileDeleteTarget, sessions, id, activeId, loadFsdFiles, loadSessions]);
+  }, [fileDeleteTarget, sessions, id, activeId, refreshFsdFiles, loadSessions]);
 
-  const handleFileCopy = useCallback((file: any) => setClipboard({ path: file.path, name: file.name }), []);
-
-  const handleFilePaste = useCallback(async (targetDir: string) => {
-    if (!clipboard) return;
-    const sameDir = clipboard.path.startsWith(targetDir.replace(/\/$/, "") + "/");
-    try {
-      const res = await fetch(`/api/files/${sameDir ? "copy" : "move"}`, {
-        cache: "no-store",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: id, source: clipboard.path, destination: targetDir }),
-      });
-      if (res.ok) setClipboard(null);
-    } catch {}
-    void loadFsdFiles();
-    void loadSessions();
-  }, [clipboard, id, loadFsdFiles, loadSessions]);
-
-  const menuItems: ContextMenuItem[] = ctxMenu ? (() => {
-    const t = ctxMenu.target;
-    const items: ContextMenuItem[] = [];
-    if (t.kind === "file") {
-      items.push({ label: "Rename", icon: <PencilSimple size={12} />, onClick: () => fileTreeRef.current?.requestRename(t.file.path) });
-      items.push({ label: "Delete", icon: <Trash size={12} />, danger: true, onClick: () => handleFileDelete(t.file.path, t.file.name) });
-      items.push({ label: "Copy", icon: <CopySimple size={12} />, onClick: () => handleFileCopy(t.file) });
-    }
-    const pasteDir = t.kind === "file" ? t.file.path.slice(0, t.file.path.lastIndexOf("/") + 1) : t.dir;
-    items.push({ label: "Paste", icon: <ClipboardText size={12} />, disabled: !clipboard, onClick: () => handleFilePaste(pasteDir) });
-    return items;
-  })() : [];
 
   const handleDelete = useCallback(async (sessionId: string) => {
     const res = await fetch(`/api/projects/${id}/fsd/${sessionId}`, { method: "DELETE" });
@@ -366,33 +332,35 @@ function FsdPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-3 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="rounded bg-kumo-elevated p-1"><MagnifyingGlass size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">FSD Analyzer</h1>
-          {sessions.length > 0 && <Badge variant="neutral" className="text-[11px]">{sessions.length} documents</Badge>}
-          {activeSession?.status === "ready" && <Badge variant="neutral" className="text-[11px] text-green-400/80">ready for analysis</Badge>}
-          {activeSession?.conversionStatus === "failed" && <Badge variant="neutral" className="text-[11px] text-red-400/80">conversion failed</Badge>}
-          {activeSession && (
-            <div className="ml-auto flex items-center gap-1.5">
-              <button
-                onClick={() => handleReady()}
-                disabled={activeSession.status === "ready"}
-                className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-full border transition-all disabled:opacity-40 ${
-                  activeSession.status === "ready"
-                    ? "border-green-500/40 text-green-400 bg-green-500/10"
-                    : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
-                }`}
-                title="Mark as ready for analysis"
-              >
-                <SealCheck size={12} />
-                {activeSession.status === "ready" ? "Ready" : "Mark Ready"}
-              </button>
-            </div>
-          )}
-        </div>
-        {!loaded && <div className="text-xs text-kumo-subtle mt-1 ml-9">Loading documents...</div>}
-      </div>
+      <PageHeader
+        icon={<MagnifyingGlass size={14} className="text-kumo-brand" />}
+        title="FSD Analyzer"
+        badges={
+          <>
+            {sessions.length > 0 && <Badge variant="neutral" className="text-[11px]">{sessions.length} documents</Badge>}
+            {activeSession?.status === "ready" && <Badge variant="neutral" className="text-[11px] text-green-400/80">ready for analysis</Badge>}
+            {activeSession?.conversionStatus === "failed" && <Badge variant="neutral" className="text-[11px] text-red-400/80">conversion failed</Badge>}
+          </>
+        }
+        actions={
+          activeSession && (
+            <button
+              onClick={() => handleReady()}
+              disabled={activeSession.status === "ready"}
+              className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-full border transition-all disabled:opacity-40 ${
+                activeSession.status === "ready"
+                  ? "border-green-500/40 text-green-400 bg-green-500/10"
+                  : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
+              }`}
+              title="Mark as ready for analysis"
+            >
+              <SealCheck size={12} />
+              {activeSession.status === "ready" ? "Ready" : "Mark Ready"}
+            </button>
+          )
+        }
+        below={!loaded && <div className="text-xs text-kumo-subtle">Loading documents...</div>}
+      />
 
       {uploadOpen && <FsdUploadDialog projectId={id} onClose={() => setUploadOpen(false)} onUploaded={handleUploaded} />}
 
@@ -430,49 +398,37 @@ function FsdPage() {
           x={ctxMenu.x}
           y={ctxMenu.y}
           items={menuItems}
-          onClose={() => setCtxMenu(null)}
+          onClose={closeMenu}
         />
       )}
 
       {/* File delete dialog */}
-      <DialogRoot open={fileDeleteTarget !== null} onOpenChange={(open) => { if (!open) setFileDeleteTarget(null); }}>
-        <Dialog>
-          <div className="p-5">
-            <DialogTitle>Delete file</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete <b>{fileDeleteTarget?.name}</b>? This cannot be undone.
-              {fileDeleteTarget && sessions.some((s) => normPath(s.markdownPath) === normPath(fileDeleteTarget.path) || normPath(s.sourceFilePath) === normPath(fileDeleteTarget.path)) && (
-                <span className="block mt-1">Its FSD session will also be removed.</span>
-              )}
-            </DialogDescription>
-            <div className="flex justify-end gap-2 mt-6">
-              <Button variant="ghost" size="sm" onClick={() => setFileDeleteTarget(null)}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={confirmFileDelete}>Delete</Button>
-            </div>
-          </div>
-        </Dialog>
-      </DialogRoot>
+      <ConfirmDialog
+        open={fileDeleteTarget !== null}
+        title="Delete file"
+        onOpenChange={(open) => { if (!open) setFileDeleteTarget(null); }}
+        onConfirm={confirmFileDelete}
+      >
+        Are you sure you want to delete <b>{fileDeleteTarget?.name}</b>? This cannot be undone.
+        {fileDeleteTarget && sessions.some((s) => normPath(s.markdownPath) === normPath(fileDeleteTarget.path) || normPath(s.sourceFilePath) === normPath(fileDeleteTarget.path)) && (
+          <span className="block mt-1">Its FSD session will also be removed.</span>
+        )}
+      </ConfirmDialog>
 
-      <DialogRoot open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-        <Dialog>
-          <div className="p-5">
-            <DialogTitle>Delete FSD document</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete <b>{deleteTarget?.title ?? "this document"}</b>?
-              {deleteTarget?.sourceFilePath && (
-                <span className="block mt-1">The uploaded source file <code className="text-[10px]">{deleteTarget.sourceFilePath}</code> will also be removed from disk.</span>
-              )}
-              {dirty && <span className="block mt-1 text-amber-400/90">There are unsaved edits in the editor — they will be lost.</span>}
-              {running && <span className="block mt-1 text-amber-400/90">Analysis is currently running for this project.</span>}
-              <span className="block mt-1 text-kumo-subtle">This action cannot be undone.</span>
-            </DialogDescription>
-            <div className="flex justify-end gap-2 mt-6">
-              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={confirmDelete}>Delete</Button>
-            </div>
-          </div>
-        </Dialog>
-      </DialogRoot>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete FSD document"
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={confirmDelete}
+      >
+        Are you sure you want to delete <b>{deleteTarget?.title ?? "this document"}</b>?
+        {deleteTarget?.sourceFilePath && (
+          <span className="block mt-1">The uploaded source file <code className="text-[10px]">{deleteTarget.sourceFilePath}</code> will also be removed from disk.</span>
+        )}
+        {dirty && <span className="block mt-1 text-amber-400/90">There are unsaved edits in the editor — they will be lost.</span>}
+        {running && <span className="block mt-1 text-amber-400/90">Analysis is currently running for this project.</span>}
+        <span className="block mt-1 text-kumo-subtle">This action cannot be undone.</span>
+      </ConfirmDialog>
 
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-3 py-2 rounded-lg border text-xs shadow-lg ${
@@ -485,45 +441,41 @@ function FsdPage() {
       )}
 
       <div className="flex flex-1 min-h-0 gap-3">
-      <div className={`flex overflow-hidden transition-[width] duration-300 ease-in-out shrink-0 border-r border-kumo-line bg-kumo-elevated/30 ${explorerCollapsed ? "w-7" : "w-56"}`}>
-        <button
-          type="button"
-          onClick={() => setExplorerCollapsed(false)}
-          className={`shrink-0 flex flex-col items-center pt-3 gap-1 overflow-hidden transition-opacity duration-200 cursor-pointer hover:bg-kumo-elevated/50 text-kumo-subtle hover:text-kumo-default ${explorerCollapsed ? "w-7 opacity-100" : "w-0 opacity-0"}`}
-          title="Show FSD files"
-        >
-          <CaretRight size={12} />
-          <span className="text-[9px] -rotate-90 whitespace-nowrap text-kumo-subtle mt-1 select-none">FSD</span>
-        </button>
-        <div className={`flex flex-col flex-1 min-w-0 transition-opacity duration-200 ${explorerCollapsed ? "opacity-0 pointer-events-none" : "opacity-100"}`} aria-hidden={explorerCollapsed}>
-        <div className="px-3 py-2 border-b border-kumo-line shrink-0 space-y-1.5">
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-kumo-subtle uppercase tracking-wider flex-1">Documents</span>
-            <button
-              type="button"
-              onClick={() => setExplorerCollapsed(true)}
-              className="text-kumo-subtle hover:text-kumo-default p-0.5 shrink-0"
-              title="Hide file explorer"
-            >
-              <CaretLeft size={12} />
+      <ExplorerShell
+        collapsed={explorerCollapsed}
+        onToggle={() => setExplorerCollapsed(false)}
+        label="FSD"
+        header={
+          <div className="px-3 py-2 border-b border-kumo-line shrink-0 space-y-1.5">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-kumo-subtle uppercase tracking-wider flex-1">Documents</span>
+              <button
+                type="button"
+                onClick={() => setExplorerCollapsed(true)}
+                className="text-kumo-subtle hover:text-kumo-default p-0.5 shrink-0"
+                title="Hide file explorer"
+              >
+                <CaretLeft size={12} />
+              </button>
+            </div>
+            <button onClick={openCreate}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-kumo-brand rounded hover:opacity-90 transition-opacity">
+              <Plus size={12} />
+              New FSD
+            </button>
+            <button onClick={() => setUploadOpen(true)}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs rounded border border-kumo-line text-kumo-subtle hover:text-kumo-default transition-colors">
+              <UploadSimple size={12} />
+              Upload document
+            </button>
+            <button onClick={handleScan} disabled={scanning}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1 text-[11px] rounded border border-kumo-line text-kumo-subtle hover:text-kumo-default transition-colors disabled:opacity-50">
+              <Scan size={11} className={scanning ? "animate-spin" : ""} />
+              {scanning ? "Scanning…" : "Rescan files"}
             </button>
           </div>
-          <button onClick={openCreate}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-kumo-brand rounded hover:opacity-90 transition-opacity">
-            <Plus size={12} />
-            New FSD
-          </button>
-          <button onClick={() => setUploadOpen(true)}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs rounded border border-kumo-line text-kumo-subtle hover:text-kumo-default transition-colors">
-            <UploadSimple size={12} />
-            Upload document
-          </button>
-          <button onClick={handleScan} disabled={scanning}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1 text-[11px] rounded border border-kumo-line text-kumo-subtle hover:text-kumo-default transition-colors disabled:opacity-50">
-            <Scan size={11} className={scanning ? "animate-spin" : ""} />
-            {scanning ? "Scanning…" : "Rescan files"}
-          </button>
-        </div>
+        }
+      >
         <FileTree
           ref={fileTreeRef}
           files={fsdFiles}
@@ -544,8 +496,7 @@ function FsdPage() {
           onDirContextMenu={(e, dir) => openMenu(e, { kind: "dir", dir })}
           onRename={handleFileRename}
         />
-        </div>
-      </div>
+      </ExplorerShell>
         <div className="flex-1 flex flex-col min-w-0 gap-3">
           <div className="flex-1 rounded-lg border border-kumo-line overflow-hidden flex bg-kumo-elevated">
             {activeSession ? (
@@ -635,9 +586,9 @@ function FsdPage() {
                 </div>
               </>
             ) : (
-              <div className="flex items-center justify-center h-full text-xs text-kumo-subtle">
+              <Placeholder>
                 {loaded ? (sessions.length === 0 ? "No FSD documents — click 'New FSD' or 'Upload document' to start" : "Select a document from the sidebar") : "Loading..."}
-              </div>
+              </Placeholder>
             )}
           </div>
         </div>

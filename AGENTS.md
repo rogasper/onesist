@@ -71,28 +71,33 @@ app/
 │   │   ├── markitdown.ts   # Document-to-markdown conversion (OpenCode + CLI)
 │   │   ├── fsd-completeness.ts # FSD section completeness checker
 │   │   ├── project-skills.ts   # Skill detection + installation for projects
-│   │   ├── project-queries.ts  # Data loading for routes
-│   │   ├── use-file-data.ts    # React hooks for file listing/content/watching
-│   │   ├── erd-layout.ts       # Graphviz-based ERD node layout
-│   │   ├── dbml.ts             # DBML to ERD node graph conversion
-│   │   └── xterm-cache.ts      # Terminal session cache
+│   │   ├── project-queries.ts    # Data loading for routes (loadAllData, loadProjectRouteData)
+│   │   ├── use-file-data.ts      # React hooks for file listing/content/watching
+│   │   ├── use-file-context-menu.tsx # File-browser context menu + clipboard hook
+│   │   ├── use-skill-install.ts  # Project skills install/status state machine
+│   │   ├── erd-layout.ts         # Graphviz-based ERD node layout
+│   │   ├── dbml.ts               # DBML to ERD node graph conversion
+│   │   └── xterm-cache.ts        # Terminal session cache
 │   ├── routes/
 │   │   ├── __root.tsx           # Root layout (sidebar nav)
 │   │   ├── index.tsx            # Projects dashboard (open/delete/create)
 │   │   ├── projects.$id.tsx     # Project layout (tabs, overview, file browser)
-│   │   ├── projects.$id.erd.tsx # ERD editor + DBML viewer
-│   │   ├── projects.$id.spec.tsx # API spec viewer + search
+│   │   ├── projects.$id.erd.tsx   # ERD editor + DBML viewer
+│   │   ├── projects.$id.spec.tsx  # API spec viewer + search
 │   │   ├── projects.$id.tasks.tsx # Task management (list/cards, search, filters)
+│   │   ├── projects.$id.docs.tsx  # Technical documentation (metadata, template, export)
 │   │   ├── projects.$id.wiki.tsx  # Wiki page editor
 │   │   ├── projects.$id.fsd.tsx   # FSD Analyzer (editor, completeness, upload, agent)
 │   │   └── projects.$id.settings.tsx # Project settings
 │   └── components/
 │       ├── agent/          # Agent terminal, status, picker, stream components
+│       ├── dashboard/      # Dashboard dialogs (OpenProject, FolderBrowser, SkillSetup)
 │       ├── erd/            # ERD editor, canvas (ReactFlow), table editor, toolbar
-│       ├── fsd/            # FSD editor (MDXEditor), FileTree, upload, completeness
+│       ├── fsd/            # FSD editor (MDXEditor), upload, completeness
 │       ├── mermaid/        # Mermaid diagram renderer + markdown viewer
 │       ├── spec/           # Spec endpoint cards, sidebar, module viewer
 │       ├── tasks/          # Task list, task detail, timeline viewer
+│       ├── ui/             # Shared UI kit (ConfirmDialog, PageHeader, FileTree, etc.)
 │       └── wiki/           # Wiki content viewer/editor
 ```
 
@@ -174,6 +179,8 @@ The API is split into route modules under `server/routes/`, composed by the entr
 - **API layer:** All routes go through `handleApiRequest` → delegates to `handleProjects` for `/api/projects/*` routes
 - **Real-time updates:** SSE via `server/realtime/events.ts` event bus. `server/realtime/file-watcher.ts` watches REGISTERED project roots (via `registerWatchRoot`) and emits `file:changed` — frontend listens, never polls
 - **Agent execution:** `server/services/agent-runner.ts` spawns OpenCode CLI with `--format json --auto`. Log output parsed line-by-line as JSONL
+- **UI reuse:** Repeated dialogs/headers/alerts/trees live in `components/ui/` (ConfirmDialog, PageHeader, InlineAlert, ExplorerShell, FileTree, SearchInput). Repeated logic goes in hooks under `lib/` (useFileList, useFileContent, useFileContextMenu, useSkillInstall). Don't copy-paste a pattern a 3rd time — extract it
+- **Server data fetching:** Use the `useFileList`/`useFileContent` hooks (or a small wrapper) instead of raw `fetch("/api/files/...")`. Keep `{ cache: "no-store" }` on every API call
 - **Styles:** Use kumo tokens (`kumo-default`, `kumo-subtle`, `kumo-brand`, `kumo-elevated`, `kumo-line`). Avoid custom hex colors
 - **TypeScript:** Strict mode. `bun run typecheck` before commits
 - **Desktop paths:** NEVER rely on `process.cwd()` for absolute paths — macOS launches with CWD=`/`. Always read from env (`SA_DB_PATH`, `SA_ROOT`, etc.) or resolve against `process.env.SA_ROOT`.
@@ -241,7 +248,9 @@ bunx tauri build --debug  # Debug desktop build (faster)
 | ERD canvas | @xyflow/react + @dagrejs/dagre | `components/erd/` |
 | Spec viewer | Custom parser + ReactMarkdown | `components/spec/` |
 | FSD editor | MDXEditor + MarkdownViewer (mermaid) | `components/fsd/FsdEditor.tsx` |
-| File tree | Custom (buildFileTree + ContextMenu) | `components/ui/FileTree.tsx` |
+| File tree | Custom, single-root + multi-root sections | `components/ui/FileTree.tsx` |
 | Mermaid diagrams | mermaid + ReactMarkdown custom comp | `components/mermaid/` |
 | Task management | Custom list + card views | `components/tasks/` |
 | Embedded terminal | xterm.js + WebSocket | `components/agent/AgentTerminal.tsx` |
+| Dashboard dialogs | kumo dialogs + web folder browser | `components/dashboard/` |
+| Shared UI kit | kumo + Tailwind tokens | `components/ui/` (AppButton, ConfirmDialog, PageHeader, InlineAlert, ExplorerShell, SearchInput, Placeholder, ProjectNotFound, ContextMenu, FileRow, EmptyState, ErrorState, Skeleton) |

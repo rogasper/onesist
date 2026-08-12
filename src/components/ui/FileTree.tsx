@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
-import { CaretDown, CaretRight, Folder, File, MagnifyingGlass, X, ArrowDownLeft, ArrowUpRight } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Folder, File, ArrowDownLeft, ArrowUpRight } from "@phosphor-icons/react";
 import { FileRow } from "~/components/ui/FileRow";
+import { SearchInput } from "~/components/ui/SearchInput";
 
 interface TreeFile {
   name: string;
@@ -16,16 +17,22 @@ interface TreeNode {
   file?: TreeFile;
 }
 
+export interface FileTreeSection {
+  dir: string;
+  files: TreeFile[];
+}
+
 export interface FileTreeHandle {
   /** Put a file row into inline-rename mode (used from a context menu). */
   requestRename: (path: string) => void;
 }
 
 interface FileTreeProps {
-  /** Flat file entries from /api/files/list for the root dir. */
-  files: TreeFile[];
-  /** Root dir label, e.g. "input/fsd". */
-  rootDir: string;
+  /** Single-root mode: flat file entries for `rootDir`. */
+  files?: TreeFile[];
+  rootDir?: string;
+  /** Multi-root mode: sections with per-root collapsible headers. */
+  sections?: FileTreeSection[];
   activePath?: string | null;
   /** Empty-state text when the directory has no files. */
   emptyText?: string;
@@ -129,6 +136,7 @@ function RenameInput({ initial, onCommit }: { initial: string; onCommit: (name: 
 export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
   files,
   rootDir,
+  sections,
   activePath,
   emptyText = "(empty)",
   isDisabled,
@@ -137,7 +145,14 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
   onDirContextMenu,
   onRename,
 }: FileTreeProps, ref) {
+  const sectionsMode = !!sections && sections.length > 0;
+  const resolved = useMemo(
+    () => (sectionsMode ? (sections as FileTreeSection[]) : [{ dir: rootDir ?? "", files: files ?? [] }]),
+    [sections, sectionsMode, rootDir, files],
+  );
+
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
 
@@ -147,13 +162,29 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
 
   const query = searchQuery.trim().toLowerCase();
   const searchResults = query
-    ? files.filter((f) => f.name.toLowerCase().includes(query) || f.path.toLowerCase().includes(query))
+    ? resolved.flatMap((s) =>
+        s.files
+          .filter((f) => f.name.toLowerCase().includes(query) || f.path.toLowerCase().includes(query))
+          .map((f) => ({ dir: s.dir, ...f }))
+      )
     : [];
 
-  const trees = useMemo(() => buildFileTree(rootDir, files), [files, rootDir]);
+  const trees = useMemo(
+    () => resolved.map((s) => ({ dir: s.dir, nodes: buildFileTree(s.dir, s.files) })),
+    [resolved],
+  );
 
   const toggleCollapse = (dir: string) => {
     setCollapsedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(dir)) next.delete(dir);
+      else next.add(dir);
+      return next;
+    });
+  };
+
+  const toggleSection = (dir: string) => {
+    setCollapsedSections((prev) => {
       const next = new Set(prev);
       if (next.has(dir)) next.delete(dir);
       else next.add(dir);
@@ -220,26 +251,36 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
       );
     });
 
+  const renderSection = (section: { dir: string; nodes: TreeNode[] }) => {
+    const isCollapsed = collapsedSections.has(section.dir);
+    const total = section.nodes.reduce((n, c) => n + countFiles(c), 0);
+    return (
+      <div key={section.dir}>
+        <button
+          type="button"
+          onClick={() => toggleSection(section.dir)}
+          onContextMenu={(e) => onDirContextMenu?.(e, section.dir)}
+          className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer whitespace-nowrap"
+        >
+          {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
+          <span className="text-xs truncate">{dirLabel(section.dir)}</span>
+          <span className="text-[10px] text-kumo-subtle ml-auto">{total}</span>
+        </button>
+        {!isCollapsed && (
+          section.nodes.length === 0 ? (
+            <div className="pl-4 py-1 text-[11px] text-kumo-subtle">(empty)</div>
+          ) : (
+            <div>{renderTreeNodes(section.nodes, 0)}</div>
+          )
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full">
-      <div className="relative px-2 py-1.5 border-b border-kumo-line shrink-0">
-        <MagnifyingGlass size={11} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search files…"
-          className="w-full bg-kumo-elevated/60 border border-kumo-line rounded pl-6 pr-6 py-1 text-xs text-kumo-default placeholder:text-kumo-subtle focus:border-kumo-brand focus:outline-none"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={() => setSearchQuery("")}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-default"
-          >
-            <X size={10} />
-          </button>
-        )}
+      <div className="px-2 py-1.5 border-b border-kumo-line shrink-0">
+        <SearchInput variant="compact" value={searchQuery} onChange={setSearchQuery} placeholder="Search files…" />
       </div>
 
       <div className="flex-1 overflow-y-auto py-1" onContextMenu={(e) => { e.preventDefault(); }}>
@@ -260,15 +301,17 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
                   >
                     <span className="truncate">{f.name}</span>
                   </FileRow>
-                  <div className="pl-6 pr-2 -mt-0.5 text-[10px] text-kumo-subtle truncate">{f.path.slice(0, f.path.lastIndexOf("/"))}</div>
+                  <div className="pl-6 pr-2 -mt-0.5 text-[10px] text-kumo-subtle truncate">
+                    {sectionsMode ? dirLabel(f.dir) : f.path.slice(0, f.path.lastIndexOf("/"))}
+                  </div>
                 </div>
               );
             })
           )
-        ) : trees.length === 0 ? (
-          <div className="px-3 py-2 text-[11px] text-kumo-subtle">{emptyText}</div>
+        ) : sectionsMode ? (
+          trees.map(renderSection)
         ) : (
-          trees.map((node) => {
+          trees[0]?.nodes.map((node) => {
             if (node.type === "folder") {
               const isCollapsed = collapsedDirs.has(node.path);
               return (

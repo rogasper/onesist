@@ -1,21 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Copy, DownloadSimple, FileText, PencilSimple, Note, ArrowCounterClockwise, ArrowClockwise, Check, Warning, Trash } from "@phosphor-icons/react";
-import { Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
-import { loadAllData } from "~/lib/project-queries";
+import { loadProjectRouteData } from "~/lib/project-queries";
 import { buildDocPrompt, REQUIRED_DOC_ARTIFACTS, type DocArtifact } from "~/lib/doc-prompt";
 import { DOC_TEMPLATE_PATH, fillTemplatePlaceholders } from "~/lib/doc-template";
 import type { DocMeta } from "~/shared/types";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { AppButton } from "~/components/ui/AppButton";
 import { MentionTextarea, type MentionFile } from "~/components/docs/MentionTextarea";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { InlineAlert } from "~/components/ui/InlineAlert";
 
 export const Route = createFileRoute("/projects/$id/docs")({
-  loader: async ({ params }) => {
-    const data = await loadAllData();
-    const project = ((data.projects as any[]) || []).find((p: any) => p.id === params.id) ?? null;
-    return { project };
-  },
+  loader: async ({ params }) => loadProjectRouteData(params.id),
   component: DocsPage,
 });
 
@@ -340,20 +338,22 @@ function DocsPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-3 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="rounded bg-kumo-elevated p-1"><FileText size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Technical Documentation</h1>
-          <AppButton onClick={refreshAll} variant="chip" size="sm" icon={<ArrowClockwise size={12} />} className="ml-auto px-3">Refresh</AppButton>
-        </div>
-        {error && <div className="mt-2 text-xs text-red-400 p-2 bg-red-400/10 rounded flex items-center gap-1.5"><Warning size={12} />{error}</div>}
-        {info && <div className="mt-2 text-xs text-green-400 p-2 bg-green-400/10 rounded">{info}</div>}
-        <p className="mt-1 text-xs text-kumo-subtle max-w-3xl">
-          SRS/Technical Documentation generated from project artifacts. Fill the metadata, copy the prompt, and run it in the
-          terminal with <code className="text-kumo-default">opencode run</code> — the agent reads the editable template at{" "}
-          <code className="text-kumo-default">{DOC_TEMPLATE_PATH}</code> and writes the result to <code className="text-kumo-default">output/td/</code>.
-        </p>
-      </div>
+      <PageHeader
+        icon={<FileText size={14} className="text-kumo-brand" />}
+        title="Technical Documentation"
+        actions={<AppButton onClick={refreshAll} variant="chip" size="sm" icon={<ArrowClockwise size={12} />} className="px-3">Refresh</AppButton>}
+        below={
+          <>
+            {error && <InlineAlert kind="error" className="flex items-center gap-1.5"><Warning size={12} />{error}</InlineAlert>}
+            {info && <InlineAlert kind="success">{info}</InlineAlert>}
+            <p className="text-xs text-kumo-subtle max-w-3xl">
+              SRS/Technical Documentation generated from project artifacts. Fill the metadata, copy the prompt, and run it in the
+              terminal with <code className="text-kumo-default">opencode run</code> — the agent reads the editable template at{" "}
+              <code className="text-kumo-default">{DOC_TEMPLATE_PATH}</code> and writes the result to <code className="text-kumo-default">output/td/</code>.
+            </p>
+          </>
+        }
+      />
 
       <div className="flex flex-1 min-h-0 gap-3">
         {/* Left column: metadata + artifacts + template */}
@@ -538,21 +538,15 @@ function DocsPage() {
         </div>
       </div>
 
-      <DialogRoot open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-        <Dialog>
-          <div className="p-5">
-            <DialogTitle>Delete Document</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete <code className="text-[11px] text-kumo-default">{deleteTarget?.name}</code> from{" "}
-              <code className="text-[11px] text-kumo-default">output/td/</code>? This cannot be undone.
-            </DialogDescription>
-            <div className="flex justify-end gap-2 mt-6">
-              <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-              <Button variant="destructive" size="sm" onClick={confirmDelete}>Delete</Button>
-            </div>
-          </div>
-        </Dialog>
-      </DialogRoot>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete Document"
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={confirmDelete}
+      >
+        Are you sure you want to delete <code className="text-[11px] text-kumo-default">{deleteTarget?.name}</code> from{" "}
+        <code className="text-[11px] text-kumo-default">output/td/</code>? This cannot be undone.
+      </ConfirmDialog>
     </div>
   );
 }

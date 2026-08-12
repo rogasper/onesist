@@ -14,6 +14,23 @@ function withProject(url: string, projectId?: string): string {
   return url + (url.includes("?") ? "&" : "?") + "projectId=" + projectId;
 }
 
+/**
+ * Tracks whether the document is visible. WKWebView (Tauri desktop) silently
+ * drops long-lived SSE connections when the window is hidden/minimized; closing
+ * the EventSource on hidden (and reopening on visible) prevents half-dead
+ * connections from accumulating and leaking server+client memory.
+ */
+export function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    setVisible(!document.hidden);
+    const onVis = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+  return visible;
+}
+
 export function useFileList(dir: string, projectId?: string): { files: FileEntry[]; loading: boolean; refresh: () => void } {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +63,9 @@ export function useFileContent(path: string | null, projectId?: string): { conte
 export function useFileWatch(routeType: string, onFileChanged?: (path: string) => void) {
   const handlerRef = useRef(onFileChanged);
   handlerRef.current = onFileChanged;
+  const pageVisible = usePageVisible();
   useEffect(() => {
+    if (!pageVisible) return;
     let es: EventSource | null = null;
     let errors = 0;
     const connect = async () => {
@@ -68,13 +87,15 @@ export function useFileWatch(routeType: string, onFileChanged?: (path: string) =
     };
     connect();
     return () => { es?.close(); };
-  }, [routeType]);
+  }, [routeType, pageVisible]);
 }
 
 export function useFsdConversion(onEvent?: (data: { sessionId: string; status: string; error?: string | null; contentLength?: number }) => void) {
   const handlerRef = useRef(onEvent);
   handlerRef.current = onEvent;
+  const pageVisible = usePageVisible();
   useEffect(() => {
+    if (!pageVisible) return;
     let es: EventSource | null = null;
     let errors = 0;
     const connect = async () => {
@@ -96,5 +117,5 @@ export function useFsdConversion(onEvent?: (data: { sessionId: string; status: s
     };
     connect();
     return () => { es?.close(); };
-  }, []);
+  }, [pageVisible]);
 }

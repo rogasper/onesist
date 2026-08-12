@@ -2,9 +2,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback } from "react";
 import { Badge } from "@cloudflare/kumo";
 import { Notepad, FileText } from "@phosphor-icons/react";
-import { loadAllData } from "~/lib/project-queries";
+import { loadProjectRouteData } from "~/lib/project-queries";
 import { WikiSidebar } from "~/components/wiki/WikiSidebar";
 import { WikiContent } from "~/components/wiki/WikiContent";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { InlineAlert } from "~/components/ui/InlineAlert";
+import { Placeholder } from "~/components/ui/Placeholder";
 
 interface WikiPage {
   id: string;
@@ -21,8 +24,7 @@ interface WikiPage {
 
 export const Route = createFileRoute("/projects/$id/wiki")({
   loader: async ({ params }) => {
-    const data = await loadAllData();
-    const project = ((data.projects as any[]) || []).find((p: any) => p.id === params.id) ?? null;
+    const { project, data } = await loadProjectRouteData(params.id);
     const wikiPages = ((data.wikiPages as any[]) || []).filter((w: any) => w.projectId === params.id);
     return { project, wikiPages: wikiPages as WikiPage[] };
   },
@@ -134,20 +136,18 @@ function WikiPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-3 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="rounded bg-kumo-elevated p-1"><Notepad size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Wiki / Docs</h1>
-          {pages.length > 0 && <Badge variant="neutral" className="text-[11px]">{pages.length} pages</Badge>}
+      <PageHeader
+        icon={<Notepad size={14} className="text-kumo-brand" />}
+        title="Wiki / Docs"
+        badges={pages.length > 0 && <Badge variant="neutral" className="text-[11px]">{pages.length} pages</Badge>}
+        actions={
           <button onClick={handleGenerateDocs}
-            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white bg-kumo-brand rounded-full hover:opacity-90 transition-opacity">
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white bg-kumo-brand rounded-full hover:opacity-90 transition-opacity">
             <FileText size={12} /> Generate from artifacts
           </button>
-        </div>
-        {error && (
-          <div className="mt-2 text-xs text-red-400 p-2 bg-red-400/10 rounded">{error}</div>
-        )}
-      </div>
+        }
+        below={error && <InlineAlert kind="error">{error}</InlineAlert>}
+      />
 
       <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
         <div className="w-52 shrink-0 border-r border-kumo-line overflow-y-auto bg-kumo-elevated/30">
@@ -163,9 +163,7 @@ function WikiPage() {
           {activePage ? (
             <WikiContent key={activePage.id} page={activePage} onSave={handleSave} />
           ) : (
-            <div className="flex items-center justify-center h-full text-xs text-kumo-subtle">
-              Select a page from the sidebar or create a new one.
-            </div>
+            <Placeholder>Select a page from the sidebar or create a new one.</Placeholder>
           )}
         </div>
       </div>

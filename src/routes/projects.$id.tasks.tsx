@@ -1,18 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useMemo } from "react";
 import { Badge } from "@cloudflare/kumo";
-import { ListChecks, ListDashes, ArrowsClockwise, MagnifyingGlass, X, CalendarDots, SquaresFour, Rows } from "@phosphor-icons/react";
-import { loadAllData } from "~/lib/project-queries";
+import { ListChecks, ListDashes, ArrowsClockwise, CalendarDots, SquaresFour, Rows } from "@phosphor-icons/react";
+import { loadProjectRouteData } from "~/lib/project-queries";
 import { TaskList, type TaskViewMode } from "~/components/tasks/TaskList";
 import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
 import type { Task } from "~/shared/types";
 import { AppButton } from "~/components/ui/AppButton";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { SearchInput } from "~/components/ui/SearchInput";
 
 export const Route = createFileRoute("/projects/$id/tasks")({
   loader: async ({ params }) => {
-    const data = await loadAllData();
-    const project = ((data.projects as any[]) || []).find((p: any) => p.id === params.id) ?? null;
+    const { project, data } = await loadProjectRouteData(params.id);
     const tasks = ((data.tasks as any[]) || []).filter((t: any) => t.projectId === params.id);
     return { project, tasks: tasks as Task[] };
   },
@@ -137,24 +138,28 @@ function TasksPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-3 shrink-0 space-y-2">
-        <div className="flex items-center gap-2">
-          <div className="rounded bg-kumo-elevated p-1"><ListChecks size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Tasks</h1>
-          {tasks.length > 0 && (
-            <>
-              <Badge variant="neutral" className="text-[11px]">{tasks.length} tasks</Badge>
-              <Badge variant="neutral" className="text-[11px]">{totalPoints} SP</Badge>
-              <Badge variant="neutral" className="text-[11px]">{assignedCount} assigned</Badge>
-              <Badge variant="neutral" className="text-[11px]">{unassignedCount} unassigned</Badge>
-            </>
-          )}
-          {importResult && (
-            <Badge variant="neutral" className="text-[11px]">
-              +{importResult.inserted} new · {importResult.updated} updated · {importResult.removed} removed
-            </Badge>
-          )}
-          <div className="ml-auto flex items-center gap-1.5">
+      <PageHeader
+        icon={<ListChecks size={14} className="text-kumo-brand" />}
+        title="Tasks"
+        badges={
+          <>
+            {tasks.length > 0 && (
+              <>
+                <Badge variant="neutral" className="text-[11px]">{tasks.length} tasks</Badge>
+                <Badge variant="neutral" className="text-[11px]">{totalPoints} SP</Badge>
+                <Badge variant="neutral" className="text-[11px]">{assignedCount} assigned</Badge>
+                <Badge variant="neutral" className="text-[11px]">{unassignedCount} unassigned</Badge>
+              </>
+            )}
+            {importResult && (
+              <Badge variant="neutral" className="text-[11px]">
+                +{importResult.inserted} new · {importResult.updated} updated · {importResult.removed} removed
+              </Badge>
+            )}
+          </>
+        }
+        actions={
+          <>
             <AppButton
               onClick={() => setView(view === "tasks" ? "timeline" : "tasks")}
               variant="chip"
@@ -176,79 +181,71 @@ function TasksPage() {
             >
               {importing ? "Importing..." : "Import from artifacts"}
             </AppButton>
-          </div>
-        </div>
-
-        {view === "tasks" && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center p-0.5 rounded-full border border-kumo-line/50 bg-kumo-elevated/40">
-              <AppButton
-                onClick={() => setViewMode("list")}
-                variant="chip"
-                size="xs"
-                active={viewMode === "list"}
-                icon={<ListDashes size={11} />}
-                className="px-2.5"
-                title="List view"
-              >
-                List
-              </AppButton>
-              <AppButton
-                onClick={() => setViewMode("cards")}
-                variant="chip"
-                size="xs"
-                active={viewMode === "cards"}
-                icon={<SquaresFour size={11} />}
-                className="px-2.5"
-                title="Card view"
-              >
-                Cards
-              </AppButton>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
+          </>
+        }
+        below={
+          view === "tasks" && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center p-0.5 rounded-full border border-kumo-line/50 bg-kumo-elevated/40">
+                <AppButton
+                  onClick={() => setViewMode("list")}
+                  variant="chip"
+                  size="xs"
+                  active={viewMode === "list"}
+                  icon={<ListDashes size={11} />}
+                  className="px-2.5"
+                  title="List view"
+                >
+                  List
+                </AppButton>
+                <AppButton
+                  onClick={() => setViewMode("cards")}
+                  variant="chip"
+                  size="xs"
+                  active={viewMode === "cards"}
+                  icon={<SquaresFour size={11} />}
+                  className="px-2.5"
+                  title="Card view"
+                >
+                  Cards
+                </AppButton>
+              </div>
+              <SearchInput
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={setSearch}
                 placeholder="Search code, title, assignee, content…"
-                className="app-input w-72 h-7 pl-7 pr-6 text-xs text-kumo-default placeholder:text-kumo-subtle"
+                className="w-72"
               />
-              <MagnifyingGlass size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle pointer-events-none" />
-              {search && (
-                <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-default">
-                  <X size={12} />
-                </button>
-              )}
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
+                {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+              <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}
+                className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
+                <option value="all">All developers</option>
+                {developers.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)}
+                className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
+                <option value="all">All phases</option>
+                {phases.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <AppButton
+                onClick={() => setUnassignedOnly((p) => !p)}
+                variant="chip"
+                size="sm"
+                active={unassignedOnly}
+                className="px-3"
+              >
+                Unassigned only
+              </AppButton>
+              <span className="text-[10px] text-kumo-subtle ml-auto">
+                {filteredTasks.length}/{tasks.length} tasks
+              </span>
             </div>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-              className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
-              {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}
-              className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
-              <option value="all">All developers</option>
-              {developers.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)}
-              className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
-              <option value="all">All phases</option>
-              {phases.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <AppButton
-              onClick={() => setUnassignedOnly((p) => !p)}
-              variant="chip"
-              size="sm"
-              active={unassignedOnly}
-              className="px-3"
-            >
-              Unassigned only
-            </AppButton>
-            <span className="text-[10px] text-kumo-subtle ml-auto">
-              {filteredTasks.length}/{tasks.length} tasks
-            </span>
-          </div>
-        )}
-      </div>
+          )
+        }
+      />
 
       {view === "timeline" ? (
         <TimelineViewer projectId={id} />

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { usePageVisible } from "~/lib/use-file-data";
 
 interface LogEntry {
   level: string;
@@ -14,10 +15,19 @@ interface AgentStreamProps {
   onError?: (error: string) => void;
 }
 
+// Cap the log ring buffer — an agent emitting a lot of output must never grow
+// the DOM / logs array without bound (that was a memory-leak vector).
+const MAX_LOGS = 500;
+
 export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [status, setStatus] = useState<string>("idle");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const pageVisible = usePageVisible();
+
+  const pushLog = useCallback((level: string, message: string) => {
+    setLogs((prev) => [...prev, { level, message, timestamp: Date.now() }].slice(-MAX_LOGS));
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -35,14 +45,14 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
 
         es.addEventListener("connected", () => {
           if (!mounted) return;
-          setLogs((prev) => [...prev, { level: "system", message: "Connected to event stream", timestamp: Date.now() }]);
+          pushLog("system", "Connected to event stream");
         });
 
         es.addEventListener("agent:log", (e) => {
           if (!mounted) return;
           const data = JSON.parse(e.data);
           if (data.sessionId && data.sessionId !== sessionId) return;
-          setLogs((prev) => [...prev, { level: data.level || "output", message: data.message, timestamp: data.timestamp }]);
+          pushLog(data.level || "output", data.message);
         });
 
         es.addEventListener("agent:status", (e) => {
@@ -51,13 +61,13 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
           if (data.sessionId !== sessionId) return;
           setStatus(data.status);
           if (data.status === "completed") {
-            setLogs((prev) => [...prev, { level: "system", message: "✓ Analysis complete", timestamp: Date.now() }]);
+            pushLog("system", "✓ Analysis complete");
             onDone?.();
           } else if (data.status === "failed") {
-            setLogs((prev) => [...prev, { level: "error", message: `✗ Failed: ${data.message}`, timestamp: Date.now() }]);
+            pushLog("error", `✗ Failed: ${data.message}`);
             onError?.(data.message);
           } else if (data.status === "running") {
-            setLogs((prev) => [...prev, { level: "system", message: "► Agent running...", timestamp: Date.now() }]);
+            pushLog("system", "► Agent running...");
           }
         });
 
@@ -65,7 +75,7 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
           if (!mounted) return;
           const data = JSON.parse(e.data);
           if (data.sessionId !== sessionId) return;
-          setLogs((prev) => [...prev, { level: "system", message: "✓ Analysis done — artifacts generated", timestamp: Date.now() }]);
+          pushLog("system", "✓ Analysis done — artifacts generated");
           onDone?.();
         });
 
@@ -73,7 +83,7 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
           if (!mounted) return;
           const data = JSON.parse(e.data);
           if (data.sessionId !== sessionId) return;
-          setLogs((prev) => [...prev, { level: "error", message: `✗ Error: ${data.error}`, timestamp: Date.now() }]);
+          pushLog("error", `✗ Error: ${data.error}`);
           onError?.(data.error);
         });
 
@@ -89,14 +99,14 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
       } catch {}
     };
 
-    void init();
+    if (pageVisible) void init();
 
     return () => {
       mounted = false;
       es?.close();
       es = null;
     };
-  }, [sessionId]);
+  }, [sessionId, pageVisible, pushLog, onDone, onError]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -125,10 +135,8 @@ export function AgentStream({ sessionId, onDone, onError }: AgentStreamProps) {
       </div>
       <div className="max-h-80 overflow-y-auto p-3 space-y-1 font-mono text-[11px] leading-relaxed">
         {logs.map((log, i) => (
-          <div key={i} className={`${levelStyles[log.level] || "text-kumo-subtle"}`}>
-            {log.message.split("\n").map((line, j) => (
-              <div key={j} className="whitespace-pre-wrap break-words">{line}</div>
-            ))}
+          <div key={i} className={`whitespace-pre-wrap break-words ${levelStyles[log.level] || "text-kumo-subtle"}`}>
+            {log.message}
           </div>
         ))}
         {status === "running" && (

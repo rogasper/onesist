@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@cloudflare/kumo";
-import { BookOpen, MagnifyingGlass, X, ArrowsClockwise, DownloadSimple } from "@phosphor-icons/react";
+import { BookOpen, X, ArrowsClockwise, DownloadSimple } from "@phosphor-icons/react";
 import { parse as parseYaml } from "yaml";
 import "swagger-ui-react/swagger-ui.css";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
@@ -10,6 +10,9 @@ import { SpecSidebar } from "~/components/spec/SpecSidebar";
 import { SpecViewer } from "~/components/spec/SpecViewer";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { Placeholder } from "~/components/ui/Placeholder";
+import { SearchInput } from "~/components/ui/SearchInput";
 import { AgentStream } from "~/components/agent/AgentStream";
 
 export const Route = createFileRoute("/projects/$id/spec")({
@@ -191,100 +194,99 @@ function SpecPage() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-3 shrink-0 space-y-2">
-        {/* Title + badges + Sync */}
-        <div className="flex items-center gap-2">
-          <div className="rounded bg-kumo-elevated p-1"><BookOpen size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">API Spec</h1>
-          {totalEndpoints > 0 && (
-            <><Badge variant="neutral" className="text-[11px]">{modules.length} modules</Badge>
-              <Badge variant="neutral" className="text-[11px]">{totalEndpoints} items</Badge>
-              <Badge variant="neutral" className="text-[11px]">{epWithMethod} endpoints</Badge></>
-          )}
-          {debouncedSearch && (
-            <Badge variant="neutral" className="text-[11px]">
-              {filteredModules.reduce((s, m) => s + m.endpoints.length, 0)} results
-            </Badge>
-          )}
-          {syncedStats && (
-            <Badge variant="neutral" className="text-[11px]">
-              {syncedStats.specs} specs · {syncedStats.endpoints} eps in DB
-            </Badge>
-          )}
-          <AppButton
-            onClick={handleGenerateOpenapi}
-            disabled={generating}
-            variant="primary"
-            size="sm"
-            icon={<ArrowsClockwise size={12} className={generating ? "animate-spin" : ""} />}
-            className="rounded-full px-3"
-            title="Generate openapi.yaml dari spec via AI"
-          >
-            {generating ? "Generating…" : "Generate OpenAPI"}
-          </AppButton>
-          <AppButton
-            onClick={handleSync}
-            disabled={syncing}
-            variant="secondary"
-            size="sm"
-            icon={<ArrowsClockwise size={12} className={syncing ? "animate-spin" : ""} />}
-            className="ml-auto rounded-full px-3"
-            title="Parse all spec files and save endpoints to SQLite"
-          >
-            {syncing ? "Syncing…" : "Sync to DB"}
-          </AppButton>
-        </div>
-
-        {/* Row 3: File selector */}
-        <div className="flex items-center gap-1.5 overflow-x-auto py-2 px-1.5">
-          <AppButton variant="chip" size="sm" active={!selectedSpec} onClick={() => { setSelectedSpec(null); setActiveModule(null); }} className="px-3 shrink-0">
-            Master
-          </AppButton>
-          {mdFiles.map((f) => (
-            <AppButton key={f.path} variant="chip" size="sm" active={selectedSpec === f.path} onClick={() => { setSelectedSpec(f.path); setActiveModule(null); }} className="px-3 shrink-0">
-              {f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1")}
+      <PageHeader
+        icon={<BookOpen size={14} className="text-kumo-brand" />}
+        title="API Spec"
+        badges={
+          <>
+            {totalEndpoints > 0 && (
+              <><Badge variant="neutral" className="text-[11px]">{modules.length} modules</Badge>
+                <Badge variant="neutral" className="text-[11px]">{totalEndpoints} items</Badge>
+                <Badge variant="neutral" className="text-[11px]">{epWithMethod} endpoints</Badge></>
+            )}
+            {debouncedSearch && (
+              <Badge variant="neutral" className="text-[11px]">
+                {filteredModules.reduce((s, m) => s + m.endpoints.length, 0)} results
+              </Badge>
+            )}
+            {syncedStats && (
+              <Badge variant="neutral" className="text-[11px]">
+                {syncedStats.specs} specs · {syncedStats.endpoints} eps in DB
+              </Badge>
+            )}
+          </>
+        }
+        actions={
+          <>
+            <AppButton
+              onClick={handleGenerateOpenapi}
+              disabled={generating}
+              variant="primary"
+              size="sm"
+              icon={<ArrowsClockwise size={12} className={generating ? "animate-spin" : ""} />}
+              className="rounded-full px-3"
+              title="Generate openapi.yaml dari spec via AI"
+            >
+              {generating ? "Generating…" : "Generate OpenAPI"}
             </AppButton>
-          ))}
-        </div>
-
-        {/* Row 4: Tabs + Search */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1">
-            {([["cards", "Cards"], ["document", "Document"], ["openapi", "OpenAPI"]] as const).map(([value, label]) => (
-              <AppButton
-                key={value}
-                variant="chip"
-                size="sm"
-                active={viewMode === value}
-                onClick={() => setViewMode(value)}
-                className="px-3"
-              >
-                {label}
+            <AppButton
+              onClick={handleSync}
+              disabled={syncing}
+              variant="secondary"
+              size="sm"
+              icon={<ArrowsClockwise size={12} className={syncing ? "animate-spin" : ""} />}
+              className="rounded-full px-3"
+              title="Parse all spec files and save endpoints to SQLite"
+            >
+              {syncing ? "Syncing…" : "Sync to DB"}
+            </AppButton>
+          </>
+        }
+        below={
+          <>
+            {/* File selector */}
+            <div className="flex items-center gap-1.5 overflow-x-auto py-2 px-1.5">
+              <AppButton variant="chip" size="sm" active={!selectedSpec} onClick={() => { setSelectedSpec(null); setActiveModule(null); }} className="px-3 shrink-0">
+                Master
               </AppButton>
-            ))}
-          </div>
-          <div className="ml-auto flex items-center gap-1 mb-1">
-            <div className="relative">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search paths…"
-                className="app-input w-48 h-7 pl-7 pr-6 text-xs text-kumo-default placeholder:text-kumo-subtle"
-              />
-              <MagnifyingGlass size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle pointer-events-none" />
-              {search && (
-                <button onClick={() => { setSearch(""); setDebouncedSearch(""); }} className="absolute right-2 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-default">
-                  <X size={12} />
-                </button>
-              )}
+              {mdFiles.map((f) => (
+                <AppButton key={f.path} variant="chip" size="sm" active={selectedSpec === f.path} onClick={() => { setSelectedSpec(f.path); setActiveModule(null); }} className="px-3 shrink-0">
+                  {f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1")}
+                </AppButton>
+              ))}
             </div>
-          </div>
-        </div>
-      </div>
+
+            {/* Tabs + Search */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                {([["cards", "Cards"], ["document", "Document"], ["openapi", "OpenAPI"]] as const).map(([value, label]) => (
+                  <AppButton
+                    key={value}
+                    variant="chip"
+                    size="sm"
+                    active={viewMode === value}
+                    onClick={() => setViewMode(value)}
+                    className="px-3"
+                  >
+                    {label}
+                  </AppButton>
+                ))}
+              </div>
+            <div className="ml-auto flex items-center gap-1 mb-1">
+              <SearchInput
+                value={search}
+                onChange={(v) => { setSearch(v); if (!v) setDebouncedSearch(""); }}
+                placeholder="Search paths…"
+                className="w-48"
+              />
+            </div>
+            </div>
+          </>
+        }
+      />
 
       {!activeContent ? (
-        <div className="flex items-center justify-center flex-1 text-kumo-subtle text-sm">No spec files found</div>
+        <Placeholder className="flex-1 text-sm">No spec files found</Placeholder>
       ) : viewMode === "openapi" ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-kumo-recessed">
           <div className="flex items-center gap-3 px-4 py-2 border-b border-kumo-line shrink-0 bg-kumo-elevated/60 backdrop-blur flex-wrap">

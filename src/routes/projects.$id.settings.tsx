@@ -1,15 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
-import { loadAllData } from "~/lib/project-queries";
+import { loadProjectRouteData } from "~/lib/project-queries";
 import { Gear, Check } from "@phosphor-icons/react";
 import { AppButton } from "~/components/ui/AppButton";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 
 export const Route = createFileRoute("/projects/$id/settings")({
-  loader: async ({ params }) => {
-    const data = await loadAllData();
-    const project = ((data.projects as any[]) || []).find((p: any) => p.id === params.id) ?? null;
-    return { project };
-  },
+  loader: async ({ params }) => loadProjectRouteData(params.id),
   component: SettingsPage,
 });
 
@@ -76,17 +74,16 @@ function SettingsPage() {
   }, [id, name, company, description, defaultAgent, terminalPrefs]);
 
   if (!project) {
-    return <div className="flex items-center justify-center h-48 text-kumo-subtle text-sm">Project not found</div>;
+    return <ProjectNotFound />;
   }
 
   return (
     <div className="max-w-lg">
-      <div className="mb-5">
-        <div className="flex items-center gap-2">
-          <div className="rounded bg-kumo-elevated p-1"><Gear size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Settings</h1>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Gear size={14} className="text-kumo-brand" />}
+        title="Settings"
+        className="mb-5 shrink-0"
+      />
 
       <div className="space-y-5">
         {/* Project */}
