@@ -4,6 +4,7 @@ import { eventBus } from "~/server/realtime/events";
 import { buildGeneratePrompt, buildGapPrompt, buildTdPrompt, buildOpenapiPrompt, buildRtmPrompt } from "~/lib/agent-prompts";
 import { getProjectRoot } from "~/lib/file-router";
 import { needsShell, resolveExecutable } from "~/lib/agent-cli";
+import { killUntrackedAgentChildren } from "~/server/system-instances";
 
 interface AgentRunConfig {
   sessionId: string;
@@ -135,7 +136,6 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
     // module reloads wiping RUNNING_AGENTS) so restarts never accumulate
     // hung processes.
     try {
-      const { killUntrackedAgentChildren } = await import("~/server/system-instances");
       const tracked = new Set(Array.from(RUNNING_AGENTS.values()).map((a) => a.process.pid).filter((p): p is number => !!p));
       const killed = killUntrackedAgentChildren(process.pid, tracked);
       if (killed > 0) eventBus.emitAgentLog("info", `membersihkan ${killed} proses opencode yatim`, sessionId);

@@ -3,6 +3,7 @@ import path from "node:path";
 import { json } from "../http/response";
 import { Router } from "../http/router";
 import { getProject, runCommand } from "../http/route-utils";
+import { killTree, scanInstances } from "~/server/system-instances";
 
 export const router = new Router();
 
@@ -175,7 +176,6 @@ router.post("agent/run", async ({ body }) => {
   const projectId = data.projectId as string | undefined;
   if (projectId) {
     try {
-      const { getProject } = await import("../http/route-utils");
       const proj = getProject(projectId);
       if (proj?.rootPath) root = proj.rootPath;
     } catch {}
@@ -211,7 +211,6 @@ router.get("agent/logs", async ({ query }) => {
 
 // /api/system/instances — running instances of this app (for duplicate detection)
 router.get("system/instances", async () => {
-  const { scanInstances } = await import("~/server/system-instances");
   return json({
     instances: scanInstances(),
     self: process.pid,
@@ -226,6 +225,5 @@ router.post("system/instances/kill", async ({ body }) => {
   const pid = Number(data.pid);
   if (!pid) return json({ error: "pid is required" }, 400);
   if (pid === process.pid) return json({ error: "Refusing to kill the current server" }, 400);
-  const { killTree } = await import("~/server/system-instances");
   return json({ killed: killTree(pid) });
 });

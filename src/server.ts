@@ -6,18 +6,19 @@ import path from "node:path";
 import net from "node:net";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import { db } from "~/server/db/client";
+import { projects } from "~/server/db/schema";
 
 seedIfEmpty();
 
 // Register every project root so the file watcher emits SSE file:changed
 // events for project files (input/fsd etc.). Without this, the watcher only
 // scanned SA_ROOT and project changes never reached the frontend.
-// (Dynamic import — importing db at top level here collides with file-watcher's
-// own db import in the compiled bundle and breaks Bun's __promiseAll helper.)
+// (Imports are STATIC — dynamic `await import()` here made Bun's compiled
+// bundle batch db/client + route-utils into a `__promiseAll([...])` call whose
+// helper it fails to emit, crashing the desktop sidecar at startup.)
 void (async () => {
   try {
-    const { db } = await import("~/server/db/client");
-    const { projects } = await import("~/server/db/schema");
     const all = db.select().from(projects).all() as { rootPath: string | null }[];
     for (const p of all) if (p.rootPath) registerWatchRoot(p.rootPath);
   } catch {}
