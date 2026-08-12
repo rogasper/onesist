@@ -212,6 +212,21 @@ jobs:
           echo "=== release notes ==="
           cat /tmp/release_notes.md
 
+      - name: Delete existing release for this tag
+        shell: bash
+        # Idempotent re-runs: softprops fails with "delete-a-release-asset Not
+        # Found" when a (draft/partial) release already exists for the tag.
+        # Remove it so the release is always created fresh.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            echo "Deleting existing release ${{ github.ref_name }}"
+            gh release delete "${{ github.ref_name }}" --yes || true
+          else
+            echo "No existing release for ${{ github.ref_name }}"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
