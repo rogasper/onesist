@@ -6,6 +6,20 @@ import { useCallback, useEffect, useState } from "react";
 const IS_TAURI = () =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+const CHECK_TIMEOUT_MS = 20000;
+const MAX_ATTEMPTS = 3;
+
+/** Rejects if `p` doesn't settle within `ms` (timer is cleared once it does). */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Update check timed out")), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 /** Custom event name used by the sidebar "Check for updates" button. */
 export const UPDATE_CHECK_EVENT = "onesist:check-update";
 
@@ -35,22 +49,36 @@ export function UpdateBanner() {
 
   const checkOnce = useCallback(async () => {
     setState((prev) => (prev.status === "available" ? prev : { status: "checking" }));
-    try {
-      const update = await check();
-      setState(update ? { status: "available", update } : { status: "none" });
-    } catch (e) {
-      setState({
-        status: "error",
-        message: e instanceof Error ? e.message : String(e),
-      });
+    // GitHub's release-asset CDN is intermittently unreachable on some ISPs, so
+    // retry a few times with a per-attempt timeout before surfacing an error.
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const update = await withTimeout(check(), CHECK_TIMEOUT_MS);
+        setState(update ? { status: "available", update } : { status: "none" });
+        return;
+      } catch (e) {
+        lastError = e;
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((r) => setTimeout(r, attempt * 1500));
+        }
+      }
     }
+    setState({ status: "error", message: lastError instanceof Error ? lastError.message : String(lastError) });
   }, []);
 
   useEffect(() => {
     if (!IS_TAURI()) return;
 
-    void checkOnce();
-    const interval = setInterval(() => void checkOnce(), 6 * 60 * 60 * 1000);
+    // Don't auto-check in dev builds — the updater is irrelevant while
+    // developing and the failed-check banner would just add noise.
+    const autoCheck = () => {
+      if (import.meta.env.DEV) return;
+      void checkOnce();
+    };
+
+    autoCheck();
+    const interval = setInterval(autoCheck, 6 * 60 * 60 * 1000);
     const onManual = () => void checkOnce();
     window.addEventListener(UPDATE_CHECK_EVENT, onManual);
     // Native menu "Check for Update" → Tauri event emitted from lib.rs.
@@ -80,7 +108,7 @@ export function UpdateBanner() {
     return (
       <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-red-500/40 bg-red-500/10">
         <span className="text-sm text-red-200 truncate" title={state.message}>
-          Gagal memeriksa update: {state.message}
+          Tidak dapat terhubung ke server update. Periksa koneksi internet.
         </span>
         <div className="flex items-center gap-2 shrink-0">
           <button

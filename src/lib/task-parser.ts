@@ -19,7 +19,9 @@ export function scanAllTaskFiles(rootPath: string): ParsedTask[] {
   const taskRoot = path.join(rootPath, "output", "task");
   if (!fs.existsSync(taskRoot)) return [];
 
-  const rootFiles = fs.readdirSync(taskRoot).filter((f) => f.startsWith("task_") && f.endsWith(".md") && f !== "task.md");
+  const rootFiles = fs.readdirSync(taskRoot).filter((f) =>
+    f.endsWith(".md") && !f.startsWith(".") && (f.startsWith("task_") || f === "task.md" || f === "MASTER_TASK.md"),
+  );
   for (const file of rootFiles) {
     const content = fs.readFileSync(path.join(taskRoot, file), "utf-8");
     tasks.push(...parseTaskFile(content, file));
@@ -148,7 +150,9 @@ function parseMasterMd(content: string, phase: string): ParsedTask[] {
 function parseTaskFile(content: string, filename: string): ParsedTask[] {
   const tasks: ParsedTask[] = [];
   const lines = content.split("\n");
-  const moduleName = filename.replace(/^task_/, "").replace(/\.md$/, "");
+  // Combined task files (task.md / MASTER_TASK.md) share no module prefix —
+  // normalize them to "task" so codes come out like "task-T01".
+  const moduleName = filename.replace(/\.md$/i, "").replace(/^task_/, "").replace(/^MASTER_TASK$/i, "task") || "task";
 
   // Find story points table
   let inSpTable = false;

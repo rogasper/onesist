@@ -109,7 +109,15 @@ function FsdPage() {
     } catch {}
   }, [id]);
 
-  useEffect(() => { loadSessions(); }, [loadSessions]);
+  // Keep DB sessions in sync with the input/fsd directory so files written by
+  // an agent (or dropped into the folder) are clickable without a manual
+  // "Rescan files". scanFsdDir is an idempotent upsert, so this is cheap.
+  const syncSessions = useCallback(async () => {
+    try { await fetch(`/api/projects/${id}/fsd/scan`, { method: "POST" }); } catch {}
+    await loadSessions();
+  }, [id, loadSessions]);
+
+  useEffect(() => { void syncSessions(); }, [syncSessions]);
 
   // Refresh file tree + sessions via SSE file:changed events. No polling —
   // the server file watcher now scans actual project roots, so project file
@@ -127,7 +135,7 @@ function FsdPage() {
       timer = setTimeout(() => {
         if (!mounted) return;
         void refreshFsdFiles();
-        void loadSessions();
+        void syncSessions();
       }, 400);
     };
     const init = async () => {
@@ -157,7 +165,7 @@ function FsdPage() {
       if (timer) clearTimeout(timer);
       es?.close();
     };
-  }, [refreshFsdFiles, loadSessions, pageVisible]);
+  }, [refreshFsdFiles, syncSessions, pageVisible]);
 
   // Reset the draft when switching to a different document
   useEffect(() => {
@@ -167,10 +175,10 @@ function FsdPage() {
 
   const handleScan = useCallback(async () => {
     setScanning(true);
-    try { await fetch(`/api/projects/${id}/fsd/scan`, { method: "POST" }); await loadSessions(); } catch {}
+    await syncSessions();
     void refreshFsdFiles();
     setScanning(false);
-  }, [id, loadSessions, refreshFsdFiles]);
+  }, [syncSessions, refreshFsdFiles]);
 
   // New FSD — create a Markdown template file with the given name.
   const handleCreate = useCallback(async () => {
