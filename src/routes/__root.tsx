@@ -12,6 +12,7 @@ import { House, Folder, Sun, Moon, ArrowUp } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
+import { InstanceWatch } from "~/components/system/InstanceWatch";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -143,6 +144,7 @@ function RootComponent() {
       <head><HeadContent /></head>
       <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
         <UpdateBanner />
+        <InstanceWatch />
         <div className="flex flex-1 min-h-0">
           <Sidebar.Provider defaultOpen collapsible="icon" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
             <SidebarPersistence />

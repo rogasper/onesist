@@ -8,7 +8,7 @@ This is the **SA Dashboard (Onesist)** application — a full-stack React app (w
 - **Framework:** React 19 + TanStack Start (SSR)
 - **Router:** TanStack Router (file-based)
 - **UI:** @cloudflare/kumo + Tailwind CSS 4
-- **Editor:** CodeMirror 6 (+ @codemirror/lang-markdown), MDXEditor for FSD
+- **Editor:** CodeMirror 6 (+ @codemirror/lang-markdown), MDXEditor for FSD + wiki
 - **Diagrams:** Mermaid 11, DBML (@dbml/core)
 - **Database:** Drizzle ORM + Bun SQLite (file: `data.db`, WAL mode)
 - **Terminal:** xterm.js (embedded agent terminal)
@@ -93,7 +93,8 @@ app/
 │       ├── agent/          # Agent terminal, status, picker, stream components
 │       ├── dashboard/      # Dashboard dialogs (OpenProject, FolderBrowser, SkillSetup)
 │       ├── erd/            # ERD editor, canvas (ReactFlow), table editor, toolbar
-│       ├── fsd/            # FSD editor (MDXEditor), upload, completeness
+│       ├── fsd/            # FSD editor, upload, completeness
+│       ├── mdx/            # Shared MDXEditor wrapper (MdxEditorClient + MdxEditorInner)
 │       ├── mermaid/        # Mermaid diagram renderer + markdown viewer
 │       ├── spec/           # Spec endpoint cards, sidebar, module viewer
 │       ├── tasks/          # Task list, task detail, timeline viewer
@@ -247,7 +248,7 @@ bunx tauri build --debug  # Debug desktop build (faster)
 |-----------|------|----------|
 | ERD canvas | @xyflow/react + @dagrejs/dagre | `components/erd/` |
 | Spec viewer | Custom parser + ReactMarkdown | `components/spec/` |
-| FSD editor | MDXEditor + MarkdownViewer (mermaid) | `components/fsd/FsdEditor.tsx` |
+| FSD editor | MDXEditor + MarkdownViewer (mermaid) | `components/fsd/FsdEditor.tsx` (shared editor in `components/mdx/`) |
 | File tree | Custom, single-root + multi-root sections | `components/ui/FileTree.tsx` |
 | Mermaid diagrams | mermaid + ReactMarkdown custom comp | `components/mermaid/` |
 | Task management | Custom list + card views | `components/tasks/` |

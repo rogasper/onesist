@@ -12,7 +12,7 @@ interface CachedTerminal {
 let offscreenHolder: HTMLDivElement | null = null;
 
 function getOffscreenHolder(): HTMLDivElement {
-  if (!offscreenHolder || !document.body.contains(offscreenHolder)) {
+  if (!offscreenHolder) {
     offscreenHolder = document.createElement("div");
     offscreenHolder.style.position = "fixed";
     offscreenHolder.style.top = "-99999px";
@@ -21,7 +21,12 @@ function getOffscreenHolder(): HTMLDivElement {
     offscreenHolder.style.height = "600px";
     offscreenHolder.style.pointerEvents = "none";
     offscreenHolder.setAttribute("aria-hidden", "true");
-    document.body.appendChild(offscreenHolder);
+    // Deliberately NOT appended to document.body. This app hydrates the whole
+    // document (`hydrateRoot(document, …)`), so React 19 manages body's
+    // children — an external `document.body.appendChild` desyncs React's fiber
+    // tree from the DOM and later `insertBefore` commits throw "node is not a
+    // child of this node". A DETACHED holder parks xterm just as well (parked
+    // elements aren't visible anyway) and is moved back via attach().
   }
   return offscreenHolder;
 }

@@ -196,26 +196,19 @@ jobs:
       - name: Generate release notes
         shell: bash
         run: |
-          {
-            echo "## Changelog (${{ github.ref_name }})"
-            echo ""
-            # Group commits since the previous tag (or all commits for the first release)
+          # Use the curated CHANGELOG.md section for this version; fall back to
+          # a commit list if the section is missing.
+          VERSION="${{ github.ref_name }}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## " v { insec=1; next }
+            insec && /^## / { exit }
+            insec { print }
+          ' CHANGELOG.md > /tmp/release_notes.md
+          if [ ! -s /tmp/release_notes.md ]; then
             PREV_TAG=$(git tag --sort=-version:refname | sed -n '2p' || true)
-            if [ -n "$PREV_TAG" ]; then
-              RANGE="${PREV_TAG}..${GITHUB_SHA}"
-            else
-              RANGE=""
-            fi
-            # Build a bullet list from commit subjects
-            {
-              if [ -n "$RANGE" ]; then
-                git log --format='%s' "$RANGE"
-              else
-                git log --format='%s'
-              fi
-            } | sed 's/^/- /' > /tmp/notes_body.md
-            cat /tmp/notes_body.md
-          } > /tmp/release_notes.md
+            if [ -n "$PREV_TAG" ]; then RANGE="${PREV_TAG}..${GITHUB_SHA}"; else RANGE=""; fi
+            if [ -n "$RANGE" ]; then git log --format='- %s' "$RANGE"; else git log --format='- %s'; fi | sed 's/^/- /' > /tmp/release_notes.md
+          fi
           echo "=== release notes ==="
           cat /tmp/release_notes.md
 

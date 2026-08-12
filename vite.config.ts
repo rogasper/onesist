@@ -50,6 +50,112 @@ function killProcess(pid: number) {
   } catch {}
 }
 
+interface PsRow {
+  pid: number;
+  ppid: number;
+  command: string;
+}
+
+/** Snapshot of running processes (pid/ppid/command). */
+function psList(): PsRow[] {
+  const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+  if (process.platform === "win32") {
+    try {
+      const out = spawnSync("wmic", ["process", "get", "ProcessId,ParentProcessId,CommandLine", "/format:csv"], { encoding: "utf-8", windowsHide: true }).stdout || "";
+      const rows: PsRow[] = [];
+      for (const line of out.split(/\r?\n/)) {
+        const m = line.trim().match(/^"[^"]*",(\d+),(\d+),"(.*)"$/);
+        if (m) rows.push({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] });
+      }
+      return rows;
+    } catch { return []; }
+  }
+  try {
+    const out = spawnSync("ps", ["-eo", "pid=,ppid=,command="], { encoding: "utf-8", windowsHide: true }).stdout || "";
+    const rows: PsRow[] = [];
+    for (const line of out.split("\n")) {
+      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+      if (m) rows.push({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] });
+    }
+    return rows;
+  } catch { return []; }
+}
+
+/** Find stale dev-server trees of THIS project (vite/terminal-server spawned
+ *  from this directory) so a fresh `bun run dev` can kill them ALL — not just
+ *  the current port holder. Kills each tree fully (parent wrappers + children)
+ *  so orphans (PPID=1) stop accumulating ~120MB each. Excludes our own tree. */
+function findStaleInstancePids(): number[] {
+  const rows = psList();
+  const byPid = new Map(rows.map((r) => [r.pid, r]));
+  const self = process.pid;
+
+  // Build children map up front (used for both self-tree exclusion and the
+  // descendant collection of stale roots).
+  const children = new Map<number, number[]>();
+  for (const r of rows) {
+    if (!children.has(r.ppid)) children.set(r.ppid, []);
+    children.get(r.ppid)!.push(r.pid);
+  }
+
+  // Exclude our ENTIRE tree (self + ancestors + descendants) — never touch the
+  // terminal-server / vite children we're about to spawn or their parents.
+  const selfTree = new Set<number>([self]);
+  let anc = byPid.get(self);
+  for (let i = 0; i < 12 && anc; i++) {
+    if (anc.ppid > 1) selfTree.add(anc.ppid);
+    anc = byPid.get(anc.ppid);
+  }
+  const q = [self];
+  while (q.length) {
+    const p = q.pop()!;
+    for (const c of children.get(p) ?? []) {
+      if (!selfTree.has(c)) { selfTree.add(c); q.push(c); }
+    }
+  }
+
+  const viteMarker = path.join(__dirname, "node_modules", ".bin", "vite");
+  const termMarker = path.join(__dirname, "src", "server", "terminal", "terminal-server.ts");
+  // NARROW match: only this project's unique vite/terminal paths — a bare
+  // `bun run dev`/cwd match could kill ANOTHER project's dev server.
+  const isOurs = (c: string) => c.includes(viteMarker) || c.includes(termMarker);
+  const isWrapper = (c: string) => /bun run dev/.test(c) || /bun run --bun vite/.test(c) || /bun run /.test(c);
+
+  // Processes that belong to this project — but NOT our own tree.
+  const matched = rows.filter((r) => !selfTree.has(r.pid) && isOurs(r.command));
+  if (matched.length === 0) return [];
+
+  // Walk each matched process up through bun wrappers to the topmost tree root
+  // (so we kill the whole tree, not a lone child). The walk can only pass
+  // through bun wrappers, and it starts FROM our unique markers — so an
+  // unrelated project's `bun run dev` is never touched.
+  const roots = new Set<number>();
+  for (const r of matched) {
+    let node: PsRow | undefined = r;
+    for (let i = 0; i < 16 && node; i++) {
+      const parent = byPid.get(node.ppid);
+      if (parent && isWrapper(parent.command) && !selfTree.has(parent.pid)) {
+        node = parent;
+      } else break;
+    }
+    roots.add(node!.pid);
+  }
+
+  // Collect every descendant of each root.
+  const toKill = new Set<number>(roots);
+  const queue = [...roots];
+  while (queue.length) {
+    const p = queue.pop()!;
+    for (const c of children.get(p) ?? []) {
+      if (!toKill.has(c) && !selfTree.has(c)) {
+        toKill.add(c);
+        queue.push(c);
+      }
+    }
+  }
+  return [...toKill];
+}
+
 /** First free port starting at `start` (capped to avoid scanning forever). */
 async function findFreePort(start: number): Promise<number> {
   for (let port = start; port < start + 20; port++) {
@@ -75,18 +181,88 @@ function resolveNodeExe(): string {
 
 function terminalServerPlugin() {
   let proc: ChildProcess | null = null;
+  let shuttingDown = false;
+  let respawnCount = 0;
+  let lastRespawnTime = 0;
+  const token = randomUUID();
+
+  const spawnTerminalServer = (port: number) => {
+    if (shuttingDown) return;
+    const script = path.resolve(__dirname, "src/server/terminal/terminal-server.ts");
+    const isBun = typeof Bun !== "undefined";
+    const nodeMajor = Number(process.versions.node?.split(".")[0] || 0);
+    // On Windows the terminal server MUST run under Node: node-pty's ConPTY
+    // input socket is created via `new net.Socket({ fd })`, which Bun does
+    // not support — output renders but every write throws ERR_SOCKET_CLOSED
+    // (keyboard input dead, local echo only). Node gives full ConPTY
+    // (TUI + input + resize). Bun stays as fallback when node is missing.
+    const wantNode = isBun && process.platform === "win32";
+    const execPath = wantNode ? resolveNodeExe() : process.execPath;
+    const args = (wantNode || !isBun)
+      ? [...(nodeMajor < 23 ? ["--experimental-strip-types"] : []), script]
+      : ["run", script];
+    proc = spawn(execPath, args, {
+      stdio: "inherit",
+      env: { ...process.env, SA_TERM_TOKEN: token },
+    });
+    const label = wantNode ? "node" : "bun";
+    const child = proc;
+    console.log(`[terminal-plugin] spawned terminal server on port ${port} (${label})`);
+    child.on("error", (err: any) => {
+      // node missing / couldn't spawn — fall back to Bun (input broken, but
+      // the server still runs with the cmd.exe pipe fallback).
+      if (wantNode) {
+        console.warn(`[terminal-plugin] node spawn failed (${err?.code || err?.message}) — falling back to bun (terminal input will be broken)`);
+        try { child.kill(); } catch {}
+        if (proc === child) {
+          proc = spawn(process.execPath, ["run", script], {
+            stdio: "inherit",
+            env: { ...process.env, SA_TERM_TOKEN: token },
+          });
+          proc.on("error", () => {});
+        }
+      }
+    });
+    child.on("exit", (code) => {
+      if (proc === child) proc = null;
+      if (shuttingDown) return;
+      // Respawn when the terminal server dies (e.g. user restarts it from the
+      // InstanceWatch widget) — but rate-limit so a crash-looping server
+      // doesn't spin forever: max 3 respawns per 30s.
+      const now = Date.now();
+      if (now - lastRespawnTime > 30000) respawnCount = 0;
+      lastRespawnTime = now;
+      respawnCount++;
+      if (respawnCount > 3) {
+        console.warn(`[terminal-plugin] terminal server exited ${respawnCount}× within 30s — giving up respawning`);
+        return;
+      }
+      console.log(`[terminal-plugin] terminal server exited (code ${code}) — respawning`);
+      spawnTerminalServer(port);
+    });
+  };
+
   return {
     name: "terminal-server",
     async configureServer() {
-      const token = randomUUID();
-      // Self-heal the HTTP port: if 4321 is held by a STALE dev server of this
-      // app (typically an elevated session invisible from a normal shell),
-      // kill it so vite can bind — two dev servers can't share 4321 anyway.
-      // Killing its tree also frees the terminal port. No-op when we lack
-      // rights (non-elevated) — vite will then report "Port 4321 is in use".
+      // Kill EVERY stale instance of this project (orphaned vite/terminal
+      // trees from earlier `bun run dev` runs — port holders AND port-less
+      // zombies that otherwise accumulate ~120MB each). Self is excluded.
+      try {
+        const stale = findStaleInstancePids();
+        if (stale.length > 0) {
+          console.log(`[terminal-plugin] killing ${stale.length} stale dev instance(s): ${stale.join(", ")}`);
+          for (const pid of stale) killProcess(pid);
+          await new Promise((r) => setTimeout(r, 600));
+        }
+      } catch (e: any) {
+        console.warn(`[terminal-plugin] stale-instance scan failed: ${e?.message ?? e}`);
+      }
+      // Fallback: if the HTTP port is still held by something (permissions or a
+      // non-project process), kill it so vite can bind.
       const httpOwner = (await isPortInUse(4321)) ? pidByPort(4321) : null;
       if (httpOwner) {
-        console.log(`[terminal-plugin] port 4321 held by stale dev server (pid ${httpOwner}) — killing it`);
+        console.log(`[terminal-plugin] port 4321 held by stale process (pid ${httpOwner}) — killing it`);
         killProcess(httpOwner);
         await new Promise((r) => setTimeout(r, 600));
       }
@@ -115,46 +291,15 @@ function terminalServerPlugin() {
         }
       }
       process.env.TERMINAL_PORT = String(port);
-      const script = path.resolve(__dirname, "src/server/terminal/terminal-server.ts");
-      const isBun = typeof Bun !== "undefined";
-      const nodeMajor = Number(process.versions.node?.split(".")[0] || 0);
-      // On Windows the terminal server MUST run under Node: node-pty's ConPTY
-      // input socket is created via `new net.Socket({ fd })`, which Bun does
-      // not support — output renders but every write throws ERR_SOCKET_CLOSED
-      // (keyboard input dead, local echo only). Node gives full ConPTY
-      // (TUI + input + resize). Bun stays as fallback when node is missing.
-      const wantNode = isBun && process.platform === "win32";
-      const execPath = wantNode ? resolveNodeExe() : process.execPath;
-      const args = (wantNode || !isBun)
-        ? [...(nodeMajor < 23 ? ["--experimental-strip-types"] : []), script]
-        : ["run", script];
-      proc = spawn(execPath, args, {
-        stdio: "inherit",
-        env: { ...process.env, SA_TERM_TOKEN: token },
-      });
-      let label = wantNode ? "node" : "bun";
-      proc.on("error", (err: any) => {
-        // node missing / couldn't spawn — fall back to Bun (input broken, but
-        // the server still runs with the cmd.exe pipe fallback).
-        if (wantNode) {
-          console.warn(`[terminal-plugin] node spawn failed (${err?.code || err?.message}) — falling back to bun (terminal input will be broken)`);
-          label = "bun";
-          try { proc?.kill(); } catch {}
-          proc = spawn(process.execPath, ["run", script], {
-            stdio: "inherit",
-            env: { ...process.env, SA_TERM_TOKEN: token },
-          });
-          proc.on("error", () => {});
-        }
-      });
-      console.log(`[terminal-plugin] spawned terminal server on port ${port} (${label})`);
+      spawnTerminalServer(port);
       // Ensure the child dies with the vite process even on SIGKILL paths
-      const killChild = () => { try { proc?.kill(); } catch {} };
+      const killChild = () => { shuttingDown = true; try { proc?.kill(); } catch {} };
       process.once("exit", killChild);
       process.once("SIGINT", killChild);
       process.once("SIGTERM", killChild);
     },
     closeBundle() {
+      shuttingDown = true;
       proc?.kill();
     },
   };

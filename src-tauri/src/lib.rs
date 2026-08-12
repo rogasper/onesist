@@ -1,7 +1,9 @@
 mod sidecar;
 mod tray;
 
-use tauri::{Listener, Manager, RunEvent, WebviewUrl};
+use tauri::{Emitter, Listener, Manager, RunEvent, WebviewUrl};
+use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 /// Native folder picker for the "Open Project" flow. Returns the selected
@@ -29,6 +31,7 @@ async fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, Str
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
+    .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_process::init())
@@ -127,23 +130,51 @@ pub fn run() {
     });
 }
 
-/// Build the macOS menu bar with a working Quit item. The Quit menu role
-/// triggers ExitRequested → our handler hard-exits (see run() above).
-#[cfg(target_os = "macos")]
+/// Build the application menu on ALL platforms.
+///
+/// macOS: global app menu "Onesist" (About, Check for Update, Changelog, Quit)
+/// + Edit + Window. Windows/Linux: window menu bar with the same items (About
+/// shows a dialog since PredefinedMenuItem::about is macOS-only).
+///
+/// "Check for Update" emits a Tauri event the frontend UpdateBanner listens
+/// for — it reuses the existing check+install flow. "Changelog" opens the
+/// GitHub Releases page in the default browser.
 fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
-    let app_menu = Submenu::with_items(
-        app,
-        "Onesist",
-        true,
-        &[
-            &PredefinedMenuItem::about(app, Some("Onesist"), Some(AboutMetadata::default()))?,
-            &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "quit", "Quit Onesist", true, Some("q"))?,
-            &PredefinedMenuItem::separator(app)?,
-        ],
-    )?;
+    let check_update = MenuItem::with_id(app, "check-update", "Check for Update", true, Some("u"))?;
+    let changelog = MenuItem::with_id(app, "changelog", "Changelog", true, None::<&str>)?;
+
+    let onesist_menu = if cfg!(target_os = "macos") {
+        Submenu::with_items(
+            app,
+            "Onesist",
+            true,
+            &[
+                &PredefinedMenuItem::about(app, Some("Onesist"), Some(AboutMetadata::default()))?,
+                &PredefinedMenuItem::separator(app)?,
+                &check_update,
+                &changelog,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::quit(app, Some("Quit Onesist"))?,
+            ],
+        )?
+    } else {
+        Submenu::with_items(
+            app,
+            "Onesist",
+            true,
+            &[
+                &MenuItem::with_id(app, "about", "About Onesist", true, None::<&str>)?,
+                &PredefinedMenuItem::separator(app)?,
+                &check_update,
+                &changelog,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::quit(app, Some("Quit Onesist"))?,
+            ],
+        )?
+    };
+
     let edit_menu = Submenu::with_items(
         app,
         "Edit",
@@ -158,28 +189,53 @@ fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
+
     let window_menu = Submenu::with_items(
         app,
         "Window",
         true,
-        &[
-            &PredefinedMenuItem::minimize(app, None)?,
-        ],
+        &[&PredefinedMenuItem::minimize(app, None)?],
     )?;
 
     let menu = Menu::with_items(
         app,
         &[
-            &app_menu as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
+            &onesist_menu as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
             &edit_menu as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
             &window_menu as &dyn tauri::menu::IsMenuItem<tauri::Wry>,
         ],
     )?;
-    app.set_menu(menu)?;
-    Ok(())
-}
 
-#[cfg(not(target_os = "macos"))]
-fn setup_app_menu(_app: &tauri::AppHandle) -> tauri::Result<()> {
+    app.on_menu_event(|app: &tauri::AppHandle<tauri::Wry>, event: tauri::menu::MenuEvent| match event.id().as_ref() {
+        "check-update" => {
+            // The frontend UpdateBanner listens for this and runs its existing
+            // update check (which shows the install banner when an update is
+            // available).
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.emit("onesist:check-update", ());
+            }
+        }
+        "changelog" => {
+            let _ = app.opener().open_url("https://github.com/rogasper/onesist/releases", None::<&str>);
+        }
+        "about" => {
+            let version = app.package_info().version.to_string();
+            let _ = app
+                .dialog()
+                .message(format!("Onesist {version}\n\nSA Dashboard — System Analyst desktop shell"))
+                .title("About Onesist")
+                .kind(tauri_plugin_dialog::MessageDialogKind::Info)
+                .show(|_| {});
+        }
+        _ => {}
+    });
+
+    #[cfg(target_os = "macos")]
+    app.set_menu(menu)?;
+    #[cfg(not(target_os = "macos"))]
+    if let Some(win) = app.get_webview_window("main") {
+        win.set_menu(menu)?;
+    }
+
     Ok(())
 }

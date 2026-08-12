@@ -10,6 +10,13 @@ export const loadAllData = createServerFn().handler(async () => {
     apiEndpoints: db.select().from(schema.apiEndpoints).all(),
     wikiPages: db.select().from(schema.wikiPages).all(),
     tasks: db.select().from(schema.tasks).all(),
+    rtm: {
+      brs: db.select().from(schema.businessRequirements).all(),
+      frs: db.select().from(schema.functionalRequirements).all(),
+      designs: db.select().from(schema.designSolutions).all(),
+      tests: db.select().from(schema.testCases).all(),
+      links: db.select().from(schema.rtmLinks).all(),
+    },
   };
 });
 

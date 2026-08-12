@@ -48,8 +48,6 @@ export function buildAgentCommand(cli: AgentCli, opts: AgentCommandOpts): string
       const parts = ["codex"];
       if (opts.mode === "resume" && opts.sessionId) {
         parts.push("resume", opts.sessionId);
-      } else {
-        parts.push("--enable", "hooks");
       }
       if (opts.model) parts.push("--model", opts.model);
       return parts.join(" ");

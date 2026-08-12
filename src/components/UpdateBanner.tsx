@@ -1,5 +1,6 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 
 const IS_TAURI = () =>
@@ -52,9 +53,15 @@ export function UpdateBanner() {
     const interval = setInterval(() => void checkOnce(), 6 * 60 * 60 * 1000);
     const onManual = () => void checkOnce();
     window.addEventListener(UPDATE_CHECK_EVENT, onManual);
+    // Native menu "Check for Update" → Tauri event emitted from lib.rs.
+    let unlisten: (() => void) | undefined;
+    void listen("onesist:check-update", () => void checkOnce()).then((fn) => {
+      unlisten = fn;
+    });
     return () => {
       clearInterval(interval);
       window.removeEventListener(UPDATE_CHECK_EVENT, onManual);
+      unlisten?.();
     };
   }, [checkOnce]);
 

@@ -15,6 +15,13 @@
       "when": 1786348203336,
       "tag": "0001_productive_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786509433727,
+      "tag": "0002_tough_warstar",
+      "breakpoints": true
     }
   ]
 }

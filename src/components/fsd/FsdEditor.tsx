@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
-import { MdxEditorClient } from "~/components/fsd/MdxEditorClient";
+import { MdxEditorClient } from "~/components/mdx/MdxEditorClient";
 
 export type EditorMode = "edit" | "preview" | "split";
 

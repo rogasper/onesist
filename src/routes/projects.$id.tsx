@@ -2,12 +2,15 @@ import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tansta
 import { Badge } from "@cloudflare/kumo";
 import { Cube, Terminal as TerminalIcon, FileText, FolderOpen, X, CaretLeft } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
-import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
-// xterm is ~700KB min — keep it out of the project layout chunk; the panel is
-// hidden until the user opens the terminal anyway.
-const AgentTermPanel = lazy(() =>
-  import("~/components/agent/AgentTerminal").then((m) => ({ default: m.AgentTermPanel }))
-);
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+// NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
+// ~700KB, but mounting the terminal panel through <Suspense> on first open
+// inserts a large subtree into a DOM whose React bookkeeping can desync —
+// deterministically crashing with "insertBefore not a child". Eager import puts
+// the panel in the initial tree (display:none when closed) so opening it is a
+// style toggle, not a subtree insert. createXterm is still deferred until open.
+import { AgentTermPanel } from "~/components/agent/AgentTerminal";
+import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
 import { useSkillInstall } from "~/lib/use-skill-install";
@@ -33,6 +36,7 @@ const TAB_ITEMS = [
   { value: "spec", label: "API Spec" },
   { value: "tasks", label: "Tasks" },
   { value: "fsd", label: "FSD Analyzer" },
+  { value: "rtm", label: "Traceability" },
   { value: "docs", label: "Docs" },
   { value: "wiki", label: "Wiki" },
   { value: "settings", label: "Settings" },
@@ -43,6 +47,7 @@ function ProjectLayout() {
   const location = useLocation();
   const { project } = Route.useLoaderData() as any;
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [termRetryKey, setTermRetryKey] = useState(0);
   const [terminalRunning, setTerminalRunning] = useState(false);
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
@@ -77,6 +82,7 @@ function ProjectLayout() {
     : location.pathname.includes("/wiki") ? "wiki"
     : location.pathname.includes("/tasks") ? "tasks"
     : location.pathname.includes("/fsd") ? "fsd"
+    : location.pathname.includes("/rtm") ? "rtm"
     : location.pathname.includes("/docs") ? "docs"
     : location.pathname.includes("/settings") ? "settings"
     : "overview";
@@ -139,7 +145,14 @@ function ProjectLayout() {
               className="ml-auto px-3"
             >
               <span className="flex items-center gap-1.5">
-                {terminalRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" title="Agent session running" />}
+                {/* Always-rendered indicator — the running state toggles a class,
+                    NOT a conditional child. React inserting/removing a span inside
+                    a kumo Button while the terminal connects raced with its async
+                    work and crashed with "insertBefore not a child". */}
+                <span
+                  className={`w-1.5 h-1.5 rounded-full transition-opacity ${terminalRunning ? "bg-green-400 animate-pulse opacity-100" : "opacity-0"}`}
+                  title="Agent session running"
+                />
                 Terminal
               </span>
             </AppButton>
@@ -196,9 +209,9 @@ function ProjectLayout() {
         </div>
       </div>
 
-      <Suspense fallback={null}>
-        <AgentTermPanel visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
-      </Suspense>
+      <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
+        <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
+      </TerminalErrorBoundary>
     </div>
   );
 }

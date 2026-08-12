@@ -1,7 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
 import { readFile, getProjectRoot } from "~/lib/file-router";
 
-export function buildGeneratePrompt(fsdFile: string, agentName: string): string {
-  const root = getProjectRoot();
+export function buildGeneratePrompt(fsdFile: string, agentName: string, rootOverride?: string): string {
+  const root = rootOverride ?? getProjectRoot();
   const masterErd = readFile(root, "MASTER_ERD.md") || "(not found)";
   const masterSpec = readFile(root, "MASTER_SPEC_API.md") || "(not found)";
   const fsdContent = readFile(root, fsdFile) || "(not found)";
@@ -10,7 +12,7 @@ export function buildGeneratePrompt(fsdFile: string, agentName: string): string 
 
   return `You are a Senior System Analyst. Use the fsd-analyzer skill.
 
-Project root: ${getProjectRoot()}
+Project root: ${root}
 Running via: ${agentName}
 
 ## Input Files
@@ -62,8 +64,8 @@ Use \`\`\`mermaid ... \`\`\` blocks for flow diagrams.
 `;
 }
 
-export function buildGapPrompt(fsdFile: string, agentName: string): string {
-  const root = getProjectRoot();
+export function buildGapPrompt(fsdFile: string, agentName: string, rootOverride?: string): string {
+  const root = rootOverride ?? getProjectRoot();
   const masterErd = readFile(root, "MASTER_ERD.md") || "(not found)";
   const masterSpec = readFile(root, "MASTER_SPEC_API.md") || "(not found)";
 
@@ -87,12 +89,10 @@ Also provide recommendations for how to update MASTER files to close the gaps.
 `;
 }
 
-export function buildOpenapiPrompt(agentName: string): string {
+export function buildOpenapiPrompt(agentName: string, rootOverride?: string): string {
   const dirs = ["output/spec"];
   const artifacts: string[] = [];
-  const fs = require("node:fs");
-  const path = require("node:path");
-  const root = path.resolve(process.cwd(), "..");
+  const root = rootOverride ?? path.resolve(process.cwd(), "..");
   const master = readFile(root, "MASTER_SPEC_API.md") || "(not found)";
   artifacts.push(`### MASTER_SPEC_API.md\n\`\`\`\n${master.slice(0, 6000)}\n\`\`\``);
   for (const dir of dirs) {
@@ -132,12 +132,93 @@ ${artifacts.join("\n\n")}
 6. Dashboard di http://localhost:4321 menonton direktori ini — file akan auto-refresh setelah selesai.`;
 }
 
-export function buildTdPrompt(agentName: string): string {
+export function buildRtmPrompt(agentName: string, rootOverride?: string): string {
+  const root = rootOverride ?? path.resolve(process.cwd(), "..");
+  const artifacts: string[] = [];
+  // Hard cap on total prompt size — a 100KB+ argv makes the model ingestion
+  // painfully slow (and risks E2BIG). Once the budget is spent, stop adding.
+  const BUDGET = 48 * 1024;
+  let used = 0;
+
+  const readDir = (dir: string, exts: string[], cap = 3000) => {
+    if (used >= BUDGET) return;
+    try {
+      const files = fs.readdirSync(path.join(root, dir)).filter((f: string) => exts.some((e) => f.endsWith(e)));
+      for (const f of files.slice(0, 8)) {
+        const content = fs.readFileSync(path.join(root, dir, f), "utf-8");
+        const slice = content.slice(0, cap);
+        if (used + slice.length > BUDGET) {
+          artifacts.push(`### ${dir}/${f}\n\`\`\`\n${slice.slice(0, Math.max(0, BUDGET - used))}\n\`\`\``);
+          used = BUDGET;
+          return;
+        }
+        artifacts.push(`### ${dir}/${f}\n\`\`\`\n${slice}\n\`\`\``);
+        used += slice.length;
+      }
+    } catch {}
+  };
+  readDir("input/fsd", [".md"], 5000);
+  readDir("output/spec", [".md"], 4000);
+  readDir("output/erd", [".md", ".dbml"], 4000);
+  readDir("output/task", [".md"], 2500);
+  if (used < BUDGET) {
+    const masterSpec = readFile(root, "MASTER_SPEC_API.md");
+    const masterErd = readFile(root, "MASTER_ERD.md");
+    if (masterSpec) artifacts.push(`### MASTER_SPEC_API.md\n\`\`\`\n${masterSpec.slice(0, Math.min(4000, BUDGET - used))}\n\`\`\``);
+    if (masterErd) artifacts.push(`### MASTER_ERD.md\n\`\`\`\n${masterErd.slice(0, Math.min(4000, BUDGET - used))}\n\`\`\``);
+  }
+
+  return `You are a Senior System Analyst building a Requirement Traceability Matrix (RTM) that traces business requirements down to the technical side (design solution + test case).
+
+Project root: ${root}
+Running via: ${agentName}
+
+## Input Artifacts
+
+${artifacts.join("\n\n") || "(no artifacts found)"}
+
+## Output
+
+Write EXACTLY ONE file to \`output/rtm/RTM.md\` following this structure (Indonesian for titles/descriptions, English for technical terms):
+
+\`\`\`markdown
+# Requirement Traceability Matrix
+
+## Business Requirements
+| ID | Title | Description |
+|----|-------|-------------|
+| BR-001 | Login & Autentikasi | Pengguna dapat masuk ke aplikasi |
+
+## Design Solutions
+| ID | Title | Source | Description |
+|----|-------|--------|-------------|
+| DS-001 | AuthService.login | API Spec /auth/login | Endpoint login dengan validasi kredensial |
+
+## Test Cases
+| ID | Title | Steps | Expected |
+|----|-------|-------|----------|
+| TC-001 | Login berhasil | 1. Buka halaman login 2. Input email & password benar 3. Klik Login | Masuk ke dashboard |
+
+## Functional Requirements
+| ID | BR | Title | Description | Design Solution | Test Case |
+|----|----|-------|-------------|-----------------|-----------|
+| FR-001 | BR-001 | Login | Sistem memvalidasi kredensial pengguna | DS-001 | TC-001 |
+\`\`\`
+
+## Rules
+- Every functional requirement MUST reference a business requirement (BR column).
+- Design Solution / Test Case cells reference the codes defined above (semicolon-separated if multiple).
+- Use sequential IDs: BR-001, FR-001, DS-001, TC-001, ...
+- Each FR should be traced to at least one design solution; add test cases where derivable from the artifacts. If a requirement has no design or no test yet, leave the cell empty (that is the gap the dashboard will highlight).
+- Only write \`output/rtm/RTM.md\`. Do NOT modify any other file.
+- The dashboard at http://localhost:4321 watches these directories — the file auto-refreshes after you finish.
+`;
+}
+
+export function buildTdPrompt(agentName: string, rootOverride?: string): string {
   const dirs = ["output/spec", "output/erd", "output/task"];
   const artifacts: string[] = [];
-  const fs = require("node:fs");
-  const path = require("node:path");
-  const root = path.resolve(process.cwd(), "..");
+  const root = rootOverride ?? path.resolve(process.cwd(), "..");
   for (const dir of dirs) {
     try {
       const files = fs.readdirSync(path.join(root, dir)).filter((f: string) => f.endsWith(".md") || f.endsWith(".dbml"));

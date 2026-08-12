@@ -137,6 +137,63 @@ export const fsdSessions = sqliteTable("fsd_sessions", {
   updatedAt: text("updated_at").default("datetime('now')"),
 });
 
+export const businessRequirements = sqliteTable("business_requirements", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  code: text("code").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: text("created_at").default("datetime('now')"),
+  updatedAt: text("updated_at").default("datetime('now')"),
+});
+
+export const functionalRequirements = sqliteTable("functional_requirements", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  brId: text("br_id"),
+  code: text("code").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: text("created_at").default("datetime('now')"),
+  updatedAt: text("updated_at").default("datetime('now')"),
+});
+
+export const designSolutions = sqliteTable("design_solutions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  code: text("code").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  sourceRef: text("source_ref"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: text("created_at").default("datetime('now')"),
+  updatedAt: text("updated_at").default("datetime('now')"),
+});
+
+export const testCases = sqliteTable("test_cases", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  code: text("code").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  steps: text("steps"),
+  expected: text("expected"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: text("created_at").default("datetime('now')"),
+  updatedAt: text("updated_at").default("datetime('now')"),
+});
+
+export const rtmLinks = sqliteTable("rtm_links", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  frId: text("fr_id").notNull().references(() => functionalRequirements.id),
+  dsId: text("ds_id"),
+  tcId: text("tc_id"),
+  createdAt: text("created_at").default("datetime('now')"),
+});
+
 export const changeLog = sqliteTable("change_log", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id),

@@ -23,11 +23,19 @@ const MAX_WIDTH = 1200;
 
 export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", projectId, onRunningChange }: AgentTermPanelProps) {
   const [connected, setConnected] = useState(false);
+  // xterm must be created in React's own lifecycle (layout effect), NOT inside
+  // a WebSocket message handler — xterm's term.open() mutates the React-managed
+  // container while React 19 may be mid-commit, which corrupts React's DOM
+  // bookkeeping and throws "insertBefore not a child" (deterministic on first
+  // open). This flag defers creation until the effect runs after commit.
+  const [terminalNeeded, setTerminalNeeded] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgent);
   const [port, setPort] = useState(4323);
   const [projectRoot, setProjectRoot] = useState("");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const lastOutputRef = useRef(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -146,7 +154,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             if (msg.backend) backendRef.current = msg.backend;
             // Agent still running — just attach to the live session
             setConnected(true);
-            if (!termRef.current && visibleRef.current) createXterm();
+            if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
             requestAnimationFrame(() => {
               if (fitRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
                 const dims = fitRef.current.proposeDimensions();
@@ -165,7 +173,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             // Create the terminal BEFORE spawning so proposeDimsAsync() can
             // measure the real panel size — otherwise every first spawn falls
             // back to 120x40 and the PTY starts at the wrong grid.
-            if (!termRef.current && visibleRef.current) createXterm();
+            if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
             const cmd = buildAgentCommand(agentName as AgentCli, { mode: "new" });
             lastSpawnTimeRef.current = Date.now();
             // Pass current dims so the PTY starts at the right size instead of
@@ -176,22 +184,26 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             ws.send(JSON.stringify({ type: "spawn", id: sid, command: cmd, cwd: projectRoot || "/tmp", cols: dims.cols, rows: dims.rows }));
           }
         } else if (msg.type === "replay") {
-          if (!termRef.current && visibleRef.current) createXterm();
+          if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
           if (termRef.current) {
             termRef.current.write(msg.data);
           }
         } else if (msg.type === "ready") {
           if (msg.backend) backendRef.current = msg.backend;
           setConnected(true);
-          if (!termRef.current && visibleRef.current) createXterm();
+          if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
         } else if (msg.type === "output") {
-          if (!termRef.current && visibleRef.current) createXterm();
+          lastOutputRef.current = Date.now();
+          setWaiting(false);
+          if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
           if (termRef.current) {
             termRef.current.write(msg.data);
           }
         } else if (msg.type === "exit") {
+          lastOutputRef.current = 0;
+          setWaiting(false);
           backendRef.current = null;
-          if (!termRef.current && visibleRef.current) createXterm();
+          if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
           if (termRef.current) termRef.current.writeln(`\x1b[33m\nExited (code ${msg.code ?? "?"})\x1b[0m`);
           setConnected(false);
           boundSidRef.current = null;
@@ -253,6 +265,10 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
   const createXterm = () => {
     if (!containerRef.current || termRef.current) return;
+    // Never open xterm into a detached node — the container may not be in the
+    // document during the first lazy-mount commit. term.open() on a detached
+    // node detaches the screen element and corrupts React's DOM bookkeeping.
+    if (!document.contains(containerRef.current)) return;
 
     const fit = new FitAddon();
     const webLinks = new WebLinksAddon();
@@ -362,6 +378,25 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     observerRef.current.observe(containerRef.current!);
   };
 
+  // Create/attach xterm in React's OWN lifecycle — AFTER the commit that adds
+  // the header spans / overlay — never inside a WebSocket message handler
+  // (which can fire mid-render and corrupt React's DOM bookkeeping → the
+  // "insertBefore not a child" crash on first open).
+  useLayoutEffect(() => {
+    if (!terminalNeeded || !visible) return;
+    if (!containerRef.current) return;
+    if (!document.contains(containerRef.current)) {
+      const raf = requestAnimationFrame(() => {
+        if (containerRef.current && document.contains(containerRef.current)) createXterm();
+        setTerminalNeeded(false);
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+    createXterm();
+    setTerminalNeeded(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terminalNeeded, visible]);
+
   // Park xterm when hidden, reattach when shown
   useEffect(() => {
     if (visible) {
@@ -412,6 +447,16 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       try { safeFit(); } catch {}
     }
   }, [width, visible]);
+
+  // If connected but no output arrived for a while (model cold start / the
+  // agent is thinking), surface it instead of a seemingly-dead black screen.
+  useEffect(() => {
+    if (!connected) { setWaiting(false); return; }
+    const t = window.setInterval(() => {
+      setWaiting(Date.now() - lastOutputRef.current > 8000);
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, [connected]);
 
   // WebView2 doesn't always fire ResizeObserver on window resizes — a plain
   // resize listener is cheap insurance that the terminal follows its parent.
@@ -484,7 +529,10 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   }, [dragging]);
 
   return (
-    <>
+    // SINGLE root element (not a <> fragment) — React 19 + Suspense/lazy can
+    // mis-handle multi-root fragment insertion, which surfaced as the
+    // "insertBefore not a child" commit crash when the terminal mounts.
+    <div className="flex h-full shrink-0">
       <div
         onMouseDown={handleResizeStart}
         onMouseUp={handleResizeEnd}
@@ -502,6 +550,9 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-neutral-600"}`} />
             <span className="text-xs font-medium text-neutral-300">Terminal</span>
             {connected && <span className="text-[10px] text-green-400/70 font-mono">{agentName}</span>}
+            {connected && waiting && (
+              <span className="text-[10px] text-amber-400/80 animate-pulse">menunggu output…</span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {connected ? (
@@ -539,6 +590,6 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }

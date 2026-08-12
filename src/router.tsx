@@ -4,6 +4,7 @@ import {
 import { routerWithQueryClient } from "@tanstack/react-router-with-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "./routeTree.gen";
+import { ErrorStack } from "~/components/ui/ErrorStack";
 
 export function getRouter() {
   const queryClient = new QueryClient({
@@ -21,6 +22,10 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: "intent",
     context: { queryClient },
+    // Diagnostic: surface React's component stack on runtime errors so commit
+    // crashes (e.g. "insertBefore not a child") can be traced to the exact
+    // component instead of guessing.
+    defaultErrorComponent: ErrorStack,
     Wrap: ({ children }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     ),

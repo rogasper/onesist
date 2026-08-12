@@ -499,3 +499,28 @@ html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLine {
 html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
   background-color: #f3f4f6;
 }
+
+/* =========================================
+   AgentStream animations — realtime agent feedback
+   (pixel-grid loader, shimmer label, stream-in text, fade-up)
+   ========================================= */
+
+@keyframes pixel-on {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer-text {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes stream-in {
+  0% { opacity: 0; filter: blur(4px); }
+  100% { opacity: 1; filter: blur(0); }
+}
+
+@keyframes fade-up {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: none; }
+}

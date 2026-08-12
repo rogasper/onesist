@@ -163,11 +163,25 @@ router.post("agent/run", async ({ body }) => {
   const command = data.command as string;
   const agentName = data.agentName as string;
   const fsdFile = data.fsdFile as string;
+  const feedback = data.feedback as string | undefined;
+  const previousSessionId = data.previousSessionId as string | undefined;
   if (!command || !agentName || !sessionId) {
     return json({ error: "Missing required fields: command, agentName, sessionId" }, 400);
   }
-  runAgent({ sessionId, command, mode: mode as "generate" | "gap" | "td" | "openapi", fsdFile, agentName }).catch(() => {});
-  return json({ started: true, sessionId });
+  // Resolve the project root so the agent reads artifacts from (and writes to)
+  // the OPEN project's rootPath — not the dev default root. Falls back to the
+  // default root when no projectId is given (e.g. legacy callers).
+  let root: string | undefined;
+  const projectId = data.projectId as string | undefined;
+  if (projectId) {
+    try {
+      const { getProject } = await import("../http/route-utils");
+      const proj = getProject(projectId);
+      if (proj?.rootPath) root = proj.rootPath;
+    } catch {}
+  }
+  runAgent({ sessionId, command, mode: mode as "generate" | "gap" | "td" | "openapi" | "rtm", fsdFile, agentName, root, feedback, previousSessionId }).catch(() => {});
+  return json({ started: true, sessionId, root: root ?? null });
 });
 
 // /api/agent/stop
@@ -183,4 +197,35 @@ router.post("agent/stop", async ({ body }) => {
 router.get("agent/status", async () => {
   const { getRunningAgents } = await import("~/server/services/agent-runner");
   return json({ running: getRunningAgents() });
+});
+
+// /api/agent/logs?sessionId= — replay buffered agent events for a session.
+// Clients that connect after an agent started (or already finished) fetch this
+// so they don't see a silent "Connected to event stream" with no context.
+router.get("agent/logs", async ({ query }) => {
+  const { eventBus } = await import("../realtime/events");
+  const sessionId = query.get("sessionId");
+  if (!sessionId) return json({ events: [] });
+  return json({ events: eventBus.getAgentHistory(sessionId) });
+});
+
+// /api/system/instances — running instances of this app (for duplicate detection)
+router.get("system/instances", async () => {
+  const { scanInstances } = await import("~/server/system-instances");
+  return json({
+    instances: scanInstances(),
+    self: process.pid,
+    port: parseInt(process.env.TERMINAL_PORT || "4323", 10),
+    platform: process.platform,
+  });
+});
+
+// /api/system/instances/kill — kill a duplicate instance tree
+router.post("system/instances/kill", async ({ body }) => {
+  const data = await body();
+  const pid = Number(data.pid);
+  if (!pid) return json({ error: "pid is required" }, 400);
+  if (pid === process.pid) return json({ error: "Refusing to kill the current server" }, 400);
+  const { killTree } = await import("~/server/system-instances");
+  return json({ killed: killTree(pid) });
 });

@@ -161,7 +161,7 @@ function WikiPage() {
         </div>
         <div className="flex-1 min-w-0">
           {activePage ? (
-            <WikiContent key={activePage.id} page={activePage} onSave={handleSave} />
+            <WikiContent key={activePage.id} page={activePage} projectId={id} onSave={handleSave} />
           ) : (
             <Placeholder>Select a page from the sidebar or create a new one.</Placeholder>
           )}

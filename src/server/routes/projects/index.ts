@@ -6,15 +6,20 @@ import { db } from "~/server/db/client";
 import {
   apiEndpoints,
   apiSpecs,
+  businessRequirements,
   changeLog,
+  designSolutions,
   erdSnapshots,
   apiSnapshots,
   erds,
   exports_,
   fsdSessions,
+  functionalRequirements,
   projects,
+  rtmLinks,
   taskSnapshots,
   tasks,
+  testCases,
   wikiPages,
   wikiSnapshots,
 } from "~/server/db/schema";
@@ -109,6 +114,11 @@ router.delete("projects/:id", async ({ params }) => {
   db.delete(apiEndpoints).where(eq(apiEndpoints.specId, id)).run();
   db.delete(wikiSnapshots).where(eq(wikiSnapshots.pageId, id)).run();
   db.delete(taskSnapshots).where(eq(taskSnapshots.taskId, id)).run();
+  db.delete(rtmLinks).where(eq(rtmLinks.projectId, id)).run();
+  db.delete(testCases).where(eq(testCases.projectId, id)).run();
+  db.delete(designSolutions).where(eq(designSolutions.projectId, id)).run();
+  db.delete(functionalRequirements).where(eq(functionalRequirements.projectId, id)).run();
+  db.delete(businessRequirements).where(eq(businessRequirements.projectId, id)).run();
   db.delete(erds).where(eq(erds.projectId, id)).run();
   db.delete(apiSpecs).where(eq(apiSpecs.projectId, id)).run();
   db.delete(wikiPages).where(eq(wikiPages.projectId, id)).run();

@@ -9,6 +9,7 @@ import { router as wikiRouter } from "./projects/wiki";
 import { router as docsRouter } from "./projects/docs";
 import { router as tasksRouter } from "./projects/tasks";
 import { router as fsdRouter } from "./projects/fsd";
+import { router as rtmRouter } from "./projects/rtm";
 
 export const routers = [
   systemRouter,
@@ -22,4 +23,5 @@ export const routers = [
   docsRouter,
   tasksRouter,
   fsdRouter,
+  rtmRouter,
 ];
