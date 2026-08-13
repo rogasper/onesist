@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Badge } from "@cloudflare/kumo";
-import { BookOpen, X, ArrowsClockwise, DownloadSimple } from "@phosphor-icons/react";
+import { BookOpen, X, ArrowsClockwise, DownloadSimple, Copy } from "@phosphor-icons/react";
 import { parse as parseYaml } from "yaml";
 import "swagger-ui-react/swagger-ui.css";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
@@ -14,6 +14,7 @@ import { PageHeader } from "~/components/ui/PageHeader";
 import { Placeholder } from "~/components/ui/Placeholder";
 import { SearchInput } from "~/components/ui/SearchInput";
 import { AgentStream } from "~/components/agent/AgentStream";
+import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
 import { FeedbackBox } from "~/components/agent/FeedbackBox";
 
 export const Route = createFileRoute("/projects/$id/spec")({
@@ -30,6 +31,8 @@ function SpecPage() {
   const [syncedStats, setSyncedStats] = useState<{ specs: number; endpoints: number } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genSessionId, setGenSessionId] = useState<string | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [SwaggerUI, setSwaggerUI] = useState<React.ComponentType<any> | null>(null);
 
   const agentStorageKey = `onesist:openapi-agent:${id}`;
@@ -153,7 +156,7 @@ function SpecPage() {
     }
   }, [openapiContent]);
 
-  const startAgent = useCallback(async (feedback?: string) => {
+  const startAgent = useCallback(async (feedback?: string, model?: string) => {
     // If a run is active (or a finished session is parked), stop it first so
     // the new run always starts clean. For feedback, `prev` lets the server
     // resume the SAME agent session with the correction.
@@ -184,6 +187,7 @@ function SpecPage() {
           mode: "openapi",
           projectId: id,
           ...(feedback ? { feedback, previousSessionId: prev } : {}),
+          ...(model ? { model } : {}),
         }),
       });
       if (res.ok) {
@@ -197,8 +201,26 @@ function SpecPage() {
     }
   }, [genSessionId, id, agentStorageKey, clearStoredAgent]);
 
-  const handleGenerateOpenapi = useCallback(() => { void startAgent(); }, [startAgent]);
+  const handleGenerateOpenapi = useCallback(() => setModelPickerOpen(true), []);
   const handleFeedback = useCallback((text: string) => { void startAgent(text); }, [startAgent]);
+
+  const copyPrompt = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/agent/prompt?projectId=${encodeURIComponent(id)}&mode=openapi`, { cache: "no-store" });
+      if (res.ok) {
+        const d = await res.json();
+        await navigator.clipboard.writeText(d.command);
+        setToast({ kind: "success", text: "Prompt & command disalin — tempel di terminal" });
+        setTimeout(() => setToast(null), 3000);
+      } else {
+        setToast({ kind: "error", text: "Gagal membuat prompt" });
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch {
+      setToast({ kind: "error", text: "Gagal menyalin prompt" });
+      setTimeout(() => setToast(null), 3000);
+    }
+  }, [id]);
 
   const handleAgentDone = useCallback(() => {
     setGenerating(false);
@@ -300,6 +322,16 @@ function SpecPage() {
               {generating ? "Generating…" : "Generate OpenAPI"}
             </AppButton>
             <AppButton
+              onClick={copyPrompt}
+              variant="secondary"
+              size="sm"
+              icon={<Copy size={12} />}
+              className="rounded-full px-3"
+              title="Salin prompt + command untuk dijalankan manual di terminal (fallback saat Generate error)"
+            >
+              Copy Prompt
+            </AppButton>
+            <AppButton
               onClick={handleSync}
               disabled={syncing}
               variant="secondary"
@@ -368,6 +400,22 @@ function SpecPage() {
           <AgentStream sessionId={genSessionId} onDone={handleAgentDone} onError={handleAgentError} onStopped={handleAgentStopped} onFeedback={handleFeedback} onClose={handleClose} />
         </div>
       )}
+
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-3 py-2 rounded-lg border text-xs shadow-lg ${
+          toast.kind === "success"
+            ? "border-green-500/40 bg-green-500/15 text-green-400"
+            : "border-red-500/40 bg-red-500/15 text-red-400"
+        }`}>
+          {toast.text}
+        </div>
+      )}
+
+      <ModelPickerDialog
+        open={modelPickerOpen}
+        onClose={() => setModelPickerOpen(false)}
+        onRun={(model) => { setModelPickerOpen(false); void startAgent(undefined, model); }}
+      />
 
       {!activeContent ? (
         <Placeholder className="flex-1 text-sm">No spec files found</Placeholder>

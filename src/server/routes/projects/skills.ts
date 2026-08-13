@@ -15,12 +15,13 @@ router.get("projects/:id/skills", async ({ params }) => {
   const { detectProjectSkills } = await import("~/lib/project-skills");
   const statuses = detectProjectSkills(rootPath);
   const ready = statuses.every((s) => s.status === "installed");
+  const outdated = !ready && statuses.some((s) => s.status === "outdated") && statuses.every((s) => s.status === "installed" || s.status === "outdated");
   if (ready && proj.skillsStatus !== "ready") {
     db.update(projects).set({ skillsStatus: "ready", skillsError: null, skillsUpdatedAt: new Date().toISOString() }).where(eq(projects.id, params.id)).run();
-  } else if (!ready && proj.skillsStatus !== "installing" && proj.skillsStatus !== "failed") {
+  } else if (!ready && !outdated && proj.skillsStatus !== "installing" && proj.skillsStatus !== "failed") {
     db.update(projects).set({ skillsStatus: "pending", skillsUpdatedAt: new Date().toISOString() }).where(eq(projects.id, params.id)).run();
   }
-  return json({ status: ready ? "ready" : proj.skillsStatus, skills: statuses });
+  return json({ status: outdated ? "outdated" : ready ? "ready" : proj.skillsStatus, skills: statuses });
 });
 
 // POST /api/projects/:id/skills/install — install missing skills (background)

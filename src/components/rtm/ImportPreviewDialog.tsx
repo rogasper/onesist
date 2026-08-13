@@ -8,7 +8,7 @@ interface FileCount {
 }
 
 export interface ImportPreview {
-  files: { file: string; brs: FileCount["brs"]; frs: FileCount["frs"]; designs: FileCount["designs"]; tests: FileCount["tests"] }[];
+  files: { file: string; fsd?: string; brs: FileCount["brs"]; frs: FileCount["frs"]; designs: FileCount["designs"]; tests: FileCount["tests"] }[];
   totals: {
     brs: number;
     frs: number;
@@ -48,7 +48,12 @@ export function ImportPreviewDialog({ preview, onClose, onApply, applying }: Imp
               )}
               {preview.files.map((f) => (
                 <div key={f.file} className="text-[11px] border border-kumo-line rounded-lg p-2.5">
-                  <div className="font-mono text-kumo-default mb-1.5 truncate">{f.file}</div>
+                  <div className="font-mono text-kumo-default mb-1.5 truncate">
+                    {f.file}
+                    {f.fsd && f.fsd !== "default" && (
+                      <span className="ml-2 text-[9px] px-1.5 py-px rounded-full bg-kumo-brand/15 text-kumo-brand font-sans">phase: {f.fsd}</span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-4 gap-2 text-center">
                     <CountCell label="BR" c={f.brs} />
                     <CountCell label="FR" c={f.frs} />

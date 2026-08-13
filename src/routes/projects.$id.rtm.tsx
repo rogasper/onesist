@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@cloudflare/kumo";
-import { LinkSimple, Plus, Robot, TrayArrowDown } from "@phosphor-icons/react";
+import { LinkSimple, Plus, Robot, TrayArrowDown, Copy, DownloadSimple, CaretDown, MagnifyingGlass, Check } from "@phosphor-icons/react";
 import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { AgentStream } from "~/components/agent/AgentStream";
+import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
 import { RtmMatrix } from "~/components/rtm/RtmMatrix";
 import { EntityDialog, RTM_PREFIX } from "~/components/rtm/EntityDialog";
 import { ImportPreviewDialog, type ImportPreview } from "~/components/rtm/ImportPreviewDialog";
@@ -28,7 +29,17 @@ function RtmPage() {
   const [genSessionId, setGenSessionId] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [applying, setApplying] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [scopes, setScopes] = useState<string[]>([]);
+  const [fsdFiles, setFsdFiles] = useState<string[]>([]);
+  const [scopesLoading, setScopesLoading] = useState(true);
+  const [activeFsd, setActiveFsd] = useState<string>(() => {
+    try { return sessionStorage.getItem(`onesist:rtm-fsd:${id}`) ?? "default"; } catch { return "default"; }
+  });
+  const [selectedFds, setSelectedFds] = useState<string[]>(() => {
+    try { return JSON.parse(sessionStorage.getItem(`onesist:rtm-fds:${id}`) ?? "[]") as string[]; } catch { return []; }
+  });
 
   const agentStorageKey = `onesist:rtm-agent:${id}`;
 
@@ -42,16 +53,68 @@ function RtmPage() {
   }, []);
 
   const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/projects/${id}/rtm`, { cache: "no-store" });
-      if (res.ok) {
-        setData(await res.json());
-        setLoaded(true);
-      }
-    } catch {}
+    // Retry — the desktop sidecar may still be booting on first mount.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`/api/projects/${id}/rtm?fsd=${encodeURIComponent(activeFsd)}`, { cache: "no-store" });
+        if (res.ok) {
+          setData(await res.json());
+          setLoaded(true);
+          return;
+        }
+      } catch {}
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 800));
+    }
+    setLoaded(true);
+  }, [id, activeFsd]);
+  useEffect(() => { void load(); }, [load]);
+
+  // Scopes for the RTM selector (distinct fsd in DB + RTM_*.md files) and the
+  // raw FSD file list for the multiselect pills. Retry a few times — the
+  // desktop sidecar may still be booting on first mount.
+  useEffect(() => {
+    let cancelled = false;
+    let attempts = 0;
+    const fetchScopes = () => {
+      fetch(`/api/projects/${id}/rtm/scopes`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (cancelled) return;
+          if (Array.isArray(d.scopes)) setScopes(d.scopes);
+          if (Array.isArray(d.files)) setFsdFiles(d.files);
+          setScopesLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          attempts += 1;
+          if (attempts < 3) setTimeout(fetchScopes, 800);
+          else setScopesLoading(false);
+        });
+    };
+    fetchScopes();
+    return () => { cancelled = true; };
   }, [id]);
 
-  useEffect(() => { void load(); }, [load]);
+  const changeFsd = (v: string) => {
+    setActiveFsd(v);
+    try { sessionStorage.setItem(`onesist:rtm-fsd:${id}`, v); } catch {}
+    void load();
+  };
+
+  const toggleFd = useCallback((fd: string) => {
+    setSelectedFds((prev) => {
+      // Empty selection means "all files". First click turns it into a real
+      // selection minus the toggled one; subsequent clicks toggle membership.
+      let next: string[];
+      if (prev.length === 0) {
+        next = fsdFiles.filter((f) => f !== fd);
+      } else {
+        next = prev.includes(fd) ? prev.filter((f) => f !== fd) : [...prev, fd];
+      }
+      try { sessionStorage.setItem(`onesist:rtm-fds:${id}`, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [id, fsdFiles]);
 
   const saveEntity = useCallback(async (values: Record<string, unknown>) => {
     if (!dialog) return;
@@ -64,7 +127,7 @@ function RtmPage() {
       const res = await fetch(url, {
         method: dialog.initial ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, ...(!dialog.initial ? { fsd: activeFsd } : {}) }),
       });
       if (res.ok) {
         const saved = await res.json();
@@ -85,7 +148,7 @@ function RtmPage() {
       showToast("error", `Gagal menyimpan ${RTM_PREFIX[kind]}`);
     }
     setSaving(false);
-  }, [dialog, id, load, showToast]);
+  }, [dialog, id, load, showToast, activeFsd]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -111,14 +174,14 @@ function RtmPage() {
         await fetch(`/api/projects/${id}/rtm/links`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ frId, [kind === "design" ? "dsId" : "tcId"]: entityId }),
+          body: JSON.stringify({ frId, fsd: activeFsd, [kind === "design" ? "dsId" : "tcId"]: entityId }),
         });
       }
       void load();
     } catch {
       showToast("error", "Gagal mengubah link");
     }
-  }, [data, id, load, showToast]);
+  }, [data, id, load, showToast, activeFsd]);
 
   const previewImport = useCallback(async (open = true) => {
     try {
@@ -150,7 +213,7 @@ function RtmPage() {
     setApplying(false);
   }, [id, load, showToast]);
 
-  const startAgent = useCallback(async (feedback?: string) => {
+  const startAgent = useCallback(async (feedback?: string, model?: string) => {
     // If a run is active (or a finished session is parked), stop it first so
     // the new run always starts clean. For feedback, `prev` lets the server
     // resume the SAME agent session with the correction.
@@ -180,7 +243,10 @@ function RtmPage() {
           agentName: found?.name ?? "opencode",
           mode: "rtm",
           projectId: id,
+          fsd: activeFsd,
+          fds: selectedFds.length > 0 ? selectedFds : undefined,
           ...(feedback ? { feedback, previousSessionId: prev } : {}),
+          ...(model ? { model } : {}),
         }),
       });
       if (res.ok) {
@@ -192,10 +258,40 @@ function RtmPage() {
     } catch {
       setGenerating(false);
     }
-  }, [genSessionId, id, agentStorageKey, clearStoredAgent]);
+  }, [genSessionId, id, agentStorageKey, clearStoredAgent, activeFsd, selectedFds]);
 
-  const handleGenerate = useCallback(() => { void startAgent(); }, [startAgent]);
+  const handleGenerate = useCallback(() => setModelPickerOpen(true), []);
   const handleFeedback = useCallback((text: string) => { void startAgent(text); }, [startAgent]);
+
+  const copyPrompt = useCallback(async () => {
+    try {
+      const fdsQuery = selectedFds.length > 0 ? `&fds=${encodeURIComponent(selectedFds.join(","))}` : "";
+      const res = await fetch(`/api/agent/prompt?projectId=${encodeURIComponent(id)}&mode=rtm&fsd=${encodeURIComponent(activeFsd)}${fdsQuery}`, { cache: "no-store" });
+      if (res.ok) {
+        const d = await res.json();
+        await navigator.clipboard.writeText(d.command);
+        showToast("success", `Prompt disalin (${d.agentName}) — tempel di terminal`);
+      } else {
+        showToast("error", "Gagal membuat prompt");
+      }
+    } catch {
+      showToast("error", "Gagal menyalin prompt");
+    }
+  }, [id, showToast, activeFsd, selectedFds]);
+
+  const exportRtm = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${id}/rtm/export?fsd=${encodeURIComponent(activeFsd)}`, { method: "POST" });
+      if (res.ok) {
+        const d = await res.json();
+        showToast("success", `Exported ke ${d.path} (${d.brs} BR · ${d.frs} FR)`);
+      } else {
+        showToast("error", "Export gagal — pastikan project root di-set");
+      }
+    } catch {
+      showToast("error", "Export gagal");
+    }
+  }, [id, showToast, activeFsd]);
 
   const handleAgentDone = useCallback(() => {
     setGenerating(false);
@@ -282,6 +378,26 @@ function RtmPage() {
               {generating ? "Agent berjalan…" : "Agent bantu"}
             </AppButton>
             <AppButton
+              onClick={copyPrompt}
+              variant="secondary"
+              size="sm"
+              icon={<Copy size={12} />}
+              className="rounded-full px-3"
+              title="Salin prompt + command untuk dijalankan manual di terminal (fallback saat Agent bantu error)"
+            >
+              Copy Prompt
+            </AppButton>
+            <AppButton
+              onClick={exportRtm}
+              variant="secondary"
+              size="sm"
+              icon={<DownloadSimple size={12} />}
+              className="rounded-full px-3"
+              title="Export state DB ke output/rtm/RTM.md agar agent bisa lanjut di markdown"
+            >
+              Export
+            </AppButton>
+            <AppButton
               onClick={() => void previewImport(true)}
               variant="secondary"
               size="sm"
@@ -307,14 +423,22 @@ function RtmPage() {
         }
         below={
           <>
-            {data && summary && summary.frCount > 0 && (
-              <div className="flex items-center gap-3 flex-wrap text-[11px]">
-                <GapStat label="BR belum dipecah" value={brNoFr} danger={brNoFr > 0} />
-                <GapStat label="FR tanpa Design" value={summary.testOnly + summary.none} danger={(summary.testOnly + summary.none) > 0} />
-                <GapStat label="FR tanpa Test" value={summary.designOnly + summary.none} danger={(summary.designOnly + summary.none) > 0} />
-                <span className="text-kumo-subtle ml-auto">Klik cell untuk menautkan design/test · klik kode untuk edit</span>
-              </div>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              <ScopePicker value={activeFsd} scopes={scopes} loading={scopesLoading} onChange={changeFsd} />
+              <FdPills
+                fds={fsdFiles}
+                selectedFds={selectedFds}
+                onToggleFd={toggleFd}
+              />
+              {data && summary && summary.frCount > 0 && (
+                <div className="flex items-center gap-3 flex-wrap text-[11px]">
+                  <GapStat label="BR belum dipecah" value={brNoFr} danger={brNoFr > 0} />
+                  <GapStat label="FR tanpa Design" value={summary.testOnly + summary.none} danger={(summary.testOnly + summary.none) > 0} />
+                  <GapStat label="FR tanpa Test" value={summary.designOnly + summary.none} danger={(summary.designOnly + summary.none) > 0} />
+                </div>
+              )}
+              <span className="text-kumo-subtle ml-auto text-[11px]">Klik cell untuk menautkan design/test · klik kode untuk edit</span>
+            </div>
           </>
         }
       />
@@ -370,6 +494,12 @@ function RtmPage() {
         applying={applying}
       />
 
+      <ModelPickerDialog
+        open={modelPickerOpen}
+        onClose={() => setModelPickerOpen(false)}
+        onRun={(model) => { setModelPickerOpen(false); void startAgent(undefined, model); }}
+      />
+
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Delete"
@@ -389,5 +519,100 @@ function GapStat({ label, value, danger }: { label: string; value: number; dange
       <span className="text-kumo-subtle">{label}:</span>
       <span className={danger ? "text-red-400 font-medium" : "text-kumo-default"}>{value}</span>
     </span>
+  );
+}
+
+/** Searchable scope (BRD/FSD) dropdown — one scope = one BRD/FSD. */
+/** Searchable scope (RTM) dropdown — pick which RTM scope is active. */
+function ScopePicker({ value, scopes, loading, onChange }: {
+  value: string;
+  scopes: string[];
+  loading: boolean;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  const filtered = scopes.filter((s) => s.toLowerCase().includes(query));
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default hover:border-kumo-brand/50 transition-colors"
+        title="Scope RTM — satu scope = satu file RTM"
+      >
+        <span className="text-kumo-subtle text-[10px] uppercase tracking-wider">Scope</span>
+        <span className="font-medium">{loading ? "Memuat…" : value === "default" ? "default" : value}</span>
+        <CaretDown size={11} className="text-kumo-subtle" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full mt-1 z-30 w-60 rounded-lg border border-kumo-line bg-kumo-elevated shadow-xl p-1.5 flex flex-col max-h-80">
+            <div className="flex items-center gap-1.5 px-1 pb-1.5 shrink-0">
+              <MagnifyingGlass size={11} className="text-kumo-subtle shrink-0" />
+              <input
+                autoFocus
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Cari scope…"
+                className="w-full bg-kumo-recessed/60 border border-kumo-line rounded px-2 py-1 text-[11px] text-kumo-default placeholder:text-kumo-subtle focus:border-kumo-brand focus:outline-none"
+              />
+            </div>
+            <div className="overflow-y-auto flex-1 min-h-0">
+              {loading ? (
+                <div className="px-2 py-2 text-[11px] text-kumo-subtle">Memuat…</div>
+              ) : filtered.length === 0 ? (
+                <div className="px-2 py-2 text-[11px] text-kumo-subtle">Tidak ada hasil untuk "{q}"</div>
+              ) : (
+                filtered.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => { onChange(s); setOpen(false); setQ(""); }}
+                    className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[11px] rounded hover:bg-kumo-tint transition-colors ${s === value ? "text-kumo-brand font-medium" : "text-kumo-default"}`}
+                  >
+                    <span>{s === "default" ? "default" : s}</span>
+                    {s === value && <Check size={11} className="ml-auto shrink-0" />}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Inline FSD pills (ERD-style file chips) — click to toggle which FSD files
+ *  are traced into the active scope's RTM. Empty selection = all files. */
+function FdPills({ fds, selectedFds, onToggleFd }: {
+  fds: string[];
+  selectedFds: string[];
+  onToggleFd: (fd: string) => void;
+}) {
+  if (fds.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1 py-0.5 px-1 overflow-x-auto min-w-0 max-w-[55%] shrink">
+      {fds.map((fd) => {
+        const active = selectedFds.length === 0 || selectedFds.includes(fd);
+        const label = fd.replace(/^fsd_/, "");
+        return (
+          <button
+            key={fd}
+            onClick={() => onToggleFd(fd)}
+            className={`shrink-0 rounded-full px-2.5 h-7 text-[11px] ring-1 transition-colors ${
+              active
+                ? "bg-kumo-brand text-white ring-kumo-brand font-medium"
+                : "bg-kumo-elevated ring-kumo-line/50 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
+            }`}
+            title={active ? `Hapus ${label} dari seleksi` : `Tambahkan ${label} ke seleksi`}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
   );
 }

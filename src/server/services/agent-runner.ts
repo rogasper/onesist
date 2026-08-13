@@ -19,6 +19,12 @@ interface AgentRunConfig {
   feedback?: string;
   /** Our sessionId of the run this feedback refers to (maps to the agent CLI's session id). */
   previousSessionId?: string;
+  /** Model override (e.g. "opencode/deepseek-v4-flash") passed via --model. */
+  model?: string;
+  /** RTM scope (BRD/FSD) — only meaningful for mode "rtm". */
+  fsd?: string;
+  /** RTM selected FD list within the scope (feature docs) — mode "rtm". */
+  fds?: string[];
 }
 
 const RUNNING_AGENTS = new Map<string, { process: ReturnType<typeof spawn>; startTime: number }>();
@@ -47,7 +53,7 @@ export function getRunningAgents(): { sessionId: string; startTime: number }[] {
 }
 
 export async function runAgent(config: AgentRunConfig): Promise<void> {
-  const { sessionId, command, mode, fsdFile, agentName, root, feedback, previousSessionId } = config;
+  const { sessionId, command, mode, fsdFile, agentName, root, feedback, previousSessionId, model, fsd, fds } = config;
   const projectRoot = root || getProjectRoot();
 
   // Resolve the agent CLI's session id from the previous run so a feedback
@@ -91,7 +97,7 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
     } else if (mode === "openapi") {
       prompt = buildOpenapiPrompt(agentName, root);
     } else if (mode === "rtm") {
-      prompt = buildRtmPrompt(agentName, root);
+      prompt = buildRtmPrompt(agentName, root, fsd, fds);
     } else {
       eventBus.emitAgentError(sessionId, "Invalid mode or missing fsdFile");
       return;
@@ -111,6 +117,11 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
     } else {
       args = ["run", prompt, "--auto"];
     }
+  }
+
+  // Apply the selected model to any agent that supports --model.
+  if (model && (agentName === "opencode" || agentName === "claude" || agentName === "codex")) {
+    args.push("--model", model);
   }
 
   eventBus.emitAgentStatus(sessionId, "running", feedback ? "Melanjutkan dengan feedback…" : "Starting agent...");

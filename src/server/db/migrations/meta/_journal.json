@@ -22,6 +22,13 @@
       "when": 1786509433727,
       "tag": "0002_tough_warstar",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786589585726,
+      "tag": "0003_jazzy_nextwave",
+      "breakpoints": true
     }
   ]
 }

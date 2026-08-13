@@ -37,8 +37,9 @@ function nextCode(rows: { code: string | null }[], prefix: string): string {
 }
 
 // GET /api/projects/:id/rtm — full matrix dataset
-router.get("projects/:id/rtm", ({ params }) => {
+router.get("projects/:id/rtm", ({ params, query }) => {
   const id = params.id;
+  const fsd = query.get("fsd") || "default";
   const byCode = (prefix: string) => (rows: { code: string | null }[]) => rows.slice().sort((a, b) => {
     const n = (code: string | null) => {
       const m = code?.match(new RegExp(`${prefix}-(\\d+)`, "i"));
@@ -47,36 +48,78 @@ router.get("projects/:id/rtm", ({ params }) => {
     return n(a.code) - n(b.code);
   });
   return json({
-    brs: byCode("BR")(db.select().from(businessRequirements).where(eq(businessRequirements.projectId, id)).all()),
-    frs: byCode("FR")(db.select().from(functionalRequirements).where(eq(functionalRequirements.projectId, id)).all()),
-    designs: byCode("DS")(db.select().from(designSolutions).where(eq(designSolutions.projectId, id)).all()),
-    tests: byCode("TC")(db.select().from(testCases).where(eq(testCases.projectId, id)).all()),
-    links: db.select().from(rtmLinks).where(eq(rtmLinks.projectId, id)).all(),
+    fsd,
+    brs: byCode("BR")(db.select().from(businessRequirements).where(and(eq(businessRequirements.projectId, id), eq(businessRequirements.fsd, fsd))).all()),
+    frs: byCode("FR")(db.select().from(functionalRequirements).where(and(eq(functionalRequirements.projectId, id), eq(functionalRequirements.fsd, fsd))).all()),
+    designs: byCode("DS")(db.select().from(designSolutions).where(and(eq(designSolutions.projectId, id), eq(designSolutions.fsd, fsd))).all()),
+    tests: byCode("TC")(db.select().from(testCases).where(and(eq(testCases.projectId, id), eq(testCases.fsd, fsd))).all()),
+    links: db.select().from(rtmLinks).where(and(eq(rtmLinks.projectId, id), eq(rtmLinks.fsd, fsd))).all(),
   });
+});
+
+// GET /api/projects/:id/rtm/scopes — RTM scope names (for the scope selector)
+// + the raw FSD file list (for the multiselect pills).
+//   scopes: distinct `fsd` values in the DB + RTM files in output/rtm/RTM_*.md
+//           + "default". NO inference from filename/phase — the user picks.
+//   files:  every .md FSD document in input/fsd (multiselect targets).
+router.get("projects/:id/rtm/scopes", ({ params }) => {
+  const id = params.id;
+  const scopeSet = new Set<string>(["default"]);
+  for (const table of [businessRequirements, functionalRequirements, designSolutions, testCases, rtmLinks]) {
+    const rows = db.select({ fsd: table.fsd }).from(table).where(eq(table.projectId, id)).all() as { fsd: string }[];
+    for (const r of rows) if (r.fsd) scopeSet.add(r.fsd);
+  }
+
+  const proj = getProject(id);
+  const files: string[] = [];
+  if (proj?.rootPath) {
+    // RTM files already written by the agent count as scopes.
+    const rtmDir = path.join(proj.rootPath, "output", "rtm");
+    try {
+      for (const f of fs.readdirSync(rtmDir)) {
+        if (!f.endsWith(".md")) continue;
+        const base = f.replace(/\.md$/, "");
+        scopeSet.add(base === "RTM" ? "default" : base.replace(/^RTM_/, "") || "default");
+      }
+    } catch {}
+    // All FSD documents (multiselect targets).
+    const fsdDir = path.join(proj.rootPath, "input", "fsd");
+    try {
+      for (const f of fs.readdirSync(fsdDir)) {
+        if (!f.endsWith(".md")) continue;
+        const stem = f.replace(/\.md$/, "");
+        if (stem) files.push(stem);
+      }
+    } catch {}
+  }
+
+  return json({ scopes: [...scopeSet].sort(), files: files.sort() });
 });
 
 // NOTE: literal routes (links, import) MUST be registered before the
 // parameterized `:kind` routes below — the Router returns the first match and
 // `/rtm/links` would otherwise hit `/rtm/:kind`.
 
-// POST /api/projects/:id/rtm/links — { frId, dsId? , tcId? }
+// POST /api/projects/:id/rtm/links — { frId, dsId? , tcId?, fsd? }
 router.post("projects/:id/rtm/links", async ({ params, body }) => {
   const data = await body();
   const frId = data.frId as string;
   if (!frId) return json({ error: "frId is required" }, 400);
   const dsId = (data.dsId as string) ?? null;
   const tcId = (data.tcId as string) ?? null;
+  const fsd = (data.fsd as string) || "default";
   if (!dsId && !tcId) return json({ error: "Link needs a design solution or test case" }, 400);
   // Avoid duplicates (query by project+fr, then match in JS since null filtering
   // is awkward in drizzle's type-safe eq()).
   const frLinks = db.select().from(rtmLinks)
-    .where(and(eq(rtmLinks.projectId, params.id), eq(rtmLinks.frId, frId)))
+    .where(and(eq(rtmLinks.projectId, params.id), eq(rtmLinks.frId, frId), eq(rtmLinks.fsd, fsd)))
     .all() as any[];
   const dup = frLinks.find((l: any) => l.dsId === dsId && l.tcId === tcId);
   if (dup) return json(dup, 200);
   const link = {
     id: crypto.randomUUID(),
     projectId: params.id,
+    fsd,
     frId,
     dsId,
     tcId,
@@ -103,25 +146,38 @@ function rtmFiles(rootPath: string): string[] {
   }
 }
 
+/** RTM scope from the file name: RTM.md → "default", RTM_phase1.md → "phase1". */
+function scopeFromFile(file: string): string {
+  const base = path.basename(file, ".md");
+  if (base === "RTM") return "default";
+  return base.replace(/^RTM_/, "") || "default";
+}
+
 // POST /api/projects/:id/rtm/import/preview — parse output/rtm/*.md without writing
 router.post("projects/:id/rtm/import/preview", async ({ params }) => {
   const proj = getProject(params.id);
   if (!proj) return notFound();
   const rootPath = proj.rootPath || "";
   const files = rtmFiles(rootPath);
-  const parsed = files.map((file) => {
-    const content = fs.readFileSync(path.join(rootPath, file), "utf-8");
-    return { file, data: parseRtmMarkdown(content) };
-  });
 
-  const existing = (table: any) => {
-    const rows = db.select().from(table).where(eq(table.projectId, params.id)).all() as any[];
+  const existingIn = (table: any, fsd: string) => {
+    const rows = db.select().from(table).where(and(eq(table.projectId, params.id), eq(table.fsd, fsd))).all() as any[];
     return new Set(rows.map((r) => r.code));
   };
-  const brCodes = existing(businessRequirements);
-  const frCodes = existing(functionalRequirements);
-  const dsCodes = existing(designSolutions);
-  const tcCodes = existing(testCases);
+
+  const parsed = files.map((file) => {
+    const content = fs.readFileSync(path.join(rootPath, file), "utf-8");
+    const fsd = scopeFromFile(file);
+    return {
+      file,
+      fsd,
+      data: parseRtmMarkdown(content),
+      brCodes: existingIn(businessRequirements, fsd),
+      frCodes: existingIn(functionalRequirements, fsd),
+      dsCodes: existingIn(designSolutions, fsd),
+      tcCodes: existingIn(testCases, fsd),
+    };
+  });
 
   const count = (list: { code: string }[], known: Set<string>) => ({
     total: list.length,
@@ -132,10 +188,11 @@ router.post("projects/:id/rtm/import/preview", async ({ params }) => {
   return json({
     files: parsed.map((p) => ({
       file: p.file,
-      brs: count(p.data.brs, brCodes),
-      frs: count(p.data.frs, frCodes),
-      designs: count(p.data.designs, dsCodes),
-      tests: count(p.data.tests, tcCodes),
+      fsd: p.fsd,
+      brs: count(p.data.brs, p.brCodes),
+      frs: count(p.data.frs, p.frCodes),
+      designs: count(p.data.designs, p.dsCodes),
+      tests: count(p.data.tests, p.tcCodes),
     })),
     totals: {
       brs: parsed.reduce((s, p) => s + p.data.brs.length, 0),
@@ -152,61 +209,84 @@ router.post("projects/:id/rtm/import/apply", async ({ params }) => {
   const proj = getProject(params.id);
   if (!proj) return notFound();
   const rootPath = proj.rootPath || "";
+  const id = params.id;
   const now = new Date().toISOString();
   let inserted = 0, updated = 0;
-
-  const upsert = (table: any, rows: any[], map: (r: any, id: string) => any) => {
-    const existing = db.select().from(table).where(eq(table.projectId, params.id)).all() as any[];
-    const byCode = new Map(existing.map((r) => [r.code, r]));
-    for (const row of rows) {
-      const known = byCode.get(row.code);
-      if (known) {
-        db.update(table).set({ ...map(row, known.id), updatedAt: now }).where(eq(table.id, known.id)).run();
-        updated++;
-      } else {
-        db.insert(table).values({ ...map(row, crypto.randomUUID()), projectId: params.id, createdAt: now, updatedAt: now, sortOrder: existing.length + inserted }).run();
-        inserted++;
-      }
-    }
-  };
 
   const files = rtmFiles(rootPath);
   for (const file of files) {
     const content = fs.readFileSync(path.join(rootPath, file), "utf-8");
     const parsed = parseRtmMarkdown(content);
+    const fsd = scopeFromFile(file);
     if (parsed.brs.length + parsed.frs.length + parsed.designs.length + parsed.tests.length === 0) continue;
 
-    upsert(businessRequirements, parsed.brs, (r, id) => ({ id, code: r.code, title: r.title, description: r.description ?? null }));
-    upsert(designSolutions, parsed.designs, (r, id) => ({ id, code: r.code, title: r.title, description: r.description ?? null, sourceRef: r.sourceRef ?? null }));
-    upsert(testCases, parsed.tests, (r, id) => ({ id, code: r.code, title: r.title, description: r.description ?? null, steps: r.steps ?? null, expected: r.expected ?? null }));
-    upsert(functionalRequirements, parsed.frs, (r, id) => ({ id, code: r.code, title: r.title, description: r.description ?? null, brId: null }));
+    const upsert = (table: any, rows: any[], map: (r: any, newId: string) => any) => {
+      const existing = db.select().from(table).where(and(eq(table.projectId, id), eq(table.fsd, fsd))).all() as any[];
+      const byCode = new Map(existing.map((r) => [r.code, r]));
+      for (const row of rows) {
+        const known = byCode.get(row.code);
+        if (known) {
+          db.update(table).set({ ...map(row, known.id), fsd, updatedAt: now }).where(eq(table.id, known.id)).run();
+          updated++;
+        } else {
+          db.insert(table).values({ ...map(row, crypto.randomUUID()), projectId: id, fsd, createdAt: now, updatedAt: now, sortOrder: existing.length + inserted }).run();
+          inserted++;
+        }
+      }
+    };
 
-    // Resolve BR codes → brId and rebuild links for each FR
-    const brByCode = new Map((db.select().from(businessRequirements).where(eq(businessRequirements.projectId, params.id)).all() as any[]).map((r) => [r.code, r.id]));
+    upsert(businessRequirements, parsed.brs, (r, newId) => ({ id: newId, code: r.code, title: r.title, description: r.description ?? null }));
+    upsert(designSolutions, parsed.designs, (r, newId) => ({ id: newId, code: r.code, title: r.title, description: r.description ?? null, sourceRef: r.sourceRef ?? null }));
+    upsert(testCases, parsed.tests, (r, newId) => ({ id: newId, code: r.code, title: r.title, description: r.description ?? null, steps: r.steps ?? null, expected: r.expected ?? null }));
+    upsert(functionalRequirements, parsed.frs, (r, newId) => ({ id: newId, code: r.code, title: r.title, description: r.description ?? null, brId: null }));
+
+    // Resolve BR codes → brId and rebuild links for each FR (scope-aware)
+    const brByCode = new Map((db.select().from(businessRequirements).where(and(eq(businessRequirements.projectId, id), eq(businessRequirements.fsd, fsd))).all() as any[]).map((r) => [r.code, r.id]));
     for (const fr of parsed.frs) {
-      const frRow = db.select().from(functionalRequirements).where(and(eq(functionalRequirements.projectId, params.id), eq(functionalRequirements.code, fr.code))).get() as any;
+      const frRow = db.select().from(functionalRequirements).where(and(eq(functionalRequirements.projectId, id), eq(functionalRequirements.code, fr.code), eq(functionalRequirements.fsd, fsd))).get() as any;
       if (!frRow) continue;
       const brId = fr.brCode ? (brByCode.get(fr.brCode) ?? null) : null;
       db.update(functionalRequirements).set({ brId }).where(eq(functionalRequirements.id, frRow.id)).run();
-      db.delete(rtmLinks).where(eq(rtmLinks.frId, frRow.id)).run();
+      db.delete(rtmLinks).where(and(eq(rtmLinks.frId, frRow.id), eq(rtmLinks.fsd, fsd))).run();
       const dsIds = fr.dsCodes.map((code) => {
-        const row = db.select().from(designSolutions).where(and(eq(designSolutions.projectId, params.id), eq(designSolutions.code, code))).get() as any;
+        const row = db.select().from(designSolutions).where(and(eq(designSolutions.projectId, id), eq(designSolutions.code, code), eq(designSolutions.fsd, fsd))).get() as any;
         return row?.id ?? null;
       }).filter(Boolean) as string[];
       const tcIds = fr.tcCodes.map((code) => {
-        const row = db.select().from(testCases).where(and(eq(testCases.projectId, params.id), eq(testCases.code, code))).get() as any;
+        const row = db.select().from(testCases).where(and(eq(testCases.projectId, id), eq(testCases.code, code), eq(testCases.fsd, fsd))).get() as any;
         return row?.id ?? null;
       }).filter(Boolean) as string[];
       for (const dsId of dsIds) {
-        db.insert(rtmLinks).values({ id: crypto.randomUUID(), projectId: params.id, frId: frRow.id, dsId, tcId: null, createdAt: now }).run();
+        db.insert(rtmLinks).values({ id: crypto.randomUUID(), projectId: id, fsd, frId: frRow.id, dsId, tcId: null, createdAt: now }).run();
       }
       for (const tcId of tcIds) {
-        db.insert(rtmLinks).values({ id: crypto.randomUUID(), projectId: params.id, frId: frRow.id, dsId: null, tcId, createdAt: now }).run();
+        db.insert(rtmLinks).values({ id: crypto.randomUUID(), projectId: id, fsd, frId: frRow.id, dsId: null, tcId, createdAt: now }).run();
       }
     }
   }
 
   return json({ inserted, updated });
+});
+
+// POST /api/projects/:id/rtm/export?fsd= — serialize the DB matrix for a scope
+// to output/rtm/RTM_<fsd>.md (RTM.md for "default"), so the agent CLI (or a
+// manual terminal run) can keep working on the markdown artifact.
+router.post("projects/:id/rtm/export", ({ params, query }) => {
+  const proj = getProject(params.id);
+  if (!proj?.rootPath) return json({ error: "Project root not set" }, 400);
+  const id = params.id;
+  const fsd = query.get("fsd") || "default";
+  const brs = db.select().from(businessRequirements).where(and(eq(businessRequirements.projectId, id), eq(businessRequirements.fsd, fsd))).all() as any[];
+  const frs = db.select().from(functionalRequirements).where(and(eq(functionalRequirements.projectId, id), eq(functionalRequirements.fsd, fsd))).all() as any[];
+  const designs = db.select().from(designSolutions).where(and(eq(designSolutions.projectId, id), eq(designSolutions.fsd, fsd))).all() as any[];
+  const tests = db.select().from(testCases).where(and(eq(testCases.projectId, id), eq(testCases.fsd, fsd))).all() as any[];
+  const links = db.select().from(rtmLinks).where(and(eq(rtmLinks.projectId, id), eq(rtmLinks.fsd, fsd))).all() as any[];
+  const md = toRtmMarkdown(brs, frs, designs, tests, links);
+  const dir = path.join(proj.rootPath, "output", "rtm");
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  const filename = fsd === "default" ? "RTM.md" : `RTM_${fsd}.md`;
+  fs.writeFileSync(path.join(dir, filename), md, "utf-8");
+  return json({ exported: true, path: `output/rtm/${filename}`, fsd, brs: brs.length, frs: frs.length });
 });
 
 // POST /api/projects/:id/rtm/:kind — create an entity (kind: br|fr|design|test)
@@ -215,8 +295,10 @@ router.post("projects/:id/rtm/:kind", async ({ params, body }) => {
   if (!KIND_TO_TABLE[kind]) return json({ error: "Unknown entity kind" }, 400);
   const data = await body();
   const table = KIND_TO_TABLE[kind];
+  const fsd = (data.fsd as string) || "default";
   const now = new Date().toISOString();
-  const existing = db.select().from(table).where(eq(table.projectId, params.id)).all() as any[];
+  // IDs restart per scope (each BRD/FSD → its own RTM file).
+  const existing = db.select().from(table).where(and(eq(table.projectId, params.id), eq(table.fsd, fsd))).all() as any[];
   const prefix = { br: "BR", fr: "FR", design: "DS", test: "TC" }[kind];
 
   let code = (data.code as string)?.trim() || nextCode(existing, prefix);
@@ -227,6 +309,7 @@ router.post("projects/:id/rtm/:kind", async ({ params, body }) => {
   const values: Record<string, unknown> = {
     id: crypto.randomUUID(),
     projectId: params.id,
+    fsd,
     code,
     title: (data.title as string)?.trim() || "Untitled",
     sortOrder: existing.length,
@@ -257,6 +340,7 @@ router.put("projects/:id/rtm/:kind/:itemId", async ({ params, body }) => {
   if (!existing) return notFound();
   const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (data.code !== undefined) updates.code = data.code;
+  if (data.fsd !== undefined) updates.fsd = data.fsd;
   if (data.title !== undefined) updates.title = data.title;
   if (data.description !== undefined) updates.description = data.description;
   if (data.brId !== undefined) updates.brId = data.brId ?? null;
@@ -297,3 +381,43 @@ router.delete("projects/:id/rtm", ({ params }) => {
   db.delete(businessRequirements).where(eq(businessRequirements.projectId, id)).run();
   return json({ deleted: true });
 });
+
+/** Escape a markdown table cell (pipe + newlines). */
+function cell(v: unknown): string {
+  return String(v ?? "").replace(/\|/g, "\\|").replace(/\s*\n+\s*/g, " ").trim();
+}
+
+/** Serialize the DB state into the canonical RTM.md format (matches the parser). */
+function toRtmMarkdown(brs: any[], frs: any[], designs: any[], tests: any[], links: any[]): string {
+  const designById = new Map(designs.map((d) => [d.id, d]));
+  const testById = new Map(tests.map((t) => [t.id, t]));
+  const brById = new Map(brs.map((b) => [b.id, b]));
+
+  const dsCodesFor = (frId: string) => links.filter((l) => l.frId === frId && l.dsId).map((l) => designById.get(l.dsId)?.code).filter(Boolean);
+  const tcCodesFor = (frId: string) => links.filter((l) => l.frId === frId && l.tcId).map((l) => testById.get(l.tcId)?.code).filter(Boolean);
+
+  const lines: string[] = [];
+  lines.push("# Requirement Traceability Matrix", "");
+
+  lines.push("## Business Requirements", "| ID | Title | Description |", "|----|-------|-------------|");
+  for (const b of brs) lines.push(`| ${cell(b.code)} | ${cell(b.title)} | ${cell(b.description)} |`);
+  lines.push("");
+
+  lines.push("## Design Solutions", "| ID | Title | Source | Description |", "|----|-------|--------|-------------|");
+  for (const d of designs) lines.push(`| ${cell(d.code)} | ${cell(d.title)} | ${cell(d.sourceRef)} | ${cell(d.description)} |`);
+  lines.push("");
+
+  lines.push("## Test Cases", "| ID | Title | Steps | Expected |", "|----|-------|-------|----------|");
+  for (const t of tests) lines.push(`| ${cell(t.code)} | ${cell(t.title)} | ${cell(t.steps)} | ${cell(t.expected)} |`);
+  lines.push("");
+
+  lines.push("## Functional Requirements", "| ID | BR | Title | Description | Design Solution | Test Case |", "|----|----|-------|-------------|-----------------|-----------|");
+  for (const f of frs) {
+    const brCode = f.brId ? brById.get(f.brId)?.code ?? "" : "";
+    lines.push(`| ${cell(f.code)} | ${cell(brCode)} | ${cell(f.title)} | ${cell(f.description)} | ${dsCodesFor(f.id).join("; ")} | ${tcCodesFor(f.id).join("; ")} |`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+

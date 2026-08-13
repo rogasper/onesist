@@ -3,11 +3,13 @@ import { useState, useCallback, useEffect, useRef } from "react";
 export interface SkillStatus {
   name: string;
   status: string;
+  version?: string | null;
+  latestVersion?: string | null;
   error?: string | null;
 }
 
 export interface SkillInstallState {
-  status: "idle" | "installing" | "ready" | "failed";
+  status: "idle" | "installing" | "ready" | "outdated" | "failed";
   skills: SkillStatus[] | null;
   error: string | null;
   projectId: string | null;
@@ -39,8 +41,9 @@ export function useSkillInstall() {
       const res = await fetch(`/api/projects/${projectId}/skills`, { cache: "no-store" });
       const d = await res.json();
       const failed = d.skills?.find((s: SkillStatus) => s.status === "failed");
+      const outdated = d.status === "outdated" || d.skills?.some((s: SkillStatus) => s.status === "outdated");
       return {
-        status: d.status as SkillInstallState["status"],
+        status: (outdated ? "outdated" : d.status) as SkillInstallState["status"],
         skills: d.skills ?? null,
         error: failed?.error ?? null,
         projectId,

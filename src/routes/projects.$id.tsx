@@ -181,20 +181,26 @@ function ProjectLayout() {
           <div className={`mb-4 px-3 py-2 rounded border text-xs flex items-center gap-2 ${
             skill.state.status === "failed"
               ? "border-red-500/30 bg-red-500/10 text-red-400"
-              : "border-amber-500/30 bg-amber-500/10 text-amber-400"
+              : skill.state.status === "outdated"
+                ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-400"
           }`}>
-            <span className="w-2 h-2 rounded-full shrink-0 animate-pulse bg-amber-400" />
+            <span className={`w-2 h-2 rounded-full shrink-0 ${
+              skill.state.status === "outdated" ? "bg-blue-400" : "animate-pulse bg-amber-400"
+            }`} />
             <span>
               {skill.state.status === "failed"
                 ? "Project skills failed to install — AI analysis is unavailable. "
-                : "Installing required project skills (fsd-analyzer, markitdown)… "}
+                : skill.state.status === "outdated"
+                  ? "Skill update available — a newer version of the project skills can be installed. "
+                  : "Installing required project skills (fsd-analyzer, markitdown)… "}
             </span>
-            {skill.state.status === "failed" && (
+            {(skill.state.status === "failed" || skill.state.status === "outdated") && (
               <button
                 onClick={() => skill.start(project.id)}
                 className="ml-auto px-2 py-1 text-[10px] rounded border border-kumo-line text-kumo-default hover:bg-kumo-elevated transition-colors"
               >
-                Retry install
+                {skill.state.status === "outdated" ? "Update now" : "Retry install"}
               </button>
             )}
           </div>
@@ -230,17 +236,15 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
   const fileTreeRef = useRef<FileTreeHandle>(null);
 
-  const fsdList = useFileList("input/fsd", project?.id);
-  const specList = useFileList("output/spec", project?.id);
-  const erdList = useFileList("output/erd", project?.id);
-  const taskList = useFileList("output/task", project?.id);
+  const inputList = useFileList("input", project?.id);
+  const outputList = useFileList("output", project?.id);
 
+  // Show EVERYTHING under input/ and output/ (all subfolders + files) — not a
+  // hardcoded subset. scanDirectory walks recursively.
   const dirs = useMemo<Record<string, FileEntry[]>>(() => ({
-    "input/fsd": fsdList.files,
-    "output/spec": specList.files,
-    "output/erd": erdList.files,
-    "output/task": taskList.files,
-  }), [fsdList.files, specList.files, erdList.files, taskList.files]);
+    input: inputList.files,
+    output: outputList.files,
+  }), [inputList.files, outputList.files]);
 
   useEffect(() => {
     const pid = project?.id;
@@ -248,12 +252,10 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   }, [project?.id]);
 
   const refreshAll = useCallback(() => {
-    fsdList.refresh();
-    specList.refresh();
-    erdList.refresh();
-    taskList.refresh();
+    inputList.refresh();
+    outputList.refresh();
     fetch(`/api/files/summary${project?.id ? `?projectId=${project.id}` : ""}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : {}).then(setFileSummary).catch(() => {});
-  }, [fsdList.refresh, specList.refresh, erdList.refresh, taskList.refresh, project?.id]);
+  }, [inputList.refresh, outputList.refresh, project?.id]);
 
   const handleRename = async (path: string, newName: string) => {
     const trimmed = newName.trim();
@@ -295,7 +297,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   const { content: activeContent, loading: contentLoading, refresh: refreshContent } = useFileContent(activeTabPath, project?.id);
 
   const totalFiles = Object.values(dirs).flat().length;
-  const DIR_ORDER = ["input/fsd", "output/spec", "output/erd", "output/task"];
+  const DIR_ORDER = ["input", "output"];
 
   if (totalFiles === 0) {
     return (
@@ -351,7 +353,6 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
             sections={DIR_ORDER.map((dir) => ({ dir, files: dirs[dir] ?? [] }))}
             activePath={activeTabPath}
             emptyText="(empty)"
-            isDisabled={(f) => !f.path.endsWith(".md")}
             onFileClick={onFileClick}
             onFileContextMenu={(e, file) => openMenu(e, { kind: "file", file })}
             onDirContextMenu={(e, dir) => openMenu(e, { kind: "dir", dir })}

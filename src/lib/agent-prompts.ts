@@ -90,129 +90,49 @@ Also provide recommendations for how to update MASTER files to close the gaps.
 }
 
 export function buildOpenapiPrompt(agentName: string, rootOverride?: string): string {
-  const dirs = ["output/spec"];
-  const artifacts: string[] = [];
   const root = rootOverride ?? path.resolve(process.cwd(), "..");
-  const master = readFile(root, "MASTER_SPEC_API.md") || "(not found)";
-  artifacts.push(`### MASTER_SPEC_API.md\n\`\`\`\n${master.slice(0, 6000)}\n\`\`\``);
-  for (const dir of dirs) {
-    try {
-      const files = fs.readdirSync(path.join(root, dir)).filter((f: string) => f.endsWith(".md"));
-      for (const f of files) {
-        const content = fs.readFileSync(path.join(root, dir, f), "utf-8");
-        artifacts.push(`### ${dir}/${f}\n\`\`\`\n${content.slice(0, 6000)}\n\`\`\``);
-      }
-    } catch {}
-  }
 
-  return `Kamu adalah Senior System Analyst. Generate file OpenAPI 3.0 dari artifact spec project.
+  return `Kamu adalah Senior System Analyst. Gunakan skill fsd-analyzer.
 
 Project root: ${root}
 Running via: ${agentName}
 
-## Input Spec Artifacts
-
-${artifacts.join("\n\n")}
-
-## Task
-
-1. Tulis ke \`output/spec/openapi.yaml\` — dokumen OpenAPI 3.0 lengkap untuk SEMUA endpoint dari MASTER_SPEC_API.md dan semua file spec (digabung, path unik, jangan duplikat).
-2. Tentukan status tiap endpoint dari isi spec:
-   - Endpoint yang spec-nya lengkap/siap → \`x-status: done\`
-   - Endpoint yang masih dikembangkan/berubah → \`x-status: in-develop\`
-   - Jika spec menyebutkan fase (mis. "Phase 2", "P2", "Fase 3") → tulis \`x-phase: <angka>\`
-3. Setiap operation WAJIB berisi:
-   - \`summary\` (judul singkat endpoint)
-   - \`description\` (rangkuman dari Purpose/Body/Response di spec)
-   - \`tags\`: [Done] jika done, [In Develop] jika in-develop
-   - \`x-status\` dan \`x-phase\` (x-phase boleh dihilangkan jika tidak ada info fase)
-   - \`requestBody\` dan \`parameters\` jika spec menyebut body/query (deskripsi teks, schema boleh kosong {})
-4. \`info.title\`: nama project, \`info.version\`: 1.0.0.
-5. Hanya tulis \`output/spec/openapi.yaml\`. JANGAN modifikasi file markdown atau file lain.
-6. Dashboard di http://localhost:4321 menonton direktori ini — file akan auto-refresh setelah selesai.`;
+## Instruksi
+- Baca skill di \`.agents/skills/fsd-analyzer/SKILL.md\` dan ikuti \`references/openapi_format.md\`-nya untuk format lengkapnya.
+- Baca \`MASTER_SPEC_API.md\` dan semua \`output/spec/*.md\` di project root.
+- Generate OpenAPI 3.0 yang menggabungkan SEMUA endpoint (path unik, jangan duplikat) dan tulis EXACTLY SATU file ke \`output/spec/openapi.yaml\`.
+- Setiap operation WAJIB berisi \`summary\`, \`description\`, \`tags\` ([Done] / [In Develop]), \`requestBody\`/\`parameters\` jika spec menyebut body/query, \`x-status: done|in-develop\`, dan \`x-phase\` jika ada info fase.
+- Hanya tulis \`output/spec/openapi.yaml\`. JANGAN modifikasi file markdown atau file lain.
+- Dashboard di http://localhost:4321 menonton direktori ini — file akan auto-refresh setelah selesai.`;
 }
 
-export function buildRtmPrompt(agentName: string, rootOverride?: string): string {
+export function buildRtmPrompt(agentName: string, rootOverride?: string, fsd?: string, fds?: string[]): string {
   const root = rootOverride ?? path.resolve(process.cwd(), "..");
-  const artifacts: string[] = [];
-  // Hard cap on total prompt size — a 100KB+ argv makes the model ingestion
-  // painfully slow (and risks E2BIG). Once the budget is spent, stop adding.
-  const BUDGET = 48 * 1024;
-  let used = 0;
+  const scope = fsd || "default";
+  const selected = fds && fds.length > 0
+    ? fds.map((f) => `input/fsd/${f}.md`).join(", ")
+    : "SEMUA dokumen di input/fsd/ (baca sendiri)";
+  const outputFile = scope === "default" ? "output/rtm/RTM.md" : `output/rtm/RTM_${scope}.md`;
 
-  const readDir = (dir: string, exts: string[], cap = 3000) => {
-    if (used >= BUDGET) return;
-    try {
-      const files = fs.readdirSync(path.join(root, dir)).filter((f: string) => exts.some((e) => f.endsWith(e)));
-      for (const f of files.slice(0, 8)) {
-        const content = fs.readFileSync(path.join(root, dir, f), "utf-8");
-        const slice = content.slice(0, cap);
-        if (used + slice.length > BUDGET) {
-          artifacts.push(`### ${dir}/${f}\n\`\`\`\n${slice.slice(0, Math.max(0, BUDGET - used))}\n\`\`\``);
-          used = BUDGET;
-          return;
-        }
-        artifacts.push(`### ${dir}/${f}\n\`\`\`\n${slice}\n\`\`\``);
-        used += slice.length;
-      }
-    } catch {}
-  };
-  readDir("input/fsd", [".md"], 5000);
-  readDir("output/spec", [".md"], 4000);
-  readDir("output/erd", [".md", ".dbml"], 4000);
-  readDir("output/task", [".md"], 2500);
-  if (used < BUDGET) {
-    const masterSpec = readFile(root, "MASTER_SPEC_API.md");
-    const masterErd = readFile(root, "MASTER_ERD.md");
-    if (masterSpec) artifacts.push(`### MASTER_SPEC_API.md\n\`\`\`\n${masterSpec.slice(0, Math.min(4000, BUDGET - used))}\n\`\`\``);
-    if (masterErd) artifacts.push(`### MASTER_ERD.md\n\`\`\`\n${masterErd.slice(0, Math.min(4000, BUDGET - used))}\n\`\`\``);
-  }
-
-  return `You are a Senior System Analyst building a Requirement Traceability Matrix (RTM) that traces business requirements down to the technical side (design solution + test case).
+  return `Kamu adalah Senior System Analyst membangun Requirement Traceability Matrix (RTM) yang menelusuri business requirements ke sisi teknis (design solution + test case).
 
 Project root: ${root}
 Running via: ${agentName}
+Scope: ${scope}
 
-## Input Artifacts
-
-${artifacts.join("\n\n") || "(no artifacts found)"}
-
-## Output
-
-Write EXACTLY ONE file to \`output/rtm/RTM.md\` following this structure (Indonesian for titles/descriptions, English for technical terms):
-
-\`\`\`markdown
-# Requirement Traceability Matrix
-
-## Business Requirements
-| ID | Title | Description |
-|----|-------|-------------|
-| BR-001 | Login & Autentikasi | Pengguna dapat masuk ke aplikasi |
-
-## Design Solutions
-| ID | Title | Source | Description |
-|----|-------|--------|-------------|
-| DS-001 | AuthService.login | API Spec /auth/login | Endpoint login dengan validasi kredensial |
-
-## Test Cases
-| ID | Title | Steps | Expected |
-|----|-------|-------|----------|
-| TC-001 | Login berhasil | 1. Buka halaman login 2. Input email & password benar 3. Klik Login | Masuk ke dashboard |
-
-## Functional Requirements
-| ID | BR | Title | Description | Design Solution | Test Case |
-|----|----|-------|-------------|-----------------|-----------|
-| FR-001 | BR-001 | Login | Sistem memvalidasi kredensial pengguna | DS-001 | TC-001 |
-\`\`\`
-
-## Rules
-- Every functional requirement MUST reference a business requirement (BR column).
-- Design Solution / Test Case cells reference the codes defined above (semicolon-separated if multiple).
-- Use sequential IDs: BR-001, FR-001, DS-001, TC-001, ...
-- Each FR should be traced to at least one design solution; add test cases where derivable from the artifacts. If a requirement has no design or no test yet, leave the cell empty (that is the gap the dashboard will highlight).
-- Only write \`output/rtm/RTM.md\`. Do NOT modify any other file.
-- The dashboard at http://localhost:4321 watches these directories — the file auto-refreshes after you finish.
-`;
+## Instruksi
+- Baca skill di \`.agents/skills/fsd-analyzer/SKILL.md\` dan ikuti \`references/rtm_format.md\`-nya untuk struktur tabel, rules, dan mode scoped.
+- Baca dokumen FSD scope ini: ${selected}
+- Baca artifacts terkait: \`output/spec/*.md\`, \`output/erd/*.md\`/.dbml, \`output/task/*.md\`, plus \`MASTER_SPEC_API.md\` / \`MASTER_ERD.md\` bila ada (konteks project-wide).
+- Trace ke dalam EXACTLY SATU file: \`${outputFile}\`
+  - Indonesian untuk judul/deskripsi, English untuk istilah teknis.
+  - Tabel: Business Requirements (BR), Design Solutions (DS), Test Cases (TC), Functional Requirements (FR).
+  - Setiap FR WAJIB mereferensikan BR (kolom BR).
+  - Cell Design Solution / Test Case mereferensikan kode (semicolon-separated jika banyak).
+  - ID sekuensial: BR-001, FR-001, DS-001, TC-001, ... (restart per scope).
+  - Jika requirement belum ada design/test, biarkan cell kosong — gap itulah yang ditampilkan dashboard.
+- Hanya tulis \`${outputFile}\`. JANGAN modifikasi file lain.
+- Dashboard di http://localhost:4321 menonton direktori ini — file akan auto-refresh setelah selesai.`;
 }
 
 export function buildTdPrompt(agentName: string, rootOverride?: string): string {

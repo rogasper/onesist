@@ -122,3 +122,22 @@ export function detectAllAgents(): AgentCliConfig[] {
 export function findFirstAvailableAgent(): AgentCliConfig | null {
   return detectAllAgents().find((a) => a.found) ?? null;
 }
+
+export interface AgentModels {
+  models: string[];
+  supported: boolean;
+}
+
+/** List selectable models for an agent CLI. Only opencode exposes a model list
+ *  (`opencode models` → one `provider/model` per line); claude/codex don't have
+ *  an equivalent command. */
+export function listAgentModels(agentName: string): AgentModels {
+  if (agentName !== "opencode") return { models: [], supported: false };
+  try {
+    const out = execSync("opencode models", { encoding: "utf-8", timeout: 15000 }).trim();
+    const models = out.split("\n").map((l) => l.trim()).filter(Boolean);
+    return { models, supported: true };
+  } catch {
+    return { models: [], supported: false };
+  }
+}

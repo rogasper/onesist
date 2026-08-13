@@ -4,6 +4,8 @@ import { json } from "../http/response";
 import { Router } from "../http/router";
 import { getProject, runCommand } from "../http/route-utils";
 import { killTree, scanInstances } from "~/server/system-instances";
+import { buildOpenapiPrompt, buildRtmPrompt } from "~/lib/agent-prompts";
+import { listAgentModels } from "~/lib/agent-cli";
 
 export const router = new Router();
 
@@ -166,6 +168,9 @@ router.post("agent/run", async ({ body }) => {
   const fsdFile = data.fsdFile as string;
   const feedback = data.feedback as string | undefined;
   const previousSessionId = data.previousSessionId as string | undefined;
+  const model = data.model as string | undefined;
+  const fsd = data.fsd as string | undefined;
+  const fds = Array.isArray(data.fds) ? (data.fds as string[]) : undefined;
   if (!command || !agentName || !sessionId) {
     return json({ error: "Missing required fields: command, agentName, sessionId" }, 400);
   }
@@ -180,7 +185,7 @@ router.post("agent/run", async ({ body }) => {
       if (proj?.rootPath) root = proj.rootPath;
     } catch {}
   }
-  runAgent({ sessionId, command, mode: mode as "generate" | "gap" | "td" | "openapi" | "rtm", fsdFile, agentName, root, feedback, previousSessionId }).catch(() => {});
+  runAgent({ sessionId, command, mode: mode as "generate" | "gap" | "td" | "openapi" | "rtm", fsdFile, agentName, root, feedback, previousSessionId, model, fsd, fds }).catch(() => {});
   return json({ started: true, sessionId, root: root ?? null });
 });
 
@@ -226,4 +231,39 @@ router.post("system/instances/kill", async ({ body }) => {
   if (!pid) return json({ error: "pid is required" }, 400);
   if (pid === process.pid) return json({ error: "Refusing to kill the current server" }, 400);
   return json({ killed: killTree(pid) });
+});
+
+// /api/agent/models?agent=opencode — selectable models for the given agent CLI.
+// Only opencode exposes a model list; claude/codex return supported:false.
+router.get("agent/models", async ({ query }) => {
+  const agent = query.get("agent") || "opencode";
+  return json(listAgentModels(agent));
+});
+
+// /api/agent/prompt?projectId=&mode=rtm|openapi — the exact prompt + run command
+// the page would hand to the agent, so the user can run it MANUALLY in the
+// embedded terminal (fallback when "Agent bantu" errors).
+router.get("agent/prompt", async ({ query }) => {
+  const projectId = query.get("projectId") || undefined;
+  const mode = query.get("mode") || "rtm";
+  const fsd = query.get("fsd") || undefined;
+  const fds = query.get("fds")?.split(",").map((s) => s.trim()).filter(Boolean) || undefined;
+  let root = process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), "..");
+  let agentName = "opencode";
+  if (projectId) {
+    const proj = getProject(projectId);
+    if (proj?.rootPath) root = proj.rootPath;
+    if (proj?.defaultAgent) agentName = proj.defaultAgent;
+  }
+  const prompt = mode === "openapi" ? buildOpenapiPrompt(agentName, root) : buildRtmPrompt(agentName, root, fsd, fds);
+  const q = JSON.stringify(prompt);
+  let command: string;
+  if (agentName === "claude") {
+    command = `claude -p ${q} --output-format stream-json --verbose --include-partial-messages --allowedTools "Bash,Read,Edit,Glob,Grep,WebFetch" --permission-mode acceptEdits`;
+  } else if (agentName === "codex") {
+    command = `codex exec ${q} --json --sandbox workspace-write --skip-git-repo-check`;
+  } else {
+    command = `opencode run ${q} --auto --format json --dir ${JSON.stringify(root)}`;
+  }
+  return json({ command, prompt, agentName, root });
 });
