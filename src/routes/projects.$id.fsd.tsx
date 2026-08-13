@@ -343,6 +343,7 @@ function FsdPage() {
       <PageHeader
         icon={<MagnifyingGlass size={14} className="text-kumo-brand" />}
         title="FSD Analyzer"
+        help="fsd"
         badges={
           <>
             {sessions.length > 0 && <Badge variant="neutral" className="text-[11px]">{sessions.length} documents</Badge>}

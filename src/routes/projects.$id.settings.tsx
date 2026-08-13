@@ -5,6 +5,7 @@ import { Gear, Check } from "@phosphor-icons/react";
 import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
+import { agentLogo } from "~/lib/agent-command";
 
 export const Route = createFileRoute("/projects/$id/settings")({
   loader: async ({ params }) => loadProjectRouteData(params.id),
@@ -15,6 +16,7 @@ const AGENTS = [
   { value: "opencode", label: "OpenCode", command: "opencode" },
   { value: "claude", label: "Claude Code", command: "claude" },
   { value: "codex", label: "Codex", command: "codex" },
+  { value: "antigravity", label: "Antigravity", command: "agy" },
 ];
 
 const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20];
@@ -82,6 +84,7 @@ function SettingsPage() {
       <PageHeader
         icon={<Gear size={14} className="text-kumo-brand" />}
         title="Settings"
+        help="settings"
         className="mb-5 shrink-0"
       />
 
@@ -108,19 +111,25 @@ function SettingsPage() {
         {/* Agent */}
         <Section title="Default Agent">
           <div className="flex gap-2 flex-wrap">
-            {AGENTS.map((a) => (
-              <AppButton
-                key={a.value}
-                variant="chip"
-                size="sm"
-                active={defaultAgent === a.value}
-                onClick={(e) => { e.stopPropagation(); setDefaultAgent(a.value); }}
-                icon={defaultAgent === a.value ? <Check size={10} /> : undefined}
-                className="px-3"
-              >
-                {a.label}
-              </AppButton>
-            ))}
+            {AGENTS.map((a) => {
+              const logo = agentLogo(a.value);
+              return (
+                <AppButton
+                  key={a.value}
+                  variant="chip"
+                  size="sm"
+                  active={defaultAgent === a.value}
+                  onClick={(e) => { e.stopPropagation(); setDefaultAgent(a.value); }}
+                  className="px-3"
+                >
+                  <span className="flex items-center gap-1.5">
+                    {logo && <img src={logo} alt="" className="w-4 h-4 rounded-sm object-contain" />}
+                    {a.label}
+                    {defaultAgent === a.value && <Check size={10} className="text-kumo-brand" weight="bold" />}
+                  </span>
+                </AppButton>
+              );
+            })}
           </div>
         </Section>
 

@@ -83,6 +83,13 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
         ? ["exec", "resume", resumeId, feedback, "--json", "--sandbox", "workspace-write", "--skip-git-repo-check"]
         : ["exec", feedback, "--json", "--sandbox", "workspace-write", "--skip-git-repo-check"];
       useJson = true;
+    } else if (agentName === "antigravity") {
+      // Continue the previous conversation (or the most recent one). Long
+      // runs default to a 5m ceiling — raise it for artifact generation.
+      args = ["-p", feedback, "--output-format", "stream-json", "--dangerously-skip-permissions", "--print-timeout", "30m"];
+      if (resumeId) args.push("--conversation", resumeId);
+      else args.push("--continue");
+      useJson = true;
     } else {
       args = ["run", feedback, "--auto"];
     }
@@ -114,13 +121,21 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
     } else if (agentName === "codex") {
       args = ["exec", prompt, "--json", "--sandbox", "workspace-write", "--skip-git-repo-check"];
       useJson = true;
+    } else if (agentName === "antigravity") {
+      // Headless single run. Workspace = spawn cwd (projectRoot). Shell
+      // commands would be soft-denied by default — auto-approve everything,
+      // mirroring opencode's `--auto` (the fsd prompts write files AND run
+      // commands to inspect the skill). Default 5m timeout is too short for
+      // multi-artifact generation; --print-timeout raises it.
+      args = ["-p", prompt, "--output-format", "stream-json", "--dangerously-skip-permissions", "--print-timeout", "30m"];
+      useJson = true;
     } else {
       args = ["run", prompt, "--auto"];
     }
   }
 
   // Apply the selected model to any agent that supports --model.
-  if (model && (agentName === "opencode" || agentName === "claude" || agentName === "codex")) {
+  if (model && (agentName === "opencode" || agentName === "claude" || agentName === "codex" || agentName === "antigravity")) {
     args.push("--model", model);
   }
 
@@ -194,8 +209,11 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
             const json = JSON.parse(line);
             // Capture the agent CLI's session id so a follow-up "feedback" run
             // can resume the exact session (opencode `sessionID`, claude
-            // `session_id`, codex `thread_id`).
-            const agentSid = json.sessionID ?? json.session_id ?? json.thread_id;
+            // `session_id`, codex `thread_id`, antigravity `conversation_id`).
+            const agentSid =
+              agentName === "antigravity"
+                ? (json.conversation_id ?? json.init?.conversation_id ?? json.step_update?.conversation_id ?? json.result?.conversation_id)
+                : (json.sessionID ?? json.session_id ?? json.thread_id);
             if (agentSid) captureSessionId(sessionId, agentSid);
             const parsed = parseAgentLine(agentName, json);
             if (parsed) eventBus.emitAgentLog(parsed.level, parsed.message, sessionId);
@@ -334,6 +352,8 @@ function conciseTool(name: string, input: unknown): string {
  *    assistant (thinking/tool_use/text blocks), result (final)
  *  - codex   `--json`: item.started/item.completed (agent_message/reasoning/
  *    command_execution/file_change), error
+ *  - agy     `--output-format stream-json`: { event:"init"|"step_update"|
+ *    "result" }; step_update carries agent_response text_delta + tool calls
  */
 function parseAgentLine(agentName: string, json: any): { level: string; message: string } | null {
   if (agentName === "opencode") {
@@ -390,5 +410,66 @@ function parseAgentLine(agentName: string, json: any): { level: string; message:
     return null;
   }
 
+  // antigravity (agy) `--output-format stream-json`: newline-delimited events
+  // `{ event: "init"|"step_update"|"result" }`. init carries run config, each
+  // step_update a step transition (agent_response text_delta / tool call /
+  // checkpoint), and result the terminal envelope (same shape as `json`).
+  if (agentName === "antigravity") {
+    const step = json.step_update;
+    if (json.event === "step_update" && step) {
+      if (step.step_type === "agent_response") {
+        return step.text_delta?.trim() ? { level: "output", message: step.text_delta } : null;
+      }
+      if (step.step_type === "tool") {
+        const msg = conciseAgyTool(step.tool_name ?? step.tool_info?.name, step.tool_info);
+        return msg ? { level: "tool", message: msg } : null;
+      }
+      return null; // user_input / checkpoint / subagent — nothing worth showing
+    }
+    if (json.event === "result") {
+      const result = json.result ?? {};
+      const response = result.response ?? "";
+      const text = typeof response === "string" ? response : String(response);
+      if (text.trim()) return { level: "output", message: text };
+      if (result.status && result.status !== "SUCCESS") {
+        return { level: "error", message: `Antigravity ${result.status}${result.error ? `: ${result.error}` : ""}` };
+      }
+      return null;
+    }
+    if (json.event === "error") {
+      return { level: "error", message: json.error?.message ?? json.error ?? String(json) };
+    }
+    return null;
+  }
+
   return null;
+}
+
+/** Build a SHORT tool log line for an antigravity (agy) tool step. The stream
+ *  event carries `tool_name` + `tool_info` (name, parameters, output, error);
+ *  AGY tool names (run_command, write_to_file, …) are mapped to the familiar
+ *  short names the frontend styles. Returns null for events to skip. */
+function conciseAgyTool(toolName: string | undefined, info: any): string | null {
+  const name = toolName ?? info?.name ?? "tool";
+  const params = info?.parameters ?? {};
+  switch (name) {
+    case "run_command":
+      return `bash: ${truncate(params.CommandLine ?? params.command ?? "", 120)}`;
+    case "write_to_file":
+    case "replace_file_content":
+    case "multi_replace_file_content":
+    case "create_file":
+      return `write: ${params.filePath ?? params.file_path ?? params.path ?? params.FilePath ?? ""}`;
+    case "view_file":
+    case "open_file":
+      return `read: ${params.filePath ?? params.file_path ?? params.path ?? ""}`;
+    case "code_search":
+    case "grep_search":
+      return `grep: ${params.pattern ?? params.query ?? ""}`;
+    case "ask_permission":
+      // Soft-denied tool notices are just noise — skip them.
+      return null;
+    default:
+      return `${name}: ${truncate(JSON.stringify(params), 120)}`;
+  }
 }

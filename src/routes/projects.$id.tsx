@@ -24,6 +24,7 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { ExplorerShell } from "~/components/ui/ExplorerShell";
 import { FileTree, type FileTreeHandle } from "~/components/ui/FileTree";
 import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
+import { PageHelpButton } from "~/components/ui/PageHelpButton";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: async ({ params }) => loadProjectRouteData(params.id),
@@ -156,6 +157,7 @@ function ProjectLayout() {
                 Terminal
               </span>
             </AppButton>
+            <PageHelpButton help="overview" />
           </div>
         </div>
 

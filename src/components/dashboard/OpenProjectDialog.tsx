@@ -3,6 +3,7 @@ import { Button, Dialog, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { FolderBrowserDialog } from "./FolderBrowserDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
+import { agentLogo } from "~/lib/agent-command";
 
 // Native folder picker when running inside the Tauri desktop shell; falls
 // back to the web API (osascript/zenity/powershell) otherwise.
@@ -201,27 +202,38 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
                       {agentsLoading ? "Checking installed agents…" : "No agents detected"}
                     </div>
                   ) : (
-                    agentsList.map((a) => (
-                      <button
-                        key={a.name}
-                        type="button"
-                        onClick={() => a.found && setDefaultAgent(a.command)}
-                        disabled={!a.found}
-                        className={`flex items-center gap-2 p-2.5 rounded border text-left transition-colors ${
-                          defaultAgent === a.command
-                            ? "border-kumo-brand bg-kumo-brand/10"
-                            : a.found
-                              ? "border-kumo-line bg-kumo-elevated/30 hover:bg-kumo-elevated/60 cursor-pointer"
-                              : "border-kumo-line bg-kumo-recessed opacity-50 cursor-not-allowed"
-                        }`}
-                      >
-                        <div className={`w-2 h-2 rounded-full shrink-0 ${a.found ? "bg-green-400" : "bg-red-400/50"}`} />
-                        <div className="min-w-0 flex-1">
-                          <div className={`text-xs font-medium ${defaultAgent === a.command ? "text-kumo-brand" : a.found ? "text-kumo-default" : "text-kumo-subtle"} truncate`}>{a.name}</div>
-                          <div className="text-[9px] text-kumo-subtle truncate">{a.found ? a.version || "Found" : "Not installed"}</div>
-                        </div>
-                      </button>
-                    ))
+                    agentsList.map((a) => {
+                      const logo = agentLogo(a.command);
+                      return (
+                        <button
+                          key={a.name}
+                          type="button"
+                          onClick={() => a.found && setDefaultAgent(a.command)}
+                          disabled={!a.found}
+                          className={`flex items-center gap-2 p-2.5 rounded border text-left transition-colors ${
+                            defaultAgent === a.command
+                              ? "border-kumo-brand bg-kumo-brand/10"
+                              : a.found
+                                ? "border-kumo-line bg-kumo-elevated/30 hover:bg-kumo-elevated/60 cursor-pointer"
+                                : "border-kumo-line bg-kumo-recessed opacity-50 cursor-not-allowed"
+                          }`}
+                        >
+                          {logo ? (
+                            <img
+                              src={logo}
+                              alt={a.name}
+                              className={`w-6 h-6 rounded-md object-contain shrink-0 ${a.found ? "" : "grayscale opacity-50"}`}
+                            />
+                          ) : (
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${a.found ? "bg-green-400" : "bg-red-400/50"}`} />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className={`text-xs font-medium ${defaultAgent === a.command ? "text-kumo-brand" : a.found ? "text-kumo-default" : "text-kumo-subtle"} truncate`}>{a.name}</div>
+                            <div className="text-[9px] text-kumo-subtle truncate">{a.found ? a.version || "Found" : "Not installed"}</div>
+                          </div>
+                        </button>
+                      );
+                    })
                   )}
                 </div>
                 <p className="text-[10px] text-kumo-subtle mt-2">This agent will be used by default when you open the terminal in this project.</p>

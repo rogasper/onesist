@@ -141,6 +141,7 @@ function TasksPage() {
       <PageHeader
         icon={<ListChecks size={14} className="text-kumo-brand" />}
         title="Tasks"
+        help="tasks"
         badges={
           <>
             {tasks.length > 0 && (

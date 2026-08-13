@@ -352,6 +352,7 @@ function RtmPage() {
       <PageHeader
         icon={<LinkSimple size={14} className="text-kumo-brand" />}
         title="Traceability"
+        help="rtm"
         badges={
           <>
             {summary && summary.frCount > 0 && (

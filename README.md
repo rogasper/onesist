@@ -36,8 +36,10 @@ restore the live graph for this repo:
 | **Wiki** | Editable project wiki pages with history |
 | **Tasks** | Task cards with search, filters, developer assignment, copy to Jira/Monday |
 | **FSD Analyzer** | Notion-like Markdown editor, completeness checklist, PDF/DOCX upload → Markdown conversion, Run Analysis via OpenCode |
+| **Traceability** | Requirement Traceability Matrix (RTM) per scope — BR → FR → DS → TC with gap detection, AI-assisted generation |
 | **Timeline** | Rendered Gantt chart viewer (`output/timeline.html`) |
 | **Terminal** | Built-in agent terminal for running CLI commands |
+| **Help (?)** | Per-page help popup with best practices / usage tips (bilingual, distilled from `docs/`) |
 
 ## Documentation
 
@@ -48,6 +50,8 @@ Detailed bilingual usage guides live in [`docs/`](docs/README.md), covering the 
 
 The guides follow an **agent-CLI first** approach: every action (convert, split, generate ERD/spec/tasks, timeline, docs) is run as a prompt in the embedded agent terminal, and the UI tabs are used for reviewing the generated artifacts. UI action buttons are considered experimental.
 
+Every page also has a **"?" help button** in its header that pops up a short bilingual best-practice cheat-sheet distilled from these guides.
+
 ## Prerequisites
 
 The dashboard delegates AI analysis (FSD → API specs, ERD, tasks, timeline) to a local CLI agent. **You must have at least one of these installed and on your `PATH`** — the app auto-detects them in this priority order:
@@ -57,6 +61,7 @@ The dashboard delegates AI analysis (FSD → API specs, ERD, tasks, timeline) to
 | **OpenCode** | `npm i -g opencode-ai` or see [opencode.ai](https://opencode.ai) |
 | **Claude Code** | `npm i -g @anthropic-ai/claude-code` |
 | **Codex** | `npm i -g @openai/codex` |
+| **Antigravity** | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
 
 The FSD **Run Analysis** button, agent terminal, and skills auto-install all depend on a detected agent.
 
@@ -207,7 +212,7 @@ API Router (Bun)
 | Terminal | xterm.js + WebSocket |
 | Styling | @cloudflare/kumo + Tailwind CSS 4 |
 | Icons | @phosphor-icons/react |
-| Agent CLI | OpenCode (headless + JSONL output) |
+| Agent CLI | OpenCode / Claude / Codex / Antigravity (headless + JSONL output) |
 | Build | Vite 8, TypeScript 6 |
 | Desktop | Tauri 2 (Rust), Bun sidecar (compiled executable) |
 

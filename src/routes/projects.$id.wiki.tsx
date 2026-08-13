@@ -139,6 +139,7 @@ function WikiPage() {
       <PageHeader
         icon={<Notepad size={14} className="text-kumo-brand" />}
         title="Wiki / Docs"
+        help="wiki"
         badges={pages.length > 0 && <Badge variant="neutral" className="text-[11px]">{pages.length} pages</Badge>}
         actions={
           <button onClick={handleGenerateDocs}

@@ -36,6 +36,7 @@ app/
 ├── vite.config.ts          # Vite + plugins (TanStack, Tailwind, terminal server)
 ├── tsconfig.json           # TypeScript config (paths: ~/ → ./src)
 ├── data.db                 # SQLite database (Drizzle + auto-migrations)
+├── public/images/          # Agent CLI logos (opencode/claude/codex/antigravity.png)
 ├── vendor/skills/          # Vendored agent skills (copied into projects)
 ├── src-tauri/              # Tauri desktop shell (Rust)
 │   ├── src/lib.rs          # Window, sidecar startup, macOS app menu, exit handling
@@ -62,8 +63,9 @@ app/
 │   │   ├── terminal/       # terminal-server.ts (xterm.js WebSocket, port TERMINAL_PORT)
 │   │   └── functions/      # TanStack createServerFn server functions
 │   ├── lib/
-│   │   ├── agent-cli.ts    # Detect installed agents (opencode, claude, codex)
-│   │   ├── agent-command.ts # Build agent CLI command strings
+│   │   ├── agent-cli.ts    # Detect installed agents (opencode, claude, codex, agy)
+│   │   ├── agent-command.ts # Build agent CLI command strings + agentLogo() helper
+│   │   ├── page-helpers.ts # Per-page Help popup content (bilingual id/en)
 │   │   ├── agent-prompts.ts # Build prompts for generate/gap/td modes
 │   │   ├── file-router.ts  # File scanning, routing, read/write utils
 │   │   ├── spec-parser.ts  # Parse API spec markdown into structured modules/endpoints
@@ -98,7 +100,7 @@ app/
 │       ├── mermaid/        # Mermaid diagram renderer + markdown viewer
 │       ├── spec/           # Spec endpoint cards, sidebar, module viewer
 │       ├── tasks/          # Task list, task detail, timeline viewer
-│       ├── ui/             # Shared UI kit (ConfirmDialog, PageHeader, FileTree, etc.)
+│       ├── ui/             # Shared UI kit (ConfirmDialog, PageHeader, PageHelpButton, FileTree, etc.)
 │       └── wiki/           # Wiki content viewer/editor
 ```
 
@@ -179,7 +181,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 - **Database:** Use Drizzle queries through `db` instance from `server/db/client`. Runtime migrations add columns via `ALTER TABLE ... ADD COLUMN` in `client.ts`
 - **API layer:** All routes go through `handleApiRequest` → delegates to `handleProjects` for `/api/projects/*` routes
 - **Real-time updates:** SSE via `server/realtime/events.ts` event bus. `server/realtime/file-watcher.ts` watches REGISTERED project roots (via `registerWatchRoot`) and emits `file:changed` — frontend listens, never polls
-- **Agent execution:** `server/services/agent-runner.ts` spawns OpenCode CLI with `--format json --auto`. Log output parsed line-by-line as JSONL
+- **Agent execution:** `server/services/agent-runner.ts` spawns a detected CLI (opencode `run --format json --auto`, claude `-p --output-format stream-json`, codex `exec --json`, antigravity/agy `-p --output-format stream-json --dangerously-skip-permissions`). Log output parsed line-by-line as JSONL. AGY must be authenticated once interactively (keyring); resume uses `--conversation <conversation_id>`.
 - **UI reuse:** Repeated dialogs/headers/alerts/trees live in `components/ui/` (ConfirmDialog, PageHeader, InlineAlert, ExplorerShell, FileTree, SearchInput). Repeated logic goes in hooks under `lib/` (useFileList, useFileContent, useFileContextMenu, useSkillInstall). Don't copy-paste a pattern a 3rd time — extract it
 - **Server data fetching:** Use the `useFileList`/`useFileContent` hooks (or a small wrapper) instead of raw `fetch("/api/files/...")`. Keep `{ cache: "no-store" }` on every API call
 - **Styles:** Use kumo tokens (`kumo-default`, `kumo-subtle`, `kumo-brand`, `kumo-elevated`, `kumo-line`). Avoid custom hex colors
@@ -254,4 +256,6 @@ bunx tauri build --debug  # Debug desktop build (faster)
 | Task management | Custom list + card views | `components/tasks/` |
 | Embedded terminal | xterm.js + WebSocket | `components/agent/AgentTerminal.tsx` |
 | Dashboard dialogs | kumo dialogs + web folder browser | `components/dashboard/` |
-| Shared UI kit | kumo + Tailwind tokens | `components/ui/` (AppButton, ConfirmDialog, PageHeader, InlineAlert, ExplorerShell, SearchInput, Placeholder, ProjectNotFound, ContextMenu, FileRow, EmptyState, ErrorState, Skeleton) |
+| Shared UI kit | kumo + Tailwind tokens | `components/ui/` (AppButton, ConfirmDialog, PageHeader, PageHelpButton, InlineAlert, ExplorerShell, SearchInput, Placeholder, ProjectNotFound, ContextMenu, FileRow, EmptyState, ErrorState, Skeleton) |
+| Help popup | kumo Dialog + curated tips | `components/ui/PageHelpButton.tsx` + content in `lib/page-helpers.ts` (bilingual, distilled from `docs/`) |
+| Agent logos | static PNGs served at `/images/*` | `public/images/` (lookup via `agentLogo()` in `lib/agent-command.ts`) |

@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.1.9 — Integrasi Antigravity CLI, logo agent, Help popup per halaman
+
+### Antigravity CLI (`agy`)
+- **Agent CLI ke-4: Antigravity (`agy`)** — terdeteksi otomatis (`/api/agent/detect`), bisa jadi default agent per proyek (Settings / Open Project), dan dipakai di semua mode run (generate/gap/td/openapi/rtm).
+- **Headless run + streaming** — `agy -p <prompt> --output-format stream-json --dangerously-skip-permissions --print-timeout 30m`; event `agent_response` (text_delta) di-streaming ke AgentStream, tool steps (`run_command`→bash, `write_to_file`→write, dst.) tampil di Tools.
+- **Resume sesi** — `conversation_id` ditangkap dari event init/result; feedback follow-up lanjut via `--conversation <id>`.
+- **Model picker** — `agy models` menyediakan daftar model (slug Gemini/Claude/GPT) di dialog pilih model, tidak hanya opencode.
+- **Manual-run fallback** — `/api/agent/prompt` mengembalikan command `agy -p ...` untuk tempel di terminal.
+- **Auth note** — AGY butuh login interaktif sekali (`agy`) untuk kredensial keyring sebelum headless bisa jalan.
+
+### Logo agent
+- **Logo per agent CLI** — gambar `public/images/{opencode,claude,codex,antigravity}.png` ditampilkan di Open Project dialog, chip Default Agent di Settings, dan header Terminal; helper `agentLogo()` di `lib/agent-command.ts`.
+- **`/images/*` di-production** — `serveStatic` (desktop) kini melayani `/images/` (sebelumnya hanya dev via Vite).
+
+### Help popup per halaman
+- **Tombol "?" di header tiap halaman** — popup best practices / petunjuk pemakaian (bilingual ID/EN dengan toggle, persist pilihan bahasa) di semua 10 halaman (Projects, Overview, FSD, ERD, Spec, Tasks, RTM, Docs, Wiki, Settings).
+- **Konten** — `lib/page-helpers.ts` (registry tips per halaman) + `components/ui/PageHelpButton.tsx`; tips didistilasi dari `docs/` (RTM/Wiki/Settings konten baru).
+
+---
+
 ## v0.1.8 — RTM multi-FD & scope, skill update otomatis, prompt ringkas
 
 ### Fitur Baru RTM

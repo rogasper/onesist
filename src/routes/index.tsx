@@ -7,6 +7,7 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { OpenProjectDialog } from "~/components/dashboard/OpenProjectDialog";
 import { SkillSetupDialog } from "~/components/dashboard/SkillSetupDialog";
+import { PageHelpButton } from "~/components/ui/PageHelpButton";
 import { useSkillInstall } from "~/lib/use-skill-install";
 
 export const Route = createFileRoute("/")({
@@ -98,10 +99,13 @@ function DashboardPage() {
           <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Projects</h1>
           {projects.length > 0 && <Badge variant="neutral" className="text-xs px-2 py-0.5">{projects.length}</Badge>}
         </div>
-        <Button variant="primary" size="sm" onClick={() => setModalOpen(true)} className="flex items-center gap-1.5">
-          <Plus size={14} />
-          <span>Open Project</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <PageHelpButton help="dashboard" />
+          <Button variant="primary" size="sm" onClick={() => setModalOpen(true)} className="flex items-center gap-1.5">
+            <Plus size={14} />
+            <span>Open Project</span>
+          </Button>
+        </div>
       </div>
 
       <OpenProjectDialog open={modalOpen} onOpenChange={setModalOpen} onCreated={handleCreated} />

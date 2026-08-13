@@ -290,6 +290,7 @@ function SpecPage() {
       <PageHeader
         icon={<BookOpen size={14} className="text-kumo-brand" />}
         title="API Spec"
+        help="spec"
         badges={
           <>
             {totalEndpoints > 0 && (

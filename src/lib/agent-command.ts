@@ -1,4 +1,4 @@
-export type AgentCli = "opencode" | "claude" | "codex";
+export type AgentCli = "opencode" | "claude" | "codex" | "antigravity";
 
 export interface AgentCommandOpts {
   mode: "new" | "resume";
@@ -52,6 +52,17 @@ export function buildAgentCommand(cli: AgentCli, opts: AgentCommandOpts): string
       if (opts.model) parts.push("--model", opts.model);
       return parts.join(" ");
     }
+    case "antigravity": {
+      if (opts.prompt) {
+        return `agy -p ${quoteArg(opts.prompt)}`;
+      }
+      const parts = ["agy"];
+      if (opts.mode === "resume" && opts.sessionId) {
+        parts.push("--conversation", quoteArg(opts.sessionId));
+      }
+      if (opts.model) parts.push("--model", quoteArg(opts.model));
+      return parts.join(" ");
+    }
   }
 }
 
@@ -71,6 +82,27 @@ export const AGENT_LABELS: Record<AgentCli, string> = {
   opencode: "OpenCode",
   claude: "Claude Code",
   codex: "Codex",
+  antigravity: "Antigravity",
 };
 
-export const AGENT_DETECT_ORDER: AgentCli[] = ["opencode", "claude", "codex"];
+export const AGENT_DETECT_ORDER: AgentCli[] = ["opencode", "claude", "codex", "antigravity"];
+
+const AGENT_LOGOS: Record<string, string> = {
+  opencode: "/images/opencode.png",
+  claude: "/images/claude.png",
+  codex: "/images/codex.png",
+  // `antigravity` = default_agent value (settings/terminal); `agy` = the CLI
+  // command returned by /api/agent/detect — OpenProjectDialog looks up by the
+  // latter, so both keys must resolve.
+  antigravity: "/images/antigravity.png",
+  agy: "/images/antigravity.png",
+};
+
+/** Static logo path for an agent CLI (by its `command`/default_agent value),
+ *  or null when the agent has no bundled logo. Images live in `public/images/`
+ *  and are served at `/images/*` in both dev (Vite public dir) and production
+ *  (serveStatic ASSET_PREFIXES). */
+export function agentLogo(command?: string | null): string | null {
+  if (!command) return null;
+  return AGENT_LOGOS[command] ?? null;
+}

@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { buildAgentCommand, type AgentCli } from "~/lib/agent-command";
+import { buildAgentCommand, agentLogo, type AgentCli } from "~/lib/agent-command";
 import { attach, park, destroy as destroyCache, register } from "~/lib/xterm-cache";
 import "@xterm/xterm/css/xterm.css";
 
@@ -30,6 +30,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   // open). This flag defers creation until the effect runs after commit.
   const [terminalNeeded, setTerminalNeeded] = useState(false);
   const [agentName, setAgentName] = useState(defaultAgent);
+  const termLogo = agentLogo(agentName);
   const [port, setPort] = useState(4323);
   const [projectRoot, setProjectRoot] = useState("");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
@@ -549,7 +550,12 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-neutral-600"}`} />
             <span className="text-xs font-medium text-neutral-300">Terminal</span>
-            {connected && <span className="text-[10px] text-green-400/70 font-mono">{agentName}</span>}
+            {connected && (
+              <span className="flex items-center gap-1.5 text-[10px] text-green-400/70 font-mono">
+                {termLogo && <img src={termLogo} alt="" className="w-3.5 h-3.5 rounded-sm object-contain" />}
+                {agentName}
+              </span>
+            )}
             {connected && waiting && (
               <span className="text-[10px] text-amber-400/80 animate-pulse">menunggu output…</span>
             )}

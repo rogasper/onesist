@@ -341,6 +341,7 @@ function DocsPage() {
       <PageHeader
         icon={<FileText size={14} className="text-kumo-brand" />}
         title="Technical Documentation"
+        help="docs"
         actions={<AppButton onClick={refreshAll} variant="chip" size="sm" icon={<ArrowClockwise size={12} />} className="px-3">Refresh</AppButton>}
         below={
           <>

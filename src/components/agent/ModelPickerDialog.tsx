@@ -10,8 +10,12 @@ interface ModelPickerDialogProps {
   running?: boolean;
 }
 
-/** Popup before an agent run: pick the model (opencode lists models via
- *  `opencode models`); claude/codex have no model list — just run with default. */
+// Agents whose CLI exposes a selectable model list (`<cli> models`).
+const MODEL_LIST_AGENTS = new Set(["opencode", "antigravity"]);
+
+/** Popup before an agent run: pick the model (opencode `opencode models`,
+ *  antigravity `agy models`); claude/codex have no model list — just run with
+ *  default. */
 export function ModelPickerDialog({ open, agentName, onClose, onRun, running }: ModelPickerDialogProps) {
   const [agent, setAgent] = useState(agentName ?? "opencode");
   const [models, setModels] = useState<string[]>([]);
@@ -38,7 +42,7 @@ export function ModelPickerDialog({ open, agentName, onClose, onRun, running }: 
   useEffect(() => {
     if (!open) return;
     setSelected("");
-    if (agent !== "opencode") {
+    if (!MODEL_LIST_AGENTS.has(agent)) {
       setModels([]);
       setSupported(false);
       setLoading(false);
@@ -109,7 +113,7 @@ export function ModelPickerDialog({ open, agentName, onClose, onRun, running }: 
               </>
             ) : (
               <div className="text-[11px] text-kumo-subtle">
-                {agent === "opencode"
+                {MODEL_LIST_AGENTS.has(agent)
                   ? "Gagal mengambil daftar model."
                   : `Agent ${agent} tidak menyediakan daftar model — akan pakai model default.`}
               </div>
