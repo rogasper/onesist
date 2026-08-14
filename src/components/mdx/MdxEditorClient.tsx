@@ -130,10 +130,15 @@ export function MdxEditorClient({ content, onChange, projectId }: MdxEditorClien
         markdown={escapeMdxContent(content)}
         projectId={projectId}
         onChange={(v) => {
-          // Remember the escaped baseline the editor now holds (its own
-          // serialization of what we pushed), so a later identical content
-          // doesn't re-push and clobber user edits.
-          lastPushed.current = v;
+          // Remember the CANONICAL escaped form of what the editor now holds,
+          // not its raw serialization. MDXEditor emits `<` as `\<` (before a
+          // letter) or raw `<` (before space/punctuation), `>` raw, and always
+          // LF — none of which equals our escaped form (`&lt;`/`&gt;`, possibly
+          // CRLF from Windows files). Comparing against raw `v` made the guard
+          // below fail on every keystroke for docs containing `<`/`>` in prose
+          // (or CRLF), re-pushing via setMarkdown and resetting the cursor to
+          // position 0. Canonicalizing both sides makes the guard hold.
+          lastPushed.current = escapeMdxContent(unescapeMdxContent(v));
           onChange(unescapeMdxContent(v));
         }}
         className="mdxeditor-full-height"

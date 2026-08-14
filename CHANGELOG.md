@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.13 — Fix cursor MDXEditor melompat ke awal (Windows, halaman FSD)
+
+### Bugfix
+- **Cursor editor tidak lagi melompat ke awal dokumen** (`src/components/mdx/MdxEditorClient.tsx`) — guard `lastPushed` kini membandingkan **bentuk canonical** (`escapeMdxContent(unescapeMdxContent(v))`) di kedua sisi, bukan serialisasi mentah editor. Sebelumnya MDXEditor mengeluarkan `<` sebagai `\<`/raw `<` dan `>` raw (LF), sementara guard membandingkannya dengan bentuk escaped (`&lt;`/`&gt;`, kemungkinan CRLF dari file Windows) — keduanya tidak pernah sama untuk dokumen berisi `<`/`>` di luar code block (SQL `layer < 7`, HTML rusak hasil konversi Word) atau ber-`\r\n`, sehingga `setMarkdown()` terpanggil di hampir tiap ketikan → re-parse penuh → kursor reset ke posisi 0. Terjadi terutama di Windows (file FSD dari konversi Word/agent ber-`\r\n`). Sekarang `setMarkdown` di-skip saat konten tidak berubah, cursor & undo tetap utuh.
+- Escape `<`/`>` saat push ke editor dan round-trip `<`/`>` saat save tetap dipertahankan.
+
+---
+
 ## v0.1.12 — Overview bisa edit markdown (pola FSD)
 
 ### Edit file markdown di halaman Overview
