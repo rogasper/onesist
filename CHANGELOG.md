@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.10 — Halaman SIT, fix terminal Windows (nvm), bar chip file konsisten
+
+### Fitur Baru: SIT (System Integration Test)
+- **Halaman SIT baru** (tab "SIT" per project) — lihat, filter, dan kelola hasil test SIT dari dokumen (`output/sit/*.md` atau file yang di-upload): metadata test case (ID, title, status, progress, tester, environment), hasil per browser, dan langkah-langkah (data input / expected / actual).
+- **API lengkap** — `/api/projects/:id/sit` (list + read per file), `/quality` (ringkasan kualitas), `/normalize` + `/normalize-all` (perbaiki format), `/feedback`, dan `/export-xlsx` (unduh hasil sebagai file Excel via `buildSitXlsx`).
+- **Prompt SIT** — `buildSitPrompt` untuk mode `sit` di "Agent bantu" + fallback `/api/agent/prompt`; parser `src/lib/sit-parser.ts` memetakan dokumen ke tipe terstruktur (`src/shared/sit-types.ts`).
+- **Skill fsd-analyzer** — referensi baru `references/sit_format.md` + `sit_instructions.md` (+ `rtm_format.md`/`openapi_format.md` untuk versi skill lama), disalin ke `src-tauri/vendor-skills` untuk desktop.
+- **Contoh input** — `docs/SIT - EHS FIF.xlsx` sebagai sampel dokumen SIT.
+
+### Terminal (Windows) — TUI opencode mati di sebagian mesin
+- **Resolusi node nvm-aware** (`src/lib/resolve-node.ts`, dipakai server terpaket + dev): terminal server kini mencari `node.exe` langsung di layout nvm-windows (`%NVM_HOME%`/`%APPDATA%\nvm` — folder `v<versi>` tertinggi + junction `current`), direktori instalasi standar (Program Files / LOCALAPPDATA), scoop & winget — baru terakhir fallback PATH. Sebelumnya hanya `spawn("node")` via PATH, yang bisa basi untuk aplikasi yang diluncurkan dari GUI (PATH Explorer tersimpan saat login; `nvm use` setelah login tidak terlihat) → ConPTY tidak aktif → TUI opencode "keyboard mati" (hanya local echo) + scroll & resize mati.
+- **Diagnosa yang terlihat** — log path node yang dipilih (`[server] terminal server node: ...`), handler error spawn (fallback langsung, tidak tunggu 10 detik), log saat node-pty gagal dimuat (sebelumnya silent), dan **banner peringatan di panel terminal** saat backend `cmdpipe` aktif (fallback tanpa PTY) dengan petunjuk `nvm list` / `nvm use`.
+
+### UI — konsistensi bar chip file
+- Bar chip file di halaman ERD, RTM (FdPills), Spec (fullscreen OpenAPI), dan TimelineViewer diubah ke `flex-1 min-w-0`: lebar & posisi bar selalu konsisten, tidak bergantung jumlah file (sebelumnya `max-w-[X%] shrink` membuat posisi melompat — "kadang di kanan kadang di kiri"); file berlebih di-scroll horizontal. TimelineViewer juga tidak lagi mendorong tombol Refresh keluar layar.
+
+### Bugfix
+- **Parser RTM resilient terhadap urutan kolom** — `src/lib/rtm-parser.ts` kini membaca header tabel dan memetakan kolom berdasarkan label (ID/Title/Description/BR/Design Solution/Test Case + sinonim), dengan fallback ke layout posisional kanonik. Sebelumnya memakai indeks tetap: jika agent menghasilkan FR dengan urutan `ID | Title | Description | BR | ...`, kolom BR terbaca sebagai Description dan Description sebagai Title.
+- **Prompt RTM self-contained** — `buildRtmPrompt` menyertakan blok format tabel kanonik inline + catatan fallback "jika `references/rtm_format.md` tidak ada di skill, gunakan format di bawah ini". Menangani project dengan skill `fsd-analyzer` versi lama (belum punya `references/rtm_format.md`/`openapi_format.md`).
+- **Prompt OpenAPI fallback** — `buildOpenapiPrompt` menambahkan catatan agar tetap mengikuti instruksi prompt bila `references/openapi_format.md` tidak tersedia.
+
+---
+
 ## v0.1.9 — Integrasi Antigravity CLI, logo agent, Help popup per halaman
 
 ### Antigravity CLI (`agy`)

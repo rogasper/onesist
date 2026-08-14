@@ -12,6 +12,7 @@ export type PageHelpKey =
   | "spec"
   | "tasks"
   | "rtm"
+  | "sit"
   | "docs"
   | "wiki"
   | "settings";
@@ -162,6 +163,32 @@ const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
         "Empty design/test cells = gaps to fill — that is the review focus.",
         "Sequential IDs (BR-001, FR-001, ...) restart per scope; one scope = one file output/rtm/RTM_<scope>.md.",
         "Use the feedback box to continue the same agent session with a correction (no restart).",
+      ],
+    },
+  },
+
+  sit: {
+    title: { id: "SIT — System Integration Test", en: "SIT — System Integration Test" },
+    tips: {
+      id: [
+        "Klik Generate SIT untuk membuat test cases komprehensif dari FSD, ERD, API Spec, Tasks, dan RTM.",
+        "Copy Prompt untuk menjalankan agent manual via AgentTerminal — fallback jika Generate button error.",
+        "Output disimpan sebagai markdown files di output/sit/ (TC01.md, TC02.md, ...) + SIT_SUMMARY.md.",
+        "Gunakan FeedbackBox setelah generate selesai untuk iterasi perbaikan tanpa restart sesi agent.",
+        "Setiap step mencakup 3 aspek validation: UI, Business, dan Data Validation.",
+        "Browser matrix: Desktop Chrome, Safari, Firefox, iOS, Android — 5 platform per step.",
+        "Export XLSX menghasilkan panduan QC (multi-sheet: Cover, Summary, Board, per-TC) untuk distribusi ke tim testing.",
+        "Refinement Mode: jika file SIT sudah ada, agent akan memperbaiki/melengkapi (bukan overwrite).",
+      ],
+      en: [
+        "Click Generate SIT to create comprehensive test cases from FSD, ERD, API Spec, Tasks, and RTM.",
+        "Copy Prompt to run agent manually via AgentTerminal — fallback if Generate button errors.",
+        "Output stored as markdown files in output/sit/ (TC01.md, TC02.md, ...) + SIT_SUMMARY.md.",
+        "Use the FeedbackBox after generate completes to iterate corrections without restarting the agent session.",
+        "Each step includes 3 validation aspects: UI, Business, and Data Validation.",
+        "Browser matrix: Desktop Chrome, Safari, Firefox, iOS, Android — 5 platforms per step.",
+        "Export XLSX produces a QC guide (multi-sheet: Cover, Summary, Board, per-TC) for the testing team.",
+        "Refinement Mode: if SIT files already exist, the agent improves/completes them (no overwrite).",
       ],
     },
   },

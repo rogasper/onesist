@@ -4,7 +4,7 @@ import { json } from "../http/response";
 import { Router } from "../http/router";
 import { getProject, runCommand } from "../http/route-utils";
 import { killTree, scanInstances } from "~/server/system-instances";
-import { buildOpenapiPrompt, buildRtmPrompt } from "~/lib/agent-prompts";
+import { buildOpenapiPrompt, buildRtmPrompt, buildSitPrompt } from "~/lib/agent-prompts";
 import { listAgentModels } from "~/lib/agent-cli";
 
 export const router = new Router();
@@ -256,7 +256,11 @@ router.get("agent/prompt", async ({ query }) => {
     if (proj?.rootPath) root = proj.rootPath;
     if (proj?.defaultAgent) agentName = proj.defaultAgent;
   }
-  const prompt = mode === "openapi" ? buildOpenapiPrompt(agentName, root) : buildRtmPrompt(agentName, root, fsd, fds);
+  const prompt = mode === "openapi"
+    ? buildOpenapiPrompt(agentName, root)
+    : mode === "sit"
+    ? buildSitPrompt(agentName, root)
+    : buildRtmPrompt(agentName, root, fsd, fds);
   const q = JSON.stringify(prompt);
   let command: string;
   if (agentName === "claude") {

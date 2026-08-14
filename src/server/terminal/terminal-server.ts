@@ -45,7 +45,11 @@ if (nodePtySupported) {
     const loaded = nodeRequire("node-pty") as typeof import("node-pty") | null;
     if (loaded && typeof loaded.spawn === "function") nodePty = loaded;
     else nodePty = null;
-  } catch {
+  } catch (err) {
+    // Logging this turns a "mysteriously dead TUI" into a diagnosable one:
+    // a load failure used to silently degrade every Windows session to the
+    // cmd.exe pipe (no input/resize/scroll for TUIs).
+    console.error("[terminal] node-pty failed to load — Windows TUIs will fall back to the cmd.exe pipe (input/resize/scroll limited):", err);
     nodePty = null;
   }
 }

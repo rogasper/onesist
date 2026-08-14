@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { buildAgentCommand, agentLogo, type AgentCli } from "~/lib/agent-command";
 import { attach, park, destroy as destroyCache, register } from "~/lib/xterm-cache";
+import { InlineAlert } from "~/components/ui/InlineAlert";
 import "@xterm/xterm/css/xterm.css";
 
 interface AgentTermPanelProps {
@@ -36,6 +37,9 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  // cmdpipe backend = server runs the agent in a plain cmd.exe pipe (no PTY).
+  // Warn the user — typing looks alive (local echo) but the TUI never gets it.
+  const [showFallbackNotice, setShowFallbackNotice] = useState(false);
   const lastOutputRef = useRef(0);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -153,6 +157,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         if (msg.type === "status") {
           if (msg.exists) {
             if (msg.backend) backendRef.current = msg.backend;
+            setShowFallbackNotice(msg.backend === "cmdpipe");
             // Agent still running — just attach to the live session
             setConnected(true);
             if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
@@ -191,6 +196,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
           }
         } else if (msg.type === "ready") {
           if (msg.backend) backendRef.current = msg.backend;
+          setShowFallbackNotice(msg.backend === "cmdpipe");
           setConnected(true);
           if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
         } else if (msg.type === "output") {
@@ -204,6 +210,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
           lastOutputRef.current = 0;
           setWaiting(false);
           backendRef.current = null;
+          setShowFallbackNotice(false);
           if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
           if (termRef.current) termRef.current.writeln(`\x1b[33m\nExited (code ${msg.code ?? "?"})\x1b[0m`);
           setConnected(false);
@@ -582,6 +589,18 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
 
         {/* Terminal body */}
         <div style={{ position: "absolute", top: 40, left: 0, right: 0, bottom: 0 }}>
+          {showFallbackNotice && (
+            <div style={{ position: "absolute", top: 8, left: 8, right: 8, zIndex: 20 }}>
+              <InlineAlert kind="warning" className="whitespace-pre-wrap">
+                Terminal berjalan dalam mode fallback — TUI interaktif (opencode) tidak dapat menerima input/scroll.
+                Pastikan Node.js aktif: di cmd jalankan{" "}
+                <code className="font-mono text-[11px]">nvm list</code> lalu{" "}
+                <code className="font-mono text-[11px]">nvm use &lt;versi&gt;</code>,
+                kemudian log off/on atau restart aplikasi agar PATH diperbarui.
+                <button onClick={() => setShowFallbackNotice(false)} className="ml-2 underline hover:text-amber-300">tutup</button>
+              </InlineAlert>
+            </div>
+          )}
           <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden" }} />
 
           {!connected && (

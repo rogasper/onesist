@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { db } from "~/server/db/client";
 import { projects } from "~/server/db/schema";
+import { resolveNodeExe } from "~/lib/resolve-node";
 
 seedIfEmpty();
 
@@ -68,7 +69,13 @@ async function ensureTerminalServer() {
         path.resolve(clientDir, "..", "server", "terminal-server.node.js"),
       ];
       const nodeServerPath = candidates.find((p) => fs.existsSync(p)) ?? candidates[0];
-      const child = spawn("node", [nodeServerPath], {
+      // Never spawn bare "node" blindly: the app inherits Explorer's PATH from
+      // launch time, which can be stale (nvm use after login, no Explorer
+      // restart) — resolveNodeExe() checks the nvm-windows layout and standard
+      // install dirs directly before falling back to PATH.
+      const nodeExe = resolveNodeExe();
+      console.log(`[server] terminal server node: ${nodeExe}`);
+      const child = spawn(nodeExe, [nodeServerPath], {
         env: { ...process.env, TERMINAL_PORT: String(port) },
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,
@@ -76,11 +83,21 @@ async function ensureTerminalServer() {
       child.unref();
       child.stdout?.on("data", (d: Buffer) => process.stdout.write(d));
       child.stderr?.on("data", (d: Buffer) => process.stderr.write(d));
+      // spawn's error event is async — without a listener the fallback below
+      // would wait out the full 10s poll (or crash on an unhandled 'error').
+      let spawnFailed = false;
+      child.on("error", (err: any) => {
+        spawnFailed = true;
+        console.error(`[server] node ${nodeExe} failed to start (${err?.code || err?.message}) — falling back to in-process (TUI input will be limited)`);
+      });
       for (let i = 0; i < 50; i++) {
+        if (spawnFailed) break;
         if (await portInUse(port)) return;
         await new Promise((r) => setTimeout(r, 200));
       }
-      console.error(`[server] ${nodeServerPath} did not start within 10s, falling back to in-process`);
+      if (!spawnFailed) {
+        console.error(`[server] ${nodeServerPath} did not start within 10s, falling back to in-process`);
+      }
     } catch (e) {
       console.error("[server] Failed to spawn terminal server under Node.js:", e);
     }

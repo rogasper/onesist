@@ -434,7 +434,7 @@ function SpecPage() {
               Back
             </AppButton>
             {openapiFiles.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto max-w-[40%]">
+              <div className="flex-1 flex items-center gap-1.5 overflow-x-auto min-w-0">
                 {openapiFiles.map((f) => (
                   <AppButton key={f.path} variant="chip" size="sm" active={selectedOpenapi === f.path} onClick={() => setSelectedOpenapi(f.path)} className="px-3 shrink-0">
                     {f.path.replace(/^output\/spec\//, "")}

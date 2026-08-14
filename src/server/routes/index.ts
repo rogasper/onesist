@@ -10,6 +10,7 @@ import { router as docsRouter } from "./projects/docs";
 import { router as tasksRouter } from "./projects/tasks";
 import { router as fsdRouter } from "./projects/fsd";
 import { router as rtmRouter } from "./projects/rtm";
+import { router as sitRouter } from "./projects/sit";
 
 export const routers = [
   systemRouter,
@@ -24,4 +25,5 @@ export const routers = [
   tasksRouter,
   fsdRouter,
   rtmRouter,
+  sitRouter,
 ];

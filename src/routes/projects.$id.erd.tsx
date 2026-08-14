@@ -73,10 +73,10 @@ function ErdPage() {
       <div className="mb-3 shrink-0">
         <div className="flex items-center gap-2">
           <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default flex-1">ERD Canvas</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">ERD Canvas</h1>
           {parsed.tables.length > 0 && <Badge variant="neutral" className="text-[11px]">{parsed.tables.length} tables</Badge>}
           <PageHelpButton help="erd" />
-          <div className="ml-3 flex items-center gap-1 py-2 px-1.5 overflow-x-auto min-w-0 max-w-[80%] shrink">
+          <div className="ml-3 flex-1 flex items-center gap-1 py-2 px-1.5 overflow-x-auto min-w-0">
             {files.map((f) => (
               <AppButton key={f.path} variant="chip" size="sm" active={selectedFile === f.path} onClick={() => setSelectedFile(f.path)} className="px-3 shrink-0">
                 {f.name}

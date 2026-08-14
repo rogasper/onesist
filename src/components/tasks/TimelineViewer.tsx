@@ -31,7 +31,7 @@ export function TimelineViewer({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-2">
       <div className="flex items-center gap-2 shrink-0">
-        <div className="flex items-center gap-1 text-[10px] overflow-x-auto">
+        <div className="flex-1 flex items-center gap-1 text-[10px] overflow-x-auto min-w-0">
           {timelineFiles.map((f) => (
             <button
               key={f.path}

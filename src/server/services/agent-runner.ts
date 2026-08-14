@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { eventBus } from "~/server/realtime/events";
-import { buildGeneratePrompt, buildGapPrompt, buildTdPrompt, buildOpenapiPrompt, buildRtmPrompt } from "~/lib/agent-prompts";
+import { buildGeneratePrompt, buildGapPrompt, buildTdPrompt, buildOpenapiPrompt, buildRtmPrompt, buildSitPrompt } from "~/lib/agent-prompts";
 import { getProjectRoot } from "~/lib/file-router";
 import { needsShell, resolveExecutable } from "~/lib/agent-cli";
 import { killUntrackedAgentChildren } from "~/server/system-instances";
@@ -9,7 +9,7 @@ import { killUntrackedAgentChildren } from "~/server/system-instances";
 interface AgentRunConfig {
   sessionId: string;
   command: string;
-  mode: "generate" | "gap" | "td" | "openapi" | "rtm";
+  mode: "generate" | "gap" | "td" | "openapi" | "rtm" | "sit";
   fsdFile?: string;
   agentName: string;
   /** Project root to run the agent in (read artifacts from / write outputs to).
@@ -105,6 +105,8 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
       prompt = buildOpenapiPrompt(agentName, root);
     } else if (mode === "rtm") {
       prompt = buildRtmPrompt(agentName, root, fsd, fds);
+    } else if (mode === "sit") {
+      prompt = buildSitPrompt(agentName, root);
     } else {
       eventBus.emitAgentError(sessionId, "Invalid mode or missing fsdFile");
       return;

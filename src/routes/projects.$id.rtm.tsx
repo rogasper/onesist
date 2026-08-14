@@ -595,7 +595,7 @@ function FdPills({ fds, selectedFds, onToggleFd }: {
 }) {
   if (fds.length === 0) return null;
   return (
-    <div className="flex items-center gap-1 py-0.5 px-1 overflow-x-auto min-w-0 max-w-[55%] shrink">
+    <div className="flex-1 flex items-center gap-1 py-0.5 px-1 overflow-x-auto min-w-0">
       {fds.map((fd) => {
         const active = selectedFds.length === 0 || selectedFds.includes(fd);
         const label = fd.replace(/^fsd_/, "");

@@ -98,7 +98,7 @@ Project root: ${root}
 Running via: ${agentName}
 
 ## Instruksi
-- Baca skill di \`.agents/skills/fsd-analyzer/SKILL.md\` dan ikuti \`references/openapi_format.md\`-nya untuk format lengkapnya.
+- Baca skill di \`.agents/skills/fsd-analyzer/SKILL.md\` dan ikuti \`references/openapi_format.md\`-nya untuk format lengkapnya. Jika file \`references/openapi_format.md\` TIDAK ada di skill, tetap ikuti instruksi di prompt ini (summary/description/tags/request/response/x-status/x-phase).
 - Baca \`MASTER_SPEC_API.md\` dan semua \`output/spec/*.md\` di project root.
 - Generate OpenAPI 3.0 yang menggabungkan SEMUA endpoint (path unik, jangan duplikat) dan tulis EXACTLY SATU file ke \`output/spec/openapi.yaml\`.
 - Setiap operation WAJIB berisi \`summary\`, \`description\`, \`tags\` ([Done] / [In Develop]), \`requestBody\`/\`parameters\` jika spec menyebut body/query, \`x-status: done|in-develop\`, dan \`x-phase\` jika ada info fase.
@@ -121,18 +121,189 @@ Running via: ${agentName}
 Scope: ${scope}
 
 ## Instruksi
-- Baca skill di \`.agents/skills/fsd-analyzer/SKILL.md\` dan ikuti \`references/rtm_format.md\`-nya untuk struktur tabel, rules, dan mode scoped.
+- Baca skill di \`.agents/skills/fsd-analyzer/SKILL.md\` dan ikuti \`references/rtm_format.md\`-nya untuk struktur tabel, rules, dan mode scoped. Jika file \`references/rtm_format.md\` TIDAK ada di skill, gunakan format tabel PERSIS di bawah ini.
 - Baca dokumen FSD scope ini: ${selected}
 - Baca artifacts terkait: \`output/spec/*.md\`, \`output/erd/*.md\`/.dbml, \`output/task/*.md\`, plus \`MASTER_SPEC_API.md\` / \`MASTER_ERD.md\` bila ada (konteks project-wide).
 - Trace ke dalam EXACTLY SATU file: \`${outputFile}\`
   - Indonesian untuk judul/deskripsi, English untuk istilah teknis.
-  - Tabel: Business Requirements (BR), Design Solutions (DS), Test Cases (TC), Functional Requirements (FR).
   - Setiap FR WAJIB mereferensikan BR (kolom BR).
   - Cell Design Solution / Test Case mereferensikan kode (semicolon-separated jika banyak).
   - ID sekuensial: BR-001, FR-001, DS-001, TC-001, ... (restart per scope).
   - Jika requirement belum ada design/test, biarkan cell kosong — gap itulah yang ditampilkan dashboard.
+- **Urutan kolom tabel WAJIB persis seperti di bawah ini (jangan diubah, jangan ditukar Title/Description/BR):**
+
+\`\`\`markdown
+# Requirement Traceability Matrix
+
+## Business Requirements
+| ID | Title | Description |
+|----|-------|-------------|
+| BR-001 | <judul> | <deskripsi> |
+
+## Design Solutions
+| ID | Title | Source | Description |
+|----|-------|--------|-------------|
+| DS-001 | <judul> | <ref ke spec/erd> | <deskripsi> |
+
+## Test Cases
+| ID | Title | Steps | Expected |
+|----|-------|-------|----------|
+| TC-001 | <judul> | <langkah> | <hasil yang diharapkan> |
+
+## Functional Requirements
+| ID | BR | Title | Description | Design Solution | Test Case |
+|----|----|-------|-------------|-----------------|-----------|
+| FR-001 | BR-001 | <judul> | <deskripsi> | DS-001 | TC-001 |
+\`\`\`
+
 - Hanya tulis \`${outputFile}\`. JANGAN modifikasi file lain.
 - Dashboard di http://localhost:4321 menonton direktori ini — file akan auto-refresh setelah selesai.`;
+}
+
+export function buildSitPrompt(agentName: string, rootOverride?: string): string {
+  const root = rootOverride ?? path.resolve(process.cwd(), "..");
+  const masterErd = readFile(root, "MASTER_ERD.md") || "(not found)";
+  const masterSpec = readFile(root, "MASTER_SPEC_API.md") || "(not found)";
+  const dirs = ["input/fsd", "output/spec", "output/erd", "output/task", "output/rtm"];
+  const artifacts: string[] = [];
+
+  for (const dir of dirs) {
+    try {
+      const dirPath = path.join(root, dir);
+      if (!fs.existsSync(dirPath)) continue;
+      const files = fs.readdirSync(dirPath)
+        .filter((f: string) => f.endsWith(".md") || f.endsWith(".dbml"))
+        .sort()
+        .slice(0, 8);
+      for (const f of files) {
+        const content = fs.readFileSync(path.join(dirPath, f), "utf-8");
+        artifacts.push(`### ${dir}/${f}\n\`\`\`\n${content.slice(0, 2500)}\n\`\`\``);
+      }
+    } catch {}
+  }
+
+  let existingContext = "";
+  try {
+    const sitDir = path.join(root, "output", "sit");
+    if (fs.existsSync(sitDir)) {
+      const existing = fs.readdirSync(sitDir).filter((f: string) => f.endsWith(".md")).sort();
+      if (existing.length > 0) {
+        existingContext = `\n\n## Existing SIT Files (Refinement Mode)
+Files: ${existing.join(", ")}
+
+BACA SEMUA file di output/sit/ terlebih dahulu sebelum melakukan perubahan.
+- Perbaiki test cases yang melenceng atau kurang lengkap
+- Tambahkan test cases untuk artifacts yang belum di-cover
+- JANGAN hapus test cases yang sudah benar
+- Pertahankan format existing
+- Update SIT_SUMMARY.md diakhir
+`;
+      }
+    }
+  } catch {}
+
+  return `Kamu adalah Senior QA Lead menyusun System Integration Test (SIT) yang komprehensif.
+
+Project root: ${root}
+Running via: ${agentName}
+
+## Instruksi
+
+1. **Baca skill**: \`.agents/skills/fsd-analyzer/SKILL.md\` — gunakan sebagai panduan utama.
+2. **Baca SIT instructions**: \`references/sit_instructions.md\` dari skill fsd-analyzer (atau gunakan format template di bawah jika tidak ada).
+3. **Baca SIT format**: \`references/sit_format.md\` dari skill fsd-analyzer.
+4. **Baca SEMUA artifacts**:
+   - \`input/fsd/*.md\` — FSD documents
+   - \`output/spec/*.md\` — API specifications
+   - \`output/erd/*.dbml\` + \`output/erd/*.md\` — ERD
+   - \`output/task/*.md\` — Task cards
+   - \`output/rtm/*.md\` — Tracing matrix (jika ada)
+   - \`MASTER_ERD.md\` + \`MASTER_SPEC_API.md\` — Konteks project-wide (jika ada)
+5. **Generate SIT test cases** ke \`output/sit/\`:
+   - \`output/sit/TC01.md\`, \`TC02.md\`, ..., \`TC{nn}.md\` — satu file per TC group
+   - \`output/sit/SIT_SUMMARY.md\` — Ringkasan keseluruhan
+${existingContext}
+
+## Rules Singkat
+
+- Setiap fitur: minimal 3 test steps (1 positive + 2 negative)
+- Expected result WAJIB 3 aspek: UI Validation + Business Validation + Data Validation
+- Browser matrix: 5 platform (Chrome, Safari, Firefox, iOS, Android)
+- Bahasa: Indonesian untuk deskripsi, English untuk istilah teknis
+- ID: TC{nn} per group, TC{nn}xxx per step, [BUGnnn] untuk bug reference
+- Jika ada RTM, trace back ke FR/BR/DS code (e.g. "Ref: FR-045")
+- Target 5-30 TC groups (tergantung kompleksitas)
+
+## Format (WAJIB — jangan variasi)
+
+- **HANYA gunakan format STANDARD** seperti di bawah. **DILARANG**: metadata sebagai tabel (\`| Attribute | Value |\`), step sebagai tabel Action/Expected, atau heading \`## TCxxxxx\` sebagai step. Semua file WAJIB konsisten dengan format STANDARD.
+- Setiap file punya struktur: \`# TC{nn} - Judul\` → \`## Metadata\` (field list \`- **Key**: value\`) → \`## Steps\` → per-step \`### TC{nn}xxx - Menu - Feature\`.
+- **Field Tester / Location**: jika \`SIT_SUMMARY.md\` sudah ada dengan daftar \`Testers\`, isi otomatis dengan nama tester tersebut; jika tidak ada, biarkan kosong (jangan diisi placeholder).
+- Setiap \`- **Expected Result**:\` WAJIB ≥ 3 aspek dan tidak singkat — kalau isi kurang, perpanjang dengan detail konkret (query, response, error code).
+- **Quality checklist sebelum selesai**: (1) semua file format STANDARD; (2) setiap step punya 5 baris browser matrix; (3) tidak ada kode step duplikat; (4) tester terisi jika ada daftar di summary; (5) SIT_SUMMARY.md sinkron dengan jumlah step aktual di tiap file.
+
+## Format Contoh (singkat)
+
+\`\`\`markdown
+# TC01 - Judul Modul
+
+## Metadata
+- **Test Case ID**: TC01
+- **Title**: Judul Modul
+- **Description**: UI Expectation, Data Validation, Mechanism CRUD
+- **Overall Progress**: Not Yet
+- **Overall Status**: Not started
+
+## Steps
+
+### TC01001 - Menu - Feature
+- **User Story**: Sebagai user, saya ingin ...
+- **Step**: 
+  1. Login
+  2. Klik Menu
+  3. Input data
+- **Data Input**: {realistis sesuai domain}
+- **Expected Result**:
+  UI: Form layout sesuai Figma
+  Business: Validation logic, penjagaan
+  Data: Query DB reference
+- **Type**: Positive | Negative
+- **Tested**: Not started
+
+#### Browser Results
+| Browser/Device | Tested | First Status | PIC | First Date | Actual Result | Last Status | Last Date | Last Actual | Evidence |
+| Desktop Chrome | Not started | - | - | - | - | - | - | - | - |
+| Desktop Safari | Not started | - | - | - | - | - | - | - | - |
+| Desktop Firefox | Not started | - | - | - | - | - | - | - | - |
+| iOS | Not started | - | - | - | - | - | - | - | - |
+| Android | Not started | - | - | - | - | - | - | - | - |
+
+- **Bug**: -
+- **Final PIC**: -
+- **Final Result**: -
+- **Final Status**: Not started
+\`\`\`
+
+## Context
+
+### MASTER_ERD.md
+\`\`\`
+${masterErd.slice(0, 2000)}
+\`\`\`
+
+### MASTER_SPEC_API.md
+\`\`\`
+${masterSpec.slice(0, 2000)}
+\`\`\`
+
+### Artifacts
+${artifacts.join("\n\n")}
+
+## Output
+
+Tulis semua file ke \`output/sit/\`. Hanya tulis output files, JANGAN modifikasi file input/master/artifacts lain.
+Dashboard di http://localhost:4321 menonton direktori ini — akan auto-refresh setelah selesai.
+`;
 }
 
 export function buildTdPrompt(agentName: string, rootOverride?: string): string {

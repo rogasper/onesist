@@ -38,6 +38,7 @@ const TAB_ITEMS = [
   { value: "tasks", label: "Tasks" },
   { value: "fsd", label: "FSD Analyzer" },
   { value: "rtm", label: "Traceability" },
+  { value: "sit", label: "SIT" },
   { value: "docs", label: "Docs" },
   { value: "wiki", label: "Wiki" },
   { value: "settings", label: "Settings" },
@@ -84,6 +85,7 @@ function ProjectLayout() {
     : location.pathname.includes("/tasks") ? "tasks"
     : location.pathname.includes("/fsd") ? "fsd"
     : location.pathname.includes("/rtm") ? "rtm"
+    : location.pathname.includes("/sit") ? "sit"
     : location.pathname.includes("/docs") ? "docs"
     : location.pathname.includes("/settings") ? "settings"
     : "overview";

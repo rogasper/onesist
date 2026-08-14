@@ -2,11 +2,11 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
-import fs from "node:fs";
 import path from "node:path";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { resolveNodeExe as sharedResolveNodeExe } from "./src/lib/resolve-node";
 
 const TERMINAL_PORT = 4323;
 
@@ -165,18 +165,10 @@ async function findFreePort(start: number): Promise<number> {
 }
 
 /** Resolve a node executable WITHOUT spawning (Bun's spawnSync of PATH
- *  executables inside the vite config misbehaves and can segfault Bun). */
+ *  executables inside the vite config misbehaves and can segfault Bun).
+ *  Shared with the packaged server — nvm-windows layouts included. */
 function resolveNodeExe(): string {
-  const candidates = [
-    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, "nodejs", "node.exe") : "",
-    process.env["ProgramFiles(x86)"] ? path.join(process.env["ProgramFiles(x86)"], "nodejs", "node.exe") : "",
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Programs", "nodejs", "node.exe") : "",
-  ].filter(Boolean);
-  for (const c of candidates) {
-    try { if (fs.existsSync(c)) return c; } catch {}
-  }
-  // Last resort: rely on spawn's own PATH lookup (works even if spawnSync doesn't).
-  return "node";
+  return sharedResolveNodeExe();
 }
 
 function terminalServerPlugin() {
