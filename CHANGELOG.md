@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.12 — Overview bisa edit markdown (pola FSD)
+
+### Edit file markdown di halaman Overview
+- **Editor FSD full di Overview** — file `.md` yang terbuka di tab sekarang bisa diedit dengan `FsdEditor` (komponen yang sama dengan halaman FSD): mode **Edit / Split / Preview** (chips di baris tab), preview dengan render Mermaid, dan pintasan **Ctrl/Cmd+S** untuk menyimpan.
+- **Simpan via `/api/files/write`** — file dibuat otomatis kalau belum ada; file kosong yang tadinya hanya "File is empty" kini bisa langsung ditulis. Indikator "Unsaved" (amber) dan "Saving…" di baris tab; tombol Save disabled saat tidak ada perubahan.
+- **Guard kehilangan perubahan** — klik tab lain / klik file di tree / tutup tab aktif saat ada edit belum disimpan → dialog konfirmasi "Discard unsaved changes?" (Discard / Keep editing). Draft dibersihkan otomatis saat ganti file atau ganti project.
+- Baris tab di-restructure (tabs `flex-1 min-w-0` + kontrol `shrink-0`) agar toolbar tidak ikut scroll.
+
+---
+
 ## v0.1.11 — Import Tasks toleran format + auto-sync (seperti SIT)
 
 ### Import Tasks

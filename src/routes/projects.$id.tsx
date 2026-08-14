@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { Badge } from "@cloudflare/kumo";
-import { Cube, Terminal as TerminalIcon, FileText, FolderOpen, X, CaretLeft } from "@phosphor-icons/react";
+import { Cube, Terminal as TerminalIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
@@ -14,7 +14,7 @@ import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary"
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
 import { useSkillInstall } from "~/lib/use-skill-install";
-import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { FsdEditor, type EditorMode } from "~/components/fsd/FsdEditor";
 import { AppButton } from "~/components/ui/AppButton";
 import { ContextMenu } from "~/components/ui/ContextMenu";
 import { EmptyState } from "~/components/ui/EmptyState";
@@ -300,6 +300,55 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
 
   const { content: activeContent, loading: contentLoading, refresh: refreshContent } = useFileContent(activeTabPath, project?.id);
 
+  // FSD-style editor for the open markdown file. Save goes through the generic
+  // /api/files/write (creates the file if missing). Switching away with unsaved
+  // edits is guarded by a confirm dialog (pendingSwitch).
+  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [draftContent, setDraftContent] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<{ kind: "tab" | "file" | "close"; path: string; file?: { name: string; path: string } } | null>(null);
+  const editorContent = draftContent ?? activeContent ?? "";
+
+  // Clear the draft whenever the active file changes (covers confirmed
+  // switches, tab-close auto-select, and external changes like project switch).
+  useEffect(() => {
+    setDraftContent(null);
+    setDirty(false);
+  }, [activeTabPath]);
+
+  const handleSave = useCallback(async () => {
+    if (!activeTabPath) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/files/write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: activeTabPath, projectId: project?.id, content: editorContent }),
+      });
+      if (res.ok) {
+        setDirty(false);
+        refreshContent();
+      }
+    } catch {}
+    setSaving(false);
+  }, [activeTabPath, project?.id, editorContent, refreshContent]);
+
+  // Run a navigation action, guarding against losing unsaved edits: switching
+  // to another tab/file or closing the ACTIVE tab while dirty asks first.
+  const requestLeave = useCallback((action: { kind: "tab" | "file" | "close"; path: string; file?: { name: string; path: string } }) => {
+    const switchingAway = action.kind === "close" ? action.path === activeTabPath : action.path !== activeTabPath;
+    if (dirty && switchingAway) {
+      setPendingSwitch(action);
+      return;
+    }
+    setDraftContent(null);
+    setDirty(false);
+    if (action.kind === "tab") setActiveTabPath(action.path);
+    else if (action.kind === "file") onFileClick(action.file!);
+    else onTabClose(action.path);
+  }, [dirty, activeTabPath, onFileClick, onTabClose, setActiveTabPath]);
+
   const totalFiles = Object.values(dirs).flat().length;
   const DIR_ORDER = ["input", "output"];
 
@@ -357,7 +406,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
             sections={DIR_ORDER.map((dir) => ({ dir, files: dirs[dir] ?? [] }))}
             activePath={activeTabPath}
             emptyText="(empty)"
-            onFileClick={onFileClick}
+            onFileClick={(file) => requestLeave({ kind: "file", path: file.path, file })}
             onFileContextMenu={(e, file) => openMenu(e, { kind: "file", file })}
             onDirContextMenu={(e, dir) => openMenu(e, { kind: "dir", dir })}
             onRename={handleRename}
@@ -368,25 +417,41 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Tab bar */}
           {openTabs.length > 0 ? (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-kumo-line/50 bg-kumo-elevated/20 overflow-x-auto shrink-0">
-              {openTabs.map((t) => (
-                <div key={t.path}
-                  className={`group flex items-center gap-1.5 px-3 py-1 text-xs rounded-full cursor-pointer shrink-0 transition-all ${
-                    activeTabPath === t.path
-                      ? "liquid-wash font-medium"
-                      : "border border-kumo-line/40 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-tint"
-                  }`}
-                  onClick={() => setActiveTabPath(t.path)}>
-                  <span className="max-w-40 truncate">{t.name}</span>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onTabClose(t.path); }}
-                    className={activeTabPath === t.path ? "text-white/80 hover:text-white opacity-70 group-hover:opacity-100" : "text-kumo-subtle hover:text-kumo-default opacity-60 group-hover:opacity-100"}
-                  >
-                    <X size={10} weight="bold" />
-                  </button>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-kumo-line/50 bg-kumo-elevated/20 shrink-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1">
+                {openTabs.map((t) => (
+                  <div key={t.path}
+                    className={`group flex items-center gap-1.5 px-3 py-1 text-xs rounded-full cursor-pointer shrink-0 transition-all ${
+                      activeTabPath === t.path
+                        ? "liquid-wash font-medium"
+                        : "border border-kumo-line/40 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-tint"
+                    }`}
+                    onClick={() => requestLeave({ kind: "tab", path: t.path })}>
+                    <span className="max-w-40 truncate">{t.name}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); requestLeave({ kind: "close", path: t.path }); }}
+                      className={activeTabPath === t.path ? "text-white/80 hover:text-white opacity-70 group-hover:opacity-100" : "text-kumo-subtle hover:text-kumo-default opacity-60 group-hover:opacity-100"}
+                    >
+                      <X size={10} weight="bold" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {activeTabPath && (
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <AppButton variant="chip" size="xs" active={editorMode === "edit"} onClick={() => setEditorMode("edit")} icon={<PencilSimple size={11} />} className="px-2" title="Edit" />
+                  <AppButton variant="chip" size="xs" active={editorMode === "split"} onClick={() => setEditorMode("split")} icon={<Columns size={11} />} className="px-2" title="Split view" />
+                  <AppButton variant="chip" size="xs" active={editorMode === "preview"} onClick={() => setEditorMode("preview")} icon={<Eye size={11} />} className="px-2" title="Preview" />
+                  {dirty && (
+                    <span className="flex items-center gap-1 text-[10px] text-amber-400 shrink-0"><XCircle size={10} /> Unsaved</span>
+                  )}
+                  {saving && (
+                    <span className="flex items-center gap-1 text-[10px] text-kumo-subtle animate-pulse shrink-0"><CheckCircle size={10} /> Saving…</span>
+                  )}
+                  <AppButton onClick={() => void handleSave()} disabled={saving || !dirty} variant="chip" size="xs" icon={<FloppyDisk size={11} />} className="px-2" title="Save (Ctrl/Cmd+S)">Save</AppButton>
                 </div>
-              ))}
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-1.5 border-b border-kumo-line bg-kumo-elevated/30 shrink-0">
@@ -411,11 +476,15 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                 detail="Check that the project root path is set in settings"
                 retry={refreshContent}
               />
-            ) : activeContent === "" ? (
-              <EmptyState icon={<FileText size={24} />} title="File is empty" />
             ) : (
-              <div className="px-4 py-3 spec-markdown">
-                <MarkdownViewer content={activeContent ?? ""} />
+              <div className="h-full flex flex-col">
+                <FsdEditor
+                  content={editorContent}
+                  mode={editorMode}
+                  onChange={(v) => { setDraftContent(v); setDirty(true); }}
+                  onSave={() => void handleSave()}
+                  projectId={project?.id ?? ""}
+                />
               </div>
             )}
           </div>
@@ -439,6 +508,27 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
       onConfirm={confirmDelete}
     >
       Are you sure you want to delete <code className="text-[11px] text-kumo-default">{deleteTarget?.name}</code>? This cannot be undone.
+    </ConfirmDialog>
+
+    <ConfirmDialog
+      open={pendingSwitch !== null}
+      title="Discard unsaved changes?"
+      onOpenChange={(open) => { if (!open) setPendingSwitch(null); }}
+      onConfirm={() => {
+        const action = pendingSwitch;
+        setPendingSwitch(null);
+        if (!action) return;
+        setDraftContent(null);
+        setDirty(false);
+        if (action.kind === "tab") setActiveTabPath(action.path);
+        else if (action.kind === "file") onFileClick(action.file!);
+        else onTabClose(action.path);
+      }}
+      confirmLabel="Discard"
+      cancelLabel="Keep editing"
+      destructive={false}
+    >
+      You have unsaved changes in <code className="text-[11px] text-kumo-default">{activeTabPath}</code>. Discard them and switch files?
     </ConfirmDialog>
     </>
   );
