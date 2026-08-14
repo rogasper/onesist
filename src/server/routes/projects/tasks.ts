@@ -50,7 +50,7 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
   }
   const proj = getProject(id);
   const taskRoot = proj?.rootPath || defaultRoot();
-  const parsed = scanAllTaskFiles(taskRoot);
+  const { tasks: parsed, skippedFiles } = scanAllTaskFiles(taskRoot);
   const seenCodes = new Set<string>();
   let inserted = 0, updated = 0;
   for (const pt of parsed) {
@@ -84,18 +84,24 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
       inserted++;
     }
   }
-  // Remove tasks whose source file is gone (keep user-created tasks without code)
-  const stale = existing.filter((t) => t.code && !seenCodes.has(t.code));
-  for (const s of stale) {
-    db.delete(tasks).where(eq(tasks.id, s.id)).run();
+  // Remove tasks whose source file is gone (keep user-created tasks without code).
+  // Guard: only when at least one task parsed — a format regression that makes
+  // every file yield 0 tasks would otherwise wipe all existing tasks.
+  let removed = 0;
+  if (parsed.length > 0) {
+    const stale = existing.filter((t) => t.code && !seenCodes.has(t.code));
+    for (const s of stale) {
+      db.delete(tasks).where(eq(tasks.id, s.id)).run();
+    }
+    // Remove legacy tasks without a code — the app has no manual create flow,
+    // so code-less rows are orphans from pre-code imports
+    const orphans = existing.filter((t) => !t.code);
+    for (const o of orphans) {
+      db.delete(tasks).where(eq(tasks.id, o.id)).run();
+    }
+    removed = stale.length + orphans.length;
   }
-  // Remove legacy tasks without a code — the app has no manual create flow,
-  // so code-less rows are orphans from pre-code imports
-  const orphans = existing.filter((t) => !t.code);
-  for (const o of orphans) {
-    db.delete(tasks).where(eq(tasks.id, o.id)).run();
-  }
-  return json({ inserted, updated, removed: stale.length + orphans.length });
+  return json({ inserted, updated, removed, skipped: skippedFiles.length });
 });
 
 // GET /api/projects/:id/tasks/:taskId

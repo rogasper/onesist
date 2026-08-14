@@ -14,17 +14,20 @@ export interface ParsedTask {
   sourcePath: string | null;
 }
 
-export function scanAllTaskFiles(rootPath: string): ParsedTask[] {
+export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skippedFiles: string[] } {
   const tasks: ParsedTask[] = [];
+  const skippedFiles: string[] = [];
   const taskRoot = path.join(rootPath, "output", "task");
-  if (!fs.existsSync(taskRoot)) return [];
+  if (!fs.existsSync(taskRoot)) return { tasks, skippedFiles };
 
   const rootFiles = fs.readdirSync(taskRoot).filter((f) =>
     f.endsWith(".md") && !f.startsWith(".") && (f.startsWith("task_") || f === "task.md" || f === "MASTER_TASK.md"),
   );
   for (const file of rootFiles) {
     const content = fs.readFileSync(path.join(taskRoot, file), "utf-8");
-    tasks.push(...parseTaskFile(content, file));
+    const parsed = parseTaskFile(content, file);
+    if (parsed.length === 0) skippedFiles.push(file);
+    tasks.push(...parsed);
   }
 
   const dirs = fs.readdirSync(taskRoot, { withFileTypes: true })
@@ -36,11 +39,10 @@ export function scanAllTaskFiles(rootPath: string): ParsedTask[] {
     phaseFiles.sort((a, b) => (a === "master.md" ? -1 : b === "master.md" ? 1 : a.localeCompare(b)));
     for (const file of phaseFiles) {
       const content = fs.readFileSync(path.join(phasePath, file), "utf-8");
-      if (file === "master.md") {
-        tasks.push(...parseMasterMd(content, dir.name));
-      } else {
-        tasks.push(...parsePhaseTaskFile(content, file, dir.name));
-      }
+      const rel = `${dir.name}/${file}`;
+      const parsed = file === "master.md" ? parseMasterMd(content, dir.name) : parsePhaseTaskFile(content, file, dir.name);
+      if (parsed.length === 0) skippedFiles.push(rel);
+      tasks.push(...parsed);
     }
   }
 
@@ -79,7 +81,7 @@ export function scanAllTaskFiles(rootPath: string): ParsedTask[] {
     }
   }
 
-  return result;
+  return { tasks: result, skippedFiles };
 }
 
 function parseMasterMd(content: string, phase: string): ParsedTask[] {
@@ -172,37 +174,65 @@ function parseTaskFile(content: string, filename: string): ParsedTask[] {
     }
   }
 
-  // Find task sections "## Task <ID>: Title" and extract their content
+  // Find task sections and extract their content. The fsd-analyzer skill
+  // documents several heading variants and different models follow different
+  // ones, so accept all of them (H2 only):
+  //   A: "## Task FE-1: Title" — canonical; separator can be : ： — – -
+  //   B: "## Task: Title"      — no ID → deterministic auto-number
+  //   C: "## FE-1: Title"      — code-like ID without the "Task" keyword
+  const headingPatterns = [
+    /^##\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]\s*(.*)$/i,
+    // Empty group 1 keeps the (id, title) layout consistent across patterns
+    /^##\s+Task\s*[:：]\s*()(.+)$/i,
+    /^##\s+([A-Za-z]{1,12}-\d[\w.-]*)\s*[:：—–-]\s*(.+)$/,
+  ];
+  let autoIndex = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const sectionMatch = line.match(/^##\s+Task\s+([A-Za-z0-9._-]+)\s*:\s*(.*)/i);
-    if (sectionMatch) {
-      const code = `${moduleName}-${sectionMatch[1]}`;
-      const title = sectionMatch[2].trim();
-
-      // Extract content from this ## heading to the next ## heading or end
-      let sectionEnd = lines.length;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].startsWith("## ")) { sectionEnd = j; break; }
-      }
-      const sectionContent = lines.slice(i, sectionEnd).join("\n");
-
-      // SP: prefer the task's own detail table, fall back to the summary spMap
-      const spMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)\s*\|/i);
-      const sp = spMatch ? parseFloat(spMatch[1]) : (spMap[sectionMatch[1]] ?? null);
-
-      // Assignee: from the detail table `| Developer | <name> |`, else null
-      const devMatch = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
-      const assignee = devMatch ? devMatch[1].trim() : null;
-
-      tasks.push({
-        code, title, storyPoints: sp,
-        assignee, module: moduleName, parentCode: null,
-        status: "todo", phase: null,
-        contentMd: sectionContent,
-        sourcePath: `output/task/${filename}`,
-      });
+    let sectionMatch: RegExpMatchArray | null = null;
+    for (const re of headingPatterns) {
+      sectionMatch = line.match(re);
+      if (sectionMatch) break;
     }
+    if (!sectionMatch) continue;
+    const rawId = sectionMatch[1];
+    const title = (sectionMatch[2] ?? "").trim();
+    if (!title) continue;
+
+    // Codes that already carry the module/role prefix (FE-1 inside task_fe.md)
+    // stay as-is; otherwise prepend the module (## Task 1: → be-1).
+    let code: string;
+    if (!rawId) {
+      code = `${moduleName}-${++autoIndex}`;
+    } else {
+      const prefix = rawId.toLowerCase();
+      code = prefix.startsWith(`${moduleName.toLowerCase()}-`) || prefix.startsWith(`${moduleName.toLowerCase()}_`) || prefix.startsWith(`${moduleName.toLowerCase()}.`)
+        ? rawId
+        : `${moduleName}-${rawId}`;
+    }
+
+    // Extract content from this ## heading to the next ## heading or end
+    let sectionEnd = lines.length;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].startsWith("## ")) { sectionEnd = j; break; }
+    }
+    const sectionContent = lines.slice(i, sectionEnd).join("\n");
+
+    // SP: prefer the task's own detail table, fall back to the summary spMap
+    const spMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)\s*\|/i);
+    const sp = spMatch ? parseFloat(spMatch[1]) : (rawId ? (spMap[rawId] ?? null) : null);
+
+    // Assignee: from the detail table `| Developer | <name> |`, else null
+    const devMatch = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
+    const assignee = devMatch ? devMatch[1].trim() : null;
+
+    tasks.push({
+      code, title, storyPoints: sp,
+      assignee, module: moduleName, parentCode: null,
+      status: "todo", phase: null,
+      contentMd: sectionContent,
+      sourcePath: `output/task/${filename}`,
+    });
   }
 
   return tasks;

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.11 — Import Tasks toleran format + auto-sync (seperti SIT)
+
+### Import Tasks
+- **Parser toleran terhadap varian heading** (`src/lib/task-parser.ts`) — `task_fe.md`/`task_be.md`/`task_*.md` kini bisa diimport meski format heading-nya berbeda-beda tergantung model yang menghasilkan file: `## Task <ID>: <judul>` (sep `:` `：` `—` `–` `-`), `## Task: <judul>` tanpa ID (auto-code deterministik `fe-1`, `fe-2`, …), dan `## FE-1: <judul>` tanpa kata "Task". Heading non-task seperti `## Request:` tidak ter-matching.
+- **Smart code** — `## Task FE-1:` di `task_fe.md` menghasilkan code `FE-1` (sebelumnya dobel prefix `fe-FE-1`).
+- **Feedback "file kosong"** — import melaporkan `skipped` (file yang ter-scan tapi 0 task); badge di header menampilkan `· N file kosong` — kegagalan tidak lagi diam-diam "+0 new".
+- **Guard penghapusan** — stale/orphan deletion hanya berjalan jika ada task yang berhasil di-parse (mencegah format regression menghapus massal task yang sudah ada).
+
+### Auto-sync Tasks (seperti SIT)
+- Halaman Tasks kini **auto-import saat dibuka** dan **live re-import via SSE `file:changed`** (difilter `output/task/`, debounce 400ms, pola yang sama dengan halaman FSD) — task langsung muncul saat agent menulis file, tanpa klik "Import from artifacts".
+- Import tetap idempotent dan mempertahankan status/assignee hasil edit user; tombol manual tetap ada untuk refresh + menampilkan badge hasil.
+
+---
+
 ## v0.1.10 — Halaman SIT, fix terminal Windows (nvm), bar chip file konsisten
 
 ### Fitur Baru: SIT (System Integration Test)

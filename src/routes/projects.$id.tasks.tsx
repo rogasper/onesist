@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { Badge } from "@cloudflare/kumo";
 import { ListChecks, ListDashes, ArrowsClockwise, CalendarDots, SquaresFour, Rows } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
+import { usePageVisible } from "~/lib/use-file-data";
 import { TaskList, type TaskViewMode } from "~/components/tasks/TaskList";
 import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
@@ -33,7 +34,7 @@ function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>(loaderData?.tasks ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ inserted: number; updated: number; removed: number } | null>(null);
+  const [importResult, setImportResult] = useState<{ inserted: number; updated: number; removed: number; skipped: number } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
@@ -121,20 +122,75 @@ function TasksPage() {
     }
   }, [id]);
 
-  const handleImport = useCallback(async () => {
+  // Reconcile the tasks DB with the artifact files (output/task/*). Idempotent
+  // upsert that preserves user-edited status/assignee, so it is safe to run
+  // automatically. showResult controls whether the import badge is set (auto
+  // syncs stay quiet; the manual button reports counts).
+  const syncFromDisk = useCallback(async (showResult: boolean) => {
     setImporting(true);
-    setImportResult(null);
+    if (showResult) setImportResult(null);
     try {
       const res = await fetch(`/api/projects/${id}/tasks/import`, { method: "POST" });
       if (res.ok) {
         const result = await res.json();
-        setImportResult(result);
+        if (showResult) setImportResult(result);
         const reloadRes = await fetch(`/api/projects/${id}/tasks`, { cache: "no-store" });
         if (reloadRes.ok) setTasks(await reloadRes.json());
       }
     } catch {}
     setImporting(false);
   }, [id]);
+
+  // Auto-import on page open (like the SIT page) — no manual step needed.
+  useEffect(() => { void syncFromDisk(false); }, [syncFromDisk]);
+
+  // Live re-import via SSE file:changed (no polling — same pattern as the FSD
+  // page). Filtered to output/task paths so unrelated project changes don't
+  // trigger a pointless re-import. Debounced 400ms to coalesce bursts.
+  const pageVisible = usePageVisible();
+  useEffect(() => {
+    if (!pageVisible) return;
+    let es: EventSource | null = null;
+    let mounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let errorCount = 0;
+    const schedule = () => {
+      if (!mounted) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!mounted) return;
+        void syncFromDisk(false);
+      }, 400);
+    };
+    const init = async () => {
+      try {
+        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
+        const d = await res.json();
+        if (!mounted || !d.ticket) return;
+        es = new EventSource(`/api/events?ticket=${d.ticket}`);
+        es.addEventListener("file:changed", (e) => {
+          try {
+            const msg = JSON.parse((e as MessageEvent).data);
+            const p: string = msg?.data?.path ?? "";
+            if (!p.replace(/\\/g, "/").includes("output/task")) return;
+            schedule();
+          } catch {}
+        });
+        // Guard against infinite browser auto-reconnect loops: close the
+        // stream after a few errors instead of leaking reconnect requests.
+        es.onerror = () => {
+          errorCount += 1;
+          if (errorCount > 5) { es?.close(); es = null; }
+        };
+      } catch {}
+    };
+    void init();
+    return () => {
+      mounted = false;
+      if (timer) clearTimeout(timer);
+      es?.close();
+    };
+  }, [pageVisible, syncFromDisk]);
 
   return (
     <div className="h-full flex flex-col">
@@ -155,6 +211,7 @@ function TasksPage() {
             {importResult && (
               <Badge variant="neutral" className="text-[11px]">
                 +{importResult.inserted} new · {importResult.updated} updated · {importResult.removed} removed
+                {importResult.skipped > 0 && ` · ${importResult.skipped} file kosong`}
               </Badge>
             )}
           </>
@@ -173,7 +230,7 @@ function TasksPage() {
               {view === "timeline" ? "Tasks" : "Timeline"}
             </AppButton>
             <AppButton
-              onClick={handleImport}
+              onClick={() => void syncFromDisk(true)}
               disabled={importing}
               variant="primary"
               size="sm"
