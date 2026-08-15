@@ -524,3 +524,12 @@ html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
   0% { opacity: 0; transform: translateY(4px); }
   100% { opacity: 1; transform: none; }
 }
+/* Tab strips scroll horizontally; hide the scrollbar so it never overlaps the
+   pills (overlay/classic scrollbars sit on top of the pill row and block
+   right-click near the bottom edge). Wheel / shift+wheel still scrolls. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

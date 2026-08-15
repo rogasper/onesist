@@ -112,14 +112,23 @@ pub fn run() {
         // the close-to-tray handler lets the window close. Stop the sidecar
         // and hard-exit — Tauri's app.exit() can hang with a tray icon
         // present, leaking WebView memory.
-        RunEvent::ExitRequested { .. } => {
-          tray::mark_quitting();
-          // Hard-exit FIRST (in a detached thread) so a hang in sidecar stop
-          // or event emission can never prevent termination.
-          std::thread::spawn(|| {
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            std::process::exit(0);
-          });
+        //
+        // EXCEPTION: relaunch() (plugin-process) requests exit with code
+        // i32::MAX to signal "restart on exit". Tauri consumes that flag in
+        // the Exit event and spawns a new instance (process::restart). The
+        // hard-exit below must NOT run for that code, or the app would die on
+        // macOS without ever reopening after an update install.
+        RunEvent::ExitRequested { code, .. } => {
+          const RESTART_EXIT_CODE: i32 = i32::MAX;
+          if code != Some(RESTART_EXIT_CODE) {
+            tray::mark_quitting();
+            // Hard-exit FIRST (in a detached thread) so a hang in sidecar stop
+            // or event emission can never prevent termination.
+            std::thread::spawn(|| {
+              std::thread::sleep(std::time::Duration::from_millis(150));
+              std::process::exit(0);
+            });
+          }
           if let Some(state) = app.try_state::<sidecar::SidecarState>() {
             state.stop();
           }

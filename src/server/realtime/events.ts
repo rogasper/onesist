@@ -87,7 +87,10 @@ class AppEventBus extends EventEmitter {
   createTicket(): string {
     const ticket = crypto.randomUUID();
     if (this.tickets.size > 512) this.pruneTickets();
-    this.tickets.set(ticket, Date.now() + 60000);
+    // Long TTL: tickets only gate the initial SSE connect, and agent runs can
+    // take minutes — a 60s expiry made EventSource auto-reconnects 401 mid-run
+    // (clients silently deaf to the completion events). Local single-user app.
+    this.tickets.set(ticket, Date.now() + 30 * 60 * 1000);
     return ticket;
   }
 

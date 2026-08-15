@@ -50,6 +50,7 @@ router.post("projects/:id/specs/import", async ({ params }) => {
 
   let totalSpecs = 0;
   let totalEndpoints = 0;
+  const skippedFiles: string[] = [];
 
   const persistSpec = (sourceName: string, moduleName: string, endpoints: any[]) => {
     const specId = crypto.randomUUID();
@@ -79,6 +80,8 @@ router.post("projects/:id/specs/import", async ({ params }) => {
   const masterContent = readFile(rootPath, "MASTER_SPEC_API.md");
   if (masterContent) {
     const modules = parseMarkdownToModules(masterContent);
+    const parsed = modules.some((m) => m.endpoints.length > 0);
+    if (!parsed) skippedFiles.push("MASTER_SPEC_API.md");
     for (const mod of modules) {
       if (mod.endpoints.length === 0) continue;
       persistSpec("MASTER", mod.fullName, mod.endpoints);
@@ -99,6 +102,7 @@ router.post("projects/:id/specs/import", async ({ params }) => {
               const content = readFile(rootPath, rel);
               if (!content) continue;
               const modules = parseMarkdownToModules(content);
+              if (!modules.some((m) => m.endpoints.length > 0)) skippedFiles.push(rel);
               for (const mod of modules) {
                 if (mod.endpoints.length === 0) continue;
                 persistSpec(item.name.replace(/\.md$/, ""), mod.fullName, mod.endpoints);
@@ -113,5 +117,5 @@ router.post("projects/:id/specs/import", async ({ params }) => {
     }
   } catch {}
 
-  return json({ imported: { specs: totalSpecs, endpoints: totalEndpoints } });
+  return json({ imported: { specs: totalSpecs, endpoints: totalEndpoints }, skipped: skippedFiles.length });
 });

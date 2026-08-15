@@ -307,7 +307,9 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   const [draftContent, setDraftContent] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pendingSwitch, setPendingSwitch] = useState<{ kind: "tab" | "file" | "close"; path: string; file?: { name: string; path: string } } | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<{ kind: "tab" | "file" | "close" | "close-others" | "close-all"; path: string; file?: { name: string; path: string } } | null>(null);
+  // Right-click menu on an open tab pill.
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; path: string } | null>(null);
   const editorContent = draftContent ?? activeContent ?? "";
 
   // Clear the draft whenever the active file changes (covers confirmed
@@ -335,9 +337,16 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   }, [activeTabPath, project?.id, editorContent, refreshContent]);
 
   // Run a navigation action, guarding against losing unsaved edits: switching
-  // to another tab/file or closing the ACTIVE tab while dirty asks first.
-  const requestLeave = useCallback((action: { kind: "tab" | "file" | "close"; path: string; file?: { name: string; path: string } }) => {
-    const switchingAway = action.kind === "close" ? action.path === activeTabPath : action.path !== activeTabPath;
+  // to another tab/file, closing the ACTIVE tab, or bulk-closing tabs that
+  // include the active one while dirty asks first.
+  const requestLeave = useCallback((action: { kind: "tab" | "file" | "close" | "close-others" | "close-all"; path: string; file?: { name: string; path: string } }) => {
+    const switchingAway = action.kind === "close"
+      ? action.path === activeTabPath
+      : action.kind === "close-others"
+        ? action.path !== activeTabPath
+        : action.kind === "close-all"
+          ? activeTabPath !== null
+          : action.path !== activeTabPath;
     if (dirty && switchingAway) {
       setPendingSwitch(action);
       return;
@@ -346,8 +355,15 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
     setDirty(false);
     if (action.kind === "tab") setActiveTabPath(action.path);
     else if (action.kind === "file") onFileClick(action.file!);
-    else onTabClose(action.path);
-  }, [dirty, activeTabPath, onFileClick, onTabClose, setActiveTabPath]);
+    else if (action.kind === "close") onTabClose(action.path);
+    else if (action.kind === "close-others") {
+      setOpenTabs((prev) => prev.filter((t) => t.path === action.path));
+      setActiveTabPath(action.path);
+    } else {
+      setOpenTabs([]);
+      setActiveTabPath(null);
+    }
+  }, [dirty, activeTabPath, onFileClick, onTabClose, setActiveTabPath, setOpenTabs]);
 
   const totalFiles = Object.values(dirs).flat().length;
   const DIR_ORDER = ["input", "output"];
@@ -418,7 +434,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
           {/* Tab bar */}
           {openTabs.length > 0 ? (
             <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-kumo-line/50 bg-kumo-elevated/20 shrink-0">
-              <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 no-scrollbar">
                 {openTabs.map((t) => (
                   <div key={t.path}
                     className={`group flex items-center gap-1.5 px-3 py-1 text-xs rounded-full cursor-pointer shrink-0 transition-all ${
@@ -426,7 +442,11 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                         ? "liquid-wash font-medium"
                         : "border border-kumo-line/40 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-tint"
                     }`}
-                    onClick={() => requestLeave({ kind: "tab", path: t.path })}>
+                    onClick={() => requestLeave({ kind: "tab", path: t.path })}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setTabMenu({ x: e.clientX, y: e.clientY, path: t.path });
+                    }}>
                     <span className="max-w-40 truncate">{t.name}</span>
                     <button
                       type="button"
@@ -522,7 +542,14 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
         setDirty(false);
         if (action.kind === "tab") setActiveTabPath(action.path);
         else if (action.kind === "file") onFileClick(action.file!);
-        else onTabClose(action.path);
+        else if (action.kind === "close") onTabClose(action.path);
+        else if (action.kind === "close-others") {
+          setOpenTabs((prev) => prev.filter((t) => t.path === action.path));
+          setActiveTabPath(action.path);
+        } else {
+          setOpenTabs([]);
+          setActiveTabPath(null);
+        }
       }}
       confirmLabel="Discard"
       cancelLabel="Keep editing"
@@ -530,6 +557,19 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
     >
       You have unsaved changes in <code className="text-[11px] text-kumo-default">{activeTabPath}</code>. Discard them and switch files?
     </ConfirmDialog>
+
+    {tabMenu && (
+      <ContextMenu
+        x={tabMenu.x}
+        y={tabMenu.y}
+        items={[
+          { label: "Close tab", onClick: () => requestLeave({ kind: "close", path: tabMenu.path }) },
+          { label: "Close other tabs", onClick: () => requestLeave({ kind: "close-others", path: tabMenu.path }) },
+          { label: "Close all tabs", onClick: () => requestLeave({ kind: "close-all", path: tabMenu.path }) },
+        ]}
+        onClose={() => setTabMenu(null)}
+      />
+    )}
     </>
   );
 }

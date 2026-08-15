@@ -1,4 +1,4 @@
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { check, type Update, type DownloadEvent } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
@@ -31,9 +31,18 @@ export function requestUpdateCheck() {
 }
 
 type BannerState =
-  | { status: "idle" | "checking" | "installing" | "none" }
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "none" }
   | { status: "available"; update: Update }
-  | { status: "error"; message: string };
+  | { status: "downloading"; update: Update; downloaded: number; total: number | null }
+  | { status: "downloaded"; update: Update }
+  | { status: "installing"; update: Update }
+  | { status: "error"; phase: "check" | "install"; message: string };
+
+function fmtBytes(n: number): string {
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
 
 /**
  * In-app auto-update banner. Only active in the Tauri desktop shell; no-ops
@@ -42,10 +51,12 @@ type BannerState =
  *
  * Unlike a silent no-op, failures surface as a visible banner with a retry
  * button so a broken updater is never indistinguishable from "no update".
+ *
+ * Flow: available → (Unduh & Pasang) → downloading with progress bar →
+ * downloaded ("siap dipasang") → (Install & Restart) → installing → relaunch.
  */
 export function UpdateBanner() {
   const [state, setState] = useState<BannerState>({ status: "idle" });
-  const isInstalling = state.status === "installing";
 
   const checkOnce = useCallback(async () => {
     setState((prev) => (prev.status === "available" ? prev : { status: "checking" }));
@@ -64,7 +75,7 @@ export function UpdateBanner() {
         }
       }
     }
-    setState({ status: "error", message: lastError instanceof Error ? lastError.message : String(lastError) });
+    setState({ status: "error", phase: "check", message: lastError instanceof Error ? lastError.message : String(lastError) });
   }, []);
 
   useEffect(() => {
@@ -93,6 +104,43 @@ export function UpdateBanner() {
     };
   }, [checkOnce]);
 
+  // Download with progress. download() resolves when the package is staged;
+  // each chunk adds to `downloaded` so the bar can show a real percentage.
+  // `Started.contentLength` is optional — without it the bar is indeterminate.
+  const startDownload = useCallback(async (update: Update) => {
+    setState({ status: "downloading", update, downloaded: 0, total: null });
+    try {
+      await update.download((event: DownloadEvent) => {
+        if (event.event === "Started") {
+          setState((prev) =>
+            prev.status === "downloading" ? { ...prev, total: event.data.contentLength ?? null } : prev);
+        } else if (event.event === "Progress") {
+          setState((prev) =>
+            prev.status === "downloading" ? { ...prev, downloaded: prev.downloaded + event.data.chunkLength } : prev);
+        } else if (event.event === "Finished") {
+          setState({ status: "downloaded", update });
+        }
+      });
+    } catch (e) {
+      setState({ status: "error", phase: "install", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  const installAndRestart = useCallback(async (update: Update) => {
+    setState({ status: "installing", update });
+    try {
+      await update.install();
+      // macOS: install() swaps the .app in place WITHOUT quitting, so the app
+      // must be relaunched explicitly — lib.rs skips its hard exit for the
+      // restart code (i32::MAX) so Tauri's own restart path can respawn the
+      // app. Windows: install() terminates the process inside the updater and
+      // the NSIS installer relaunches — this line never runs there.
+      await relaunch();
+    } catch (e) {
+      setState({ status: "error", phase: "install", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
   if (state.status === "idle") return null;
   if (state.status === "none") return null;
 
@@ -105,24 +153,94 @@ export function UpdateBanner() {
   }
 
   if (state.status === "error") {
+    // Check errors are usually network reachability (GitHub CDN) — keep the
+    // friendly copy. Download/install errors are local — show the real message.
+    if (state.phase === "check") {
+      return (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-red-500/40 bg-red-500/10">
+          <span className="text-sm text-red-200 truncate" title={state.message}>
+            Tidak dapat terhubung ke server update. Periksa koneksi internet.
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => void checkOnce()}
+              className="px-3 py-1 rounded bg-kumo-subtle text-kumo-default text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              Coba lagi
+            </button>
+            <button
+              type="button"
+              onClick={() => setState({ status: "none" })}
+              className="text-kumo-subtle hover:text-kumo-default text-xs cursor-pointer"
+              aria-label="Tutup banner error"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-red-500/40 bg-red-500/10">
         <span className="text-sm text-red-200 truncate" title={state.message}>
-          Tidak dapat terhubung ke server update. Periksa koneksi internet.
+          Gagal memasang update: {state.message}
+        </span>
+        <button
+          type="button"
+          onClick={() => setState({ status: "none" })}
+          className="text-kumo-subtle hover:text-kumo-default text-xs cursor-pointer shrink-0"
+          aria-label="Tutup banner error"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
+
+  if (state.status === "downloading") {
+    const percent = state.total
+      ? Math.min(100, Math.round((state.downloaded / state.total) * 100))
+      : null;
+    return (
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-3 text-xs text-kumo-default mb-1.5">
+            <span>Mengunduh update v{state.update.version}…</span>
+            <span className="text-kumo-subtle shrink-0">
+              {percent !== null ? `${percent}%` : fmtBytes(state.downloaded)}
+            </span>
+          </div>
+          <div className="h-1.5 rounded-full bg-kumo-elevated overflow-hidden">
+            <div
+              className={`h-full bg-kumo-brand transition-all duration-200 ${percent === null ? "animate-pulse" : ""}`}
+              style={{ width: percent !== null ? `${percent}%` : "40%" }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "downloaded") {
+    return (
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
+        <span className="text-sm text-kumo-default truncate">
+          Update v{state.update.version} siap dipasang
         </span>
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => void checkOnce()}
-            className="px-3 py-1 rounded bg-kumo-subtle text-kumo-default text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
+            onClick={() => void installAndRestart(state.update)}
+            className="px-3 py-1 rounded bg-kumo-brand text-white text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
           >
-            Coba lagi
+            Install & Restart
           </button>
           <button
             type="button"
             onClick={() => setState({ status: "none" })}
             className="text-kumo-subtle hover:text-kumo-default text-xs cursor-pointer"
-            aria-label="Tutup banner error"
+            aria-label="Tutup banner update"
           >
             ✕
           </button>
@@ -131,39 +249,28 @@ export function UpdateBanner() {
     );
   }
 
-  if (state.status !== "available") return null;
+  if (state.status === "installing") {
+    return (
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
+        <span className="text-sm text-kumo-default">Memasang update v{state.update.version}…</span>
+      </div>
+    );
+  }
 
+  // available
   const { update } = state;
-
-  const install = async () => {
-    setState({ status: "installing" });
-    try {
-      await update.downloadAndInstall(() => {});
-      await relaunch();
-    } catch (e) {
-      setState({
-        status: "error",
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  };
-
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
-      <span className="text-sm text-kumo-default">
+      <span className="text-sm text-kumo-default truncate">
         Update tersedia — v{update.version}
       </span>
-      <div className="flex items-center gap-2">
-        {isInstalling && (
-          <span className="text-xs text-kumo-subtle">Mengunduh & memasang…</span>
-        )}
+      <div className="flex items-center gap-2 shrink-0">
         <button
           type="button"
-          onClick={() => void install()}
-          disabled={isInstalling}
-          className="px-3 py-1 rounded bg-kumo-brand text-white text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
+          onClick={() => void startDownload(update)}
+          className="px-3 py-1 rounded bg-kumo-brand text-white text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
         >
-          Install & Restart
+          Unduh & Pasang
         </button>
         <button
           type="button"

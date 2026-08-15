@@ -88,7 +88,15 @@ export function AgentStream({ sessionId, onDone, onError, onStopped, onFeedback,
   const [now, setNow] = useState(() => Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastActivityRef = useRef(Date.now());
-  const replayedForRef = useRef<string | null>(null);
+  // Highest event timestamp already applied for this session (replay or live).
+  // Persists across effect re-runs (visibility toggles, reconnects) so the
+  // buffered replay can be re-applied as an idempotent delta — without it, a
+  // session that finished while the SSE stream was closed (window hidden /
+  // connection dropped) never reaches the UI: the one-shot replay guard
+  // skipped the buffered completion and the fresh stream gets no live events.
+  const appliedTsRef = useRef(0);
+  const statusRef = useRef(status);
+  useEffect(() => { statusRef.current = status; }, [status]);
   const pageVisible = usePageVisible();
 
   const pushLog = useCallback((level: string, message: string) => {
@@ -176,40 +184,91 @@ export function AgentStream({ sessionId, onDone, onError, onStopped, onFeedback,
   useEffect(() => {
     let mounted = true;
     let es: EventSource | null = null;
-    let errorCount = 0;
-    let lastReplayTs = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+    let retries = 0;
 
-    const init = async () => {
+    // Apply buffered events newer than the applied cursor. Idempotent — safe
+    // on every init, reconnect, and onopen. Returns whether a terminal event
+    // (completed/failed/stopped/done/error) was applied.
+    const applyReplayDelta = async (): Promise<boolean> => {
       try {
-        const [ticketRes, replayRes] = await Promise.all([
-          fetch("/api/events/ticket", { method: "POST", cache: "no-store" }).then((r) => r.json()),
-          fetch(`/api/agent/logs?sessionId=${encodeURIComponent(sessionId)}`, { cache: "no-store" })
-            .then((r) => r.json())
-            .catch(() => ({ events: [] })),
-        ]);
-        if (!mounted || !ticketRes.ticket) return;
-
-        // Apply the buffered replay ONCE per session — the effect can re-run
-        // (visibility toggles), and re-applying would duplicate every line.
-        if (replayedForRef.current !== sessionId) {
-          const replay = Array.isArray(replayRes?.events) ? replayRes.events : [];
-          lastReplayTs = replay.reduce((m: number, e: any) => Math.max(m, e.ts ?? 0), 0);
-          for (const e of replay) applyEvent(e.type, e.data);
-          replayedForRef.current = sessionId;
+        const res = await fetch(`/api/agent/logs?sessionId=${encodeURIComponent(sessionId)}`, { cache: "no-store" });
+        const d = await res.json();
+        if (!mounted) return false;
+        const replay = Array.isArray(d?.events) ? d.events : [];
+        let maxTs = appliedTsRef.current;
+        let terminal = false;
+        for (const e of replay) {
+          const ts = e?.ts ?? 0;
+          if (ts <= appliedTsRef.current) continue;
+          applyEvent(e.type, e.data);
+          if (ts > maxTs) maxTs = ts;
+          if (e.type === "agent:done" || e.type === "agent:error"
+            || (e.type === "agent:status" && ["completed", "failed", "stopped"].includes(e?.data?.status))) {
+            terminal = true;
+          }
         }
-        setReplayPending(false);
+        appliedTsRef.current = maxTs;
+        return terminal;
+      } catch {
+        return false;
+      }
+    };
 
+    const scheduleRetry = () => {
+      if (!mounted) return;
+      retries += 1;
+      if (retries > 8) {
+        // Stream permanently dead (e.g. server restarted mid-run, history
+        // lost) — fall back to a status poll so the UI can never stay
+        // "running" forever.
+        if (!fallbackTimer) {
+          fallbackTimer = setInterval(async () => {
+            try {
+              const terminal = await applyReplayDelta();
+              if (!mounted) return;
+              if (terminal || statusRef.current !== "running") {
+                clearInterval(fallbackTimer!);
+                fallbackTimer = null;
+                return;
+              }
+              const res = await fetch("/api/agent/status", { cache: "no-store" });
+              const d = await res.json();
+              const stillRunning = Array.isArray(d?.running) && d.running.some((a: any) => a.sessionId === sessionId);
+              if (!stillRunning) {
+                clearInterval(fallbackTimer!);
+                fallbackTimer = null;
+                pushLog("error", "✗ Koneksi ke agent terputus — status tidak diketahui. Muat ulang halaman.");
+                onError?.("Koneksi ke agent terputus — status tidak diketahui. Muat ulang halaman.");
+              }
+            } catch {}
+          }, 15000);
+        }
+        return;
+      }
+      retryTimer = setTimeout(() => { void openStream(); }, 1500 * Math.min(retries, 4));
+    };
+
+    const openStream = async () => {
+      try {
+        const ticketRes = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" }).then((r) => r.json());
+        if (!mounted) return;
+        if (!ticketRes.ticket) throw new Error("no ticket");
         es = new EventSource(`/api/events?ticket=${ticketRes.ticket}`);
 
         const handleLive = (type: string) => (e: MessageEvent) => {
           if (!mounted) return;
-          const payload = JSON.parse(e.data);
-          if (lastReplayTs && payload.timestamp && payload.timestamp <= lastReplayTs) return;
-          // SSE payload is NESTED: { type, data:{level,message,sessionId}, timestamp }.
-          // applyEvent expects the INNER data — passing the whole payload made
-          // every live log/status have undefined fields (logs invisible until
-          // refresh replayed them; that was the "not realtime" bug).
-          applyEvent(type, payload.data);
+          try {
+            const payload = JSON.parse(e.data);
+            if (!payload.timestamp || payload.timestamp <= appliedTsRef.current) return;
+            appliedTsRef.current = payload.timestamp;
+            // SSE payload is NESTED: { type, data:{level,message,sessionId}, timestamp }.
+            // applyEvent expects the INNER data — passing the whole payload made
+            // every live log/status have undefined fields (logs invisible until
+            // refresh replayed them; that was the "not realtime" bug).
+            applyEvent(type, payload.data);
+          } catch {}
         };
 
         es.addEventListener("agent:log", handleLive("agent:log"));
@@ -217,16 +276,31 @@ export function AgentStream({ sessionId, onDone, onError, onStopped, onFeedback,
         es.addEventListener("agent:done", handleLive("agent:done"));
         es.addEventListener("agent:error", handleLive("agent:error"));
 
-        // Guard against infinite auto-reconnect when the server is down —
-        // otherwise the WebView spins reconnect requests forever (memory leak).
+        // Close the snapshot/connect race: events emitted between the logs
+        // fetch and the live handshake are replayed once connected.
+        es.onopen = () => { void applyReplayDelta(); };
+
+        // Do NOT rely on EventSource auto-reconnect: it reuses the original
+        // ticket, which expires mid-run and then 401s forever. Close and
+        // re-init with a FRESH ticket + delta replay, so a dropped connection
+        // can never lose the completion events. Retries are capped so a dead
+        // server can't spin reconnect attempts forever.
         es.onerror = () => {
-          errorCount += 1;
-          if (errorCount > 5) {
-            es?.close();
-            es = null;
-          }
+          es?.close();
+          es = null;
+          scheduleRetry();
         };
-      } catch {}
+      } catch {
+        es?.close();
+        es = null;
+        scheduleRetry();
+      }
+    };
+
+    const init = async () => {
+      await applyReplayDelta();
+      setReplayPending(false);
+      await openStream();
     };
 
     if (pageVisible) void init();
@@ -235,8 +309,10 @@ export function AgentStream({ sessionId, onDone, onError, onStopped, onFeedback,
       mounted = false;
       es?.close();
       es = null;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (fallbackTimer) clearInterval(fallbackTimer);
     };
-  }, [sessionId, pageVisible, pushLog, applyEvent]);
+  }, [sessionId, pageVisible, pushLog, applyEvent, onError]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

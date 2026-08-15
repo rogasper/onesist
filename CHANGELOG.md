@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.1.14 — Fix agent stuck, update banner progress, spec parser toleran, macOS update relaunch, UI fixes
+
+### Agent & SSE — UI tidak lagi stuck "berjalan" padahal proses selesai
+- **`AgentStream` replay berbasis delta timestamp** (`src/components/agent/AgentStream.tsx`) — guard replay satu-kali diganti cursor `appliedTsRef` yang persisten: setiap init/reconnect/`onopen` menerapkan ulang event yang lebih baru dari kursor (idempotent). Sebelumnya, event selesai (`completed`/`done`) yang direkam server saat jendela di-hide (SSE ditutup `usePageVisible`) tidak pernah di-replay → UI stuck "Agent berjalan…" sampai refresh. Kini event selesai langsung ter-replay saat jendela kembali terlihat.
+- **Reconnect dengan ticket baru** — koneksi yang putus tidak lagi memakai ticket basi (auto-reconnect EventSource → 401 selamanya); setiap reconnect fetch ticket baru + delta replay, dengan backoff dan cap retry. Jaring pengaman terakhir: stream mati permanen → polling `/api/agent/status` → UI un-stick dengan pesan peringatan.
+- **TTL ticket SSE 60s → 30 menit** (`src/server/realtime/events.ts`) — membantu semua konsumen SSE (FSD/tasks/spec) yang mengandalkan auto-reconnect.
+
+### Auto-update
+- **Progress download di banner update** (`src/components/UpdateBanner.tsx`) — alur baru: "Unduh & Pasang" → bar progress dengan persentase (indeterminate bila server tidak kirim Content-Length) → "Update siap dipasang" → tombol "Install & Restart". Error dibedakan fase: error pengecekan vs error download/install (menampilkan pesan aslinya).
+- **Fix macOS: aplikasi tidak terbuka lagi setelah update** (`src-tauri/src/lib.rs`) — handler `ExitRequested` kini membedakan user quit (hard-exit tetap) vs restart dari `relaunch()` (kode `i32::MAX`): hard-exit di-skip untuk restart agar jalur Tauri `process::restart()` berjalan dan aplikasi terbuka kembali di versi baru. Windows tidak terpengaruh (NSIS yang relaunch sendiri).
+
+### Spec API — parser toleran + auto-sync
+- **Parser toleran** (`src/lib/spec-parser.ts`) — endpoint kini terdeteksi untuk berbagai varian heading yang dihasilkan model: `### NO: 1 — GET /api/users` (kanonik), `### 1. GET /api/users — judul` (titik), `### GET /api/users` (tanpa ID), `#### POST /api/v1/login | desc` (pipe), `## GET /api/users` (H2 rata), dan fallback modul H1 (judul dokumen dilewati). Method/path di heading diteruskan ke card; legacy table & SKIP_SECTIONS tetap.
+- **Auto-sync seperti Tasks** (`src/routes/projects.$id.spec.tsx`) — import otomatis saat halaman dibuka + live via SSE `file:changed` (filter `output/spec`); tombol "Sync to DB" tetap sebagai refresh manual. Badge menampilkan `· N file kosong` saat ada file gagal parse; card kosong kini menampilkan peringatan + saran tampilan Document (tidak lagi senyap).
+
+### Overview & FileTree
+- **Context menu pada pill tab** (Overview) — klik kanan: Close tab / Close other tabs / Close all tabs, dengan guard "Discard unsaved changes?" bila ada edit belum disimpan.
+- **Scrollbar strip tab disembunyikan** (`.no-scrollbar`) — scrollbar horizontal tidak lagi menimpa pill sehingga klik kanan berfungsi penuh; scroll tetap via wheel.
+- **Fix nama terpotong di FileTree** (`FileTree.tsx`/`FileRow.tsx`) — ellipsis kini benar-benar berfungsi (label div `min-w-0 truncate`, nama folder `flex-1 min-w-0`), nama lengkap tersedia via tooltip hover; folder sedalam apa pun tidak lagi ter-clip.
+
+---
+
 ## v0.1.13 — Fix cursor MDXEditor melompat ke awal (Windows, halaman FSD)
 
 ### Bugfix

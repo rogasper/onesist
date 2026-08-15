@@ -8,8 +8,9 @@ import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { parseMarkdownToModules } from "~/lib/spec-parser";
 import { SpecSidebar } from "~/components/spec/SpecSidebar";
 import { SpecViewer } from "~/components/spec/SpecViewer";
-import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
+import { useFileList, useFileContent, useFileWatch, usePageVisible } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
+import { InlineAlert } from "~/components/ui/InlineAlert";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { Placeholder } from "~/components/ui/Placeholder";
 import { SearchInput } from "~/components/ui/SearchInput";
@@ -28,7 +29,7 @@ function SpecPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
-  const [syncedStats, setSyncedStats] = useState<{ specs: number; endpoints: number } | null>(null);
+  const [syncedStats, setSyncedStats] = useState<{ specs: number; endpoints: number; skipped?: number } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genSessionId, setGenSessionId] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -115,19 +116,71 @@ function SpecPage() {
   const totalEndpoints = modules.reduce((sum, m) => sum + m.endpoints.length, 0);
   const epWithMethod = modules.reduce((sum, m) => sum + m.endpoints.filter((e) => e.method).length, 0);
 
-  const handleSync = useCallback(async () => {
+  // Sync parsed endpoints to SQLite. Idempotent full rebuild, so it is safe to
+  // run automatically — the button stays as a manual refresh complement.
+  const syncFromDisk = useCallback(async (showResult: boolean) => {
     setSyncing(true);
     try {
       const res = await fetch(`/api/projects/${id}/specs/import`, { method: "POST" });
       if (res.ok) {
         const d = await res.json();
-        setSyncedStats(d.imported);
+        if (showResult) setSyncedStats(d.imported);
       }
     } catch (e) {
       console.error("Sync failed", e);
     }
     setSyncing(false);
   }, [id]);
+
+  // Auto-sync on page open (like Tasks/FSD) — no manual step needed.
+  useEffect(() => { void syncFromDisk(false); }, [syncFromDisk]);
+
+  // Live re-sync via SSE file:changed (no polling), filtered to spec files.
+  // Debounced 400ms to coalesce bursts.
+  const pageVisible = usePageVisible();
+  useEffect(() => {
+    if (!pageVisible) return;
+    let es: EventSource | null = null;
+    let mounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let errorCount = 0;
+    const schedule = () => {
+      if (!mounted) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!mounted) return;
+        void syncFromDisk(false);
+      }, 400);
+    };
+    const init = async () => {
+      try {
+        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
+        const d = await res.json();
+        if (!mounted || !d.ticket) return;
+        es = new EventSource(`/api/events?ticket=${d.ticket}`);
+        es.addEventListener("file:changed", (e) => {
+          try {
+            const msg = JSON.parse((e as MessageEvent).data);
+            const p: string = msg?.data?.path ?? "";
+            const norm = p.replace(/\\/g, "/");
+            if (!norm.startsWith("output/spec") && norm !== "MASTER_SPEC_API.md") return;
+            schedule();
+          } catch {}
+        });
+        // Guard against infinite browser auto-reconnect loops.
+        es.onerror = () => {
+          errorCount += 1;
+          if (errorCount > 5) { es?.close(); es = null; }
+        };
+      } catch {}
+    };
+    void init();
+    return () => {
+      mounted = false;
+      if (timer) clearTimeout(timer);
+      es?.close();
+    };
+  }, [pageVisible, syncFromDisk]);
 
   const handleNavigateDetail = useCallback((path: string) => {
     setSelectedSpec(path);
@@ -306,6 +359,7 @@ function SpecPage() {
             {syncedStats && (
               <Badge variant="neutral" className="text-[11px]">
                 {syncedStats.specs} specs · {syncedStats.endpoints} eps in DB
+                {syncedStats.skipped != null && syncedStats.skipped > 0 && ` · ${syncedStats.skipped} file kosong`}
               </Badge>
             )}
           </>
@@ -333,7 +387,7 @@ function SpecPage() {
               Copy Prompt
             </AppButton>
             <AppButton
-              onClick={handleSync}
+              onClick={() => void syncFromDisk(true)}
               disabled={syncing}
               variant="secondary"
               size="sm"
@@ -522,11 +576,22 @@ function SpecPage() {
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
-          <div className="w-48 shrink-0 border-r border-kumo-line overflow-y-auto bg-kumo-elevated/30">
-            <SpecSidebar modules={filteredModules} activeModule={activeModule} onModuleClick={(name) => setActiveModule((p) => p === name ? null : name)} />
+        <div className="flex flex-col flex-1 min-h-0 gap-2">
+          {activeContent && modules.length === 0 && (
+            <div className="px-4 pt-3 shrink-0">
+              <InlineAlert kind="warning" className="whitespace-pre-wrap">
+                File ini tidak ter-parse — format heading endpoint tidak dikenali (contoh yang diterima:{" "}
+                <code className="font-mono text-[11px]">### 1. GET /api/users — judul</code> atau{" "}
+                <code className="font-mono text-[11px]">### NO: 1 — GET /api/users</code>). Gunakan tampilan Document untuk membaca isinya.
+              </InlineAlert>
+            </div>
+          )}
+          <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
+            <div className="w-48 shrink-0 border-r border-kumo-line overflow-y-auto bg-kumo-elevated/30">
+              <SpecSidebar modules={filteredModules} activeModule={activeModule} onModuleClick={(name) => setActiveModule((p) => p === name ? null : name)} />
+            </div>
+            <SpecViewer modules={filteredModules} activeModule={activeModule} totalEndpoints={totalEndpoints} onNavigateDetail={handleNavigateDetail} />
           </div>
-          <SpecViewer modules={filteredModules} activeModule={activeModule} totalEndpoints={totalEndpoints} onNavigateDetail={handleNavigateDetail} />
         </div>
       )}
     </div>

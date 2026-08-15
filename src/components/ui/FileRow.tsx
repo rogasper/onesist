@@ -50,7 +50,7 @@ export function FileRow({
       style={depth ? { paddingLeft: `${12 + depth * 12}px` } : undefined}
     >
       {icon && <span className={`shrink-0 ${active ? "text-white/90" : "opacity-50"}`}>{icon}</span>}
-      <div className={`flex-1 ${noTruncate ? "min-w-max" : "min-w-0"}`}>{children}</div>
+      <div className={`flex-1 ${noTruncate ? "min-w-max" : "min-w-0 truncate"}`}>{children}</div>
       {meta && <span className="shrink-0">{meta}</span>}
     </button>
   );

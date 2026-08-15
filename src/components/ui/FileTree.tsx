@@ -210,8 +210,8 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
             >
               {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
               <Folder size={11} className="opacity-60" />
-              <span className="text-xs truncate">{node.name}</span>
-              <span className="text-[10px] text-kumo-subtle ml-auto">{countFiles(node)}</span>
+              <span className="text-xs flex-1 min-w-0 truncate" title={node.name}>{node.name}</span>
+              <span className="text-[10px] text-kumo-subtle ml-auto shrink-0">{countFiles(node)}</span>
             </button>
             {!isCollapsed && (
               <div className="ml-[9px] pl-1.5 border-l border-kumo-line/25">{renderTreeNodes(node.children ?? [], depth + 1)}</div>
@@ -237,14 +237,13 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
           ) : (
             <FileRow
               depth={depth}
-              noTruncate
               icon={<File size={11} />}
               active={isActive}
               disabled={disabled}
               onClick={() => !disabled && onFileClick(f)}
               onContextMenu={(e) => onFileContextMenu(e, f)}
             >
-              <span className="whitespace-nowrap">{f.name}</span>
+              <span className="whitespace-nowrap" title={f.name}>{f.name}</span>
             </FileRow>
           )}
         </div>
@@ -263,8 +262,8 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
           className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer whitespace-nowrap"
         >
           {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
-          <span className="text-xs truncate">{dirLabel(section.dir)}</span>
-          <span className="text-[10px] text-kumo-subtle ml-auto">{total}</span>
+          <span className="text-xs flex-1 min-w-0 truncate">{dirLabel(section.dir)}</span>
+          <span className="text-[10px] text-kumo-subtle ml-auto shrink-0">{total}</span>
         </button>
         {!isCollapsed && (
           section.nodes.length === 0 ? (
@@ -323,8 +322,8 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
                     className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer whitespace-nowrap"
                   >
                     {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
-                    <span className="text-xs truncate">{dirLabel(node.path)}</span>
-                    <span className="text-[10px] text-kumo-subtle ml-auto">{countFiles(node)}</span>
+                    <span className="text-xs flex-1 min-w-0 truncate">{dirLabel(node.path)}</span>
+                    <span className="text-[10px] text-kumo-subtle ml-auto shrink-0">{countFiles(node)}</span>
                   </button>
                   {!isCollapsed && <div>{renderTreeNodes(node.children ?? [], 0)}</div>}
                 </div>
@@ -348,14 +347,13 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
                   </div>
                 ) : (
                   <FileRow
-                    noTruncate
                     icon={<File size={11} />}
                     active={isActive}
                     disabled={disabled}
                     onClick={() => !disabled && onFileClick(f)}
                     onContextMenu={(e) => onFileContextMenu(e, f)}
                   >
-                    <span className="whitespace-nowrap">{f.name}</span>
+                    <span className="whitespace-nowrap" title={f.name}>{f.name}</span>
                   </FileRow>
                 )}
               </div>
