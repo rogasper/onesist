@@ -1,4 +1,5 @@
 mod memory;
+mod quit_observer;
 mod sidecar;
 mod tray;
 
@@ -57,6 +58,12 @@ pub fn run() {
       // watchdog, but nothing guarded the main process against a leaking
       // WebView (observed 80 GB during update install/relaunch on macOS).
       memory::spawn_memory_watchdog();
+      // macOS: Dock right-click Quit / Cmd+Q do not reliably fire
+      // ExitRequested (tauri#9198) — without this hook the close-to-tray
+      // handler would hide the window instead of exiting, leaving a hidden
+      // WebView leaking memory forever.
+      #[cfg(target_os = "macos")]
+      quit_observer::install();
 
       // Start the sidecar and wait for the web server to become healthy.
       let sc = sidecar::SidecarState::new(app.handle().clone());
@@ -134,6 +141,11 @@ pub fn run() {
               std::thread::sleep(std::time::Duration::from_millis(150));
               std::process::exit(0);
             });
+          } else {
+            // Restart path (update relaunch): tell the macOS quit observer to
+            // stand down — Tauri's Exit handler will spawn the new instance.
+            #[cfg(target_os = "macos")]
+            quit_observer::mark_restarting();
           }
           // Destroy the window FIRST so the WebView releases its memory
           // instead of lingering until process exit (a live WebView during

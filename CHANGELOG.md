@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.17 — Fix Dock Quit macOS tidak benar-benar keluar (sumber kebocoran RAM 80-100 GB)
+
+### Bugfix / Hardening (macOS)
+- **Observer terminasi macOS** (`src-tauri/src/quit_observer.rs`) — Tauri tidak selalu memicu `RunEvent::ExitRequested` untuk Dock right-click Quit / Cmd+Q (isu resmi tauri-apps/tauri#9198, masih open). Tanpa hook ini, handler close-to-tray melihat `QUITTING=false` dan **menyembunyikan jendela alih-alih keluar** — aplikasi terus berjalan dengan WebView tersembunyi yang bocor tanpa kendali (teramati 80-100 GB). Kini `NSApplicationWillTerminateNotification` di-observe (objc2): saat macOS menghentikan aplikasi, proses langsung hard-exit.
+- **Aman untuk update relaunch** — flag `RESTARTING` di-set di jalur restart (`ExitRequested` kode `i32::MAX`); observer mengeceknya sebelum exit sehingga Tauri tetap bisa men-spawn instance baru (aplikasi tetap terbuka kembali setelah update).
+- Deps baru: `objc2` + `objc2-foundation` (sudah ada di tree via tauri).
+
+---
+
 ## v0.1.16 — Memory watchdog proses utama + destroy window saat keluar (fix RAM 80 GB saat update)
 
 ### Bugfix / Hardening memori (macOS)
