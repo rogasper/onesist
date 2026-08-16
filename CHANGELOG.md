@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.15 — Fix spec API card tidak terdeteksi (heading `NO 1 —` tanpa titik dua)
+
+### Bugfix
+- **Parser spec menerima `### NO 1 — POST \`/path\`` (spasi, tanpa titik dua)** (`src/lib/spec-parser.ts`) — colon pada prefix `NO` dibuat opsional (`NO:?`). Sebelumnya hanya format kanonik skill `### NO: 1 — …` yang dikenali; file yang ditulis model dengan `NO 1` (spasi) menghasilkan 0 endpoint → card kosong, hanya tampilan Document yang bisa dibaca. Terverifikasi dengan 3 file riil (`spec_api_001.md` → 2 endpoint, `spec_api_004.md` → 5, `spec_api_pa.md` → 4, method/path tepat) + uji regresi 10 kasus.
+
+---
+
 ## v0.1.14 — Fix agent stuck, update banner progress, spec parser toleran, macOS update relaunch, UI fixes
 
 ### Agent & SSE — UI tidak lagi stuck "berjalan" padahal proses selesai

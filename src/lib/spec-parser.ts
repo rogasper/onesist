@@ -61,8 +61,10 @@ function parseEndpointHeading(line: string): EndpointHeadingInfo | null {
   if (!m) return null;
   const rest = m[1].trim();
 
-  // NO: prefix — id is the token after NO:, title is the remainder
-  const noMatch = rest.match(/^NO:\s*([\w.]+)\s*[—–\-:|]?\s*(.*)$/i);
+  // NO: prefix — id is the token after NO:, title is the remainder.
+  // The colon is optional: agents write both "### NO: 1 — GET /x" (skill
+  // canonical) and "### NO 1 — GET /x" (space, seen in real model output).
+  const noMatch = rest.match(/^NO:?\s*([\w.]+)\s*[—–\-:|]?\s*(.*)$/i);
   if (noMatch) {
     const methodPath = extractMethodPath(noMatch[2]);
     return {
