@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.16 — Memory watchdog proses utama + destroy window saat keluar (fix RAM 80 GB saat update)
+
+### Bugfix / Hardening memori (macOS)
+- **Watchdog memori untuk proses utama** (`src-tauri/src/memory.rs`) — thread sampling RSS proses Onesist (Tauri shell + WebView) tiap 10 detik; melewati `SA_MAX_MAIN_RSS_MB` (default 6000 MB) → log + exit. Sebelumnya hanya sidecar Bun yang punya watchdog (`SA_MAX_RSS_MB`) — WebView yang bocor bisa tumbuh tanpa kendali (teramati **80 GB** saat memasang update/relaunch di macOS). RSS dibaca via `task_info`/`mach_task_basic_info` (macOS) dan `GetProcessMemoryInfo` (Windows, `windows-sys`).
+- **Destroy window di jalur keluar** (`src-tauri/src/lib.rs`) — handler `ExitRequested` (user quit maupun restart update) kini menghancurkan jendela utama terlebih dahulu, sehingga WKWebView melepas memorinya seketika alih-alih hidup selama teardown update/relaunch (sumber kebocoran). Aplikasi tetap terbuka kembali setelah update (jalur restart `i32::MAX` tidak berubah).
+- Deps baru: `libc` (macOS) + `windows-sys` 0.52 (Windows, target-gated).
+
+---
+
 ## v0.1.15 — Fix spec API card tidak terdeteksi (heading `NO 1 —` tanpa titik dua)
 
 ### Bugfix

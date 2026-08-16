@@ -1,3 +1,4 @@
+mod memory;
 mod sidecar;
 mod tray;
 
@@ -51,6 +52,11 @@ pub fn run() {
             .build(),
         )?;
       }
+
+      // Watch our own RSS (Tauri shell + WebView) — the sidecar has its own
+      // watchdog, but nothing guarded the main process against a leaking
+      // WebView (observed 80 GB during update install/relaunch on macOS).
+      memory::spawn_memory_watchdog();
 
       // Start the sidecar and wait for the web server to become healthy.
       let sc = sidecar::SidecarState::new(app.handle().clone());
@@ -128,6 +134,12 @@ pub fn run() {
               std::thread::sleep(std::time::Duration::from_millis(150));
               std::process::exit(0);
             });
+          }
+          // Destroy the window FIRST so the WebView releases its memory
+          // instead of lingering until process exit (a live WebView during
+          // update install/relaunch teardown was the 80 GB leak source).
+          if let Some(win) = app.get_webview_window("main") {
+            let _ = win.destroy();
           }
           if let Some(state) = app.try_state::<sidecar::SidecarState>() {
             state.stop();
