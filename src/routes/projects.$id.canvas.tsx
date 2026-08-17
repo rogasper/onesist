@@ -213,13 +213,19 @@ function CanvasPage() {
         />
       ) : (
         <div className="flex-1 min-h-0 bg-kumo-base overflow-hidden rounded-xl border border-kumo-line relative">
-          <ExcalidrawCanvas
-            key={selectedFile}
-            initialContent={fileText}
-            fileName={selectedFile.split("/").pop() || "sketch.excalidraw.json"}
-            projectId={id}
-            onSave={handleSave}
-          />
+          {fileText === null ? (
+            <div className="flex items-center justify-center h-full">
+              <ListSkeleton rows={4} className="w-full max-w-xs px-4" />
+            </div>
+          ) : (
+            <ExcalidrawCanvas
+              key={selectedFile}
+              initialContent={fileText}
+              fileName={selectedFile.split("/").pop() || "sketch.excalidraw.json"}
+              projectId={id}
+              onSave={handleSave}
+            />
+          )}
         </div>
       )}
 

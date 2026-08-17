@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Excalidraw,
   exportToBlob,
@@ -76,6 +76,29 @@ export default function ExcalidrawInner({
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const initialLoadedKeyRef = useRef<string | null>(null);
+
+  const initialData = useMemo(() => {
+    if (!initialContent || initialContent.trim().length === 0) return undefined;
+    try {
+      if (
+        fileName.endsWith(".mmd") ||
+        (fileName.endsWith(".md") && !initialContent.trim().startsWith("{"))
+      ) {
+        return undefined;
+      }
+      const parsed = JSON.parse(initialContent);
+      const elements = parsed.elements || (Array.isArray(parsed) ? parsed : []);
+      const appState = parsed.appState || {};
+      const files = parsed.files || {};
+      return {
+        elements,
+        appState: { ...appState, theme },
+        files,
+      };
+    } catch {
+      return undefined;
+    }
+  }, [initialContent, fileName, theme]);
 
   const checkMermaidElements = useCallback((elements: readonly any[]) => {
     const count = elements.filter(
@@ -652,6 +675,7 @@ export default function ExcalidrawInner({
       {/* Excalidraw Canvas Area */}
       <div className="flex-1 w-full h-full relative">
         <Excalidraw
+          initialData={initialData}
           excalidrawAPI={(api) => setExcalidrawAPI(api)}
           theme={theme}
           onChange={(elements) => {
