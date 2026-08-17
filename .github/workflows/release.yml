@@ -239,6 +239,6 @@ jobs:
             manifest.json
             artifacts/**/*.dmg
             artifacts/**/*.app.tar.gz
-            artifacts/**/*.exe
-            artifacts/**/*.msi
+            artifacts/**/*setup.exe
+            artifacts/**/*Onesist*.exe
             artifacts/**/*.sig
