@@ -12,8 +12,17 @@ let watcherTimer: ReturnType<typeof setInterval> | null = null;
 const watchRoots = new Set<string>();
 
 const watchDirs = [
-  "input/fsd", "output/spec", "output/erd", "output/task",
-  "output/td", "output/timeline", "output/reports",
+  "input/fsd", "input/fsds",
+  "output/spec", "output/specs",
+  "output/erd", "output/erds",
+  "output/task", "output/tasks",
+  "output/td", "output/tds",
+  "output/timeline", "output/timelines",
+  "output/report", "output/reports",
+  "output/sketch", "output/sketches",
+  "output/rtm", "output/rtms",
+  "output/sit", "output/sits",
+  "output/doc", "output/docs",
 ];
 
 // fullPath -> mtime. Keyed by absolute path to avoid collisions between roots.

@@ -34,6 +34,7 @@ export const Route = createFileRoute("/projects/$id")({
 const TAB_ITEMS = [
   { value: "overview", label: "Overview" },
   { value: "erd", label: "ERD" },
+  { value: "canvas", label: "Canvas" },
   { value: "spec", label: "API Spec" },
   { value: "tasks", label: "Tasks" },
   { value: "fsd", label: "FSD Analyzer" },
@@ -80,6 +81,7 @@ function ProjectLayout() {
   }, [project?.id]);
 
   const activeTab = location.pathname.includes("/erd") ? "erd"
+    : location.pathname.includes("/canvas") ? "canvas"
     : location.pathname.includes("/spec") ? "spec"
     : location.pathname.includes("/wiki") ? "wiki"
     : location.pathname.includes("/tasks") ? "tasks"

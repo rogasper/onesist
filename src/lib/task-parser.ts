@@ -17,32 +17,48 @@ export interface ParsedTask {
 export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skippedFiles: string[] } {
   const tasks: ParsedTask[] = [];
   const skippedFiles: string[] = [];
-  const taskRoot = path.join(rootPath, "output", "task");
-  if (!fs.existsSync(taskRoot)) return { tasks, skippedFiles };
 
-  const rootFiles = fs.readdirSync(taskRoot).filter((f) =>
-    f.endsWith(".md") && !f.startsWith(".") && (/^tasks?_/i.test(f) || f === "task.md" || f === "MASTER_TASK.md"),
-  );
-  for (const file of rootFiles) {
-    const content = fs.readFileSync(path.join(taskRoot, file), "utf-8");
-    const parsed = parseTaskFile(content, file);
-    if (parsed.length === 0) skippedFiles.push(file);
-    tasks.push(...parsed);
-  }
+  // Support both output/task and output/tasks
+  const candidateDirs = ["output/task", "output/tasks"];
+  const existingRoots = candidateDirs
+    .map((d) => ({ rel: d, full: path.join(rootPath, d) }))
+    .filter((entry) => fs.existsSync(entry.full));
 
-  const dirs = fs.readdirSync(taskRoot, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith("."))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  for (const dir of dirs) {
-    const phasePath = path.join(taskRoot, dir.name);
-    const phaseFiles = fs.readdirSync(phasePath).filter((f) => f.endsWith(".md"));
-    phaseFiles.sort((a, b) => (a === "master.md" ? -1 : b === "master.md" ? 1 : a.localeCompare(b)));
-    for (const file of phaseFiles) {
-      const content = fs.readFileSync(path.join(phasePath, file), "utf-8");
-      const rel = `${dir.name}/${file}`;
-      const parsed = file === "master.md" ? parseMasterMd(content, dir.name) : parsePhaseTaskFile(content, file, dir.name);
-      if (parsed.length === 0) skippedFiles.push(rel);
+  if (existingRoots.length === 0) return { tasks, skippedFiles };
+
+  const processedRelativeFiles = new Set<string>();
+
+  for (const { rel: relDir, full: taskRoot } of existingRoots) {
+    const rootFiles = fs.readdirSync(taskRoot).filter((f) =>
+      f.endsWith(".md") && !f.startsWith(".") && (/^tasks?_/i.test(f) || f === "task.md" || f === "MASTER_TASK.md"),
+    );
+    for (const file of rootFiles) {
+      if (processedRelativeFiles.has(file)) continue;
+      processedRelativeFiles.add(file);
+      const content = fs.readFileSync(path.join(taskRoot, file), "utf-8");
+      const parsed = parseTaskFile(content, file, relDir);
+      if (parsed.length === 0) skippedFiles.push(file);
       tasks.push(...parsed);
+    }
+
+    const dirs = fs.readdirSync(taskRoot, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const dir of dirs) {
+      const phasePath = path.join(taskRoot, dir.name);
+      const phaseFiles = fs.readdirSync(phasePath).filter((f) => f.endsWith(".md"));
+      phaseFiles.sort((a, b) => (a === "master.md" ? -1 : b === "master.md" ? 1 : a.localeCompare(b)));
+      for (const file of phaseFiles) {
+        const rel = `${dir.name}/${file}`;
+        if (processedRelativeFiles.has(rel)) continue;
+        processedRelativeFiles.add(rel);
+        const content = fs.readFileSync(path.join(phasePath, file), "utf-8");
+        const parsed = file === "master.md"
+          ? parseMasterMd(content, dir.name, relDir)
+          : parsePhaseTaskFile(content, file, dir.name, relDir);
+        if (parsed.length === 0) skippedFiles.push(rel);
+        tasks.push(...parsed);
+      }
     }
   }
 
@@ -84,7 +100,7 @@ export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skipp
   return { tasks: result, skippedFiles };
 }
 
-function parseMasterMd(content: string, phase: string): ParsedTask[] {
+function parseMasterMd(content: string, phase: string, baseDir: string = "output/task"): ParsedTask[] {
   const tasks: ParsedTask[] = [];
   const lines = content.split("\n");
 
@@ -141,7 +157,7 @@ function parseMasterMd(content: string, phase: string): ParsedTask[] {
         status: "todo",
         phase,
         contentMd: sectionContent,
-        sourcePath: `output/task/${phase}/master.md`,
+        sourcePath: `${baseDir}/${phase}/master.md`,
       });
     }
   }
@@ -149,7 +165,7 @@ function parseMasterMd(content: string, phase: string): ParsedTask[] {
   return tasks;
 }
 
-function parseTaskFile(content: string, filename: string): ParsedTask[] {
+function parseTaskFile(content: string, filename: string, baseDir: string = "output/task"): ParsedTask[] {
   const tasks: ParsedTask[] = [];
   const lines = content.split("\n");
   // Combined task files (task.md / MASTER_TASK.md) share no module prefix —
@@ -234,17 +250,17 @@ function parseTaskFile(content: string, filename: string): ParsedTask[] {
       assignee, module: moduleName, parentCode: null,
       status: "todo", phase: null,
       contentMd: sectionContent,
-      sourcePath: `output/task/${filename}`,
+      sourcePath: `${baseDir}/${filename}`,
     });
   }
 
   return tasks;
 }
 
-function parsePhaseTaskFile(content: string, filename: string, phase: string): ParsedTask[] {
+function parsePhaseTaskFile(content: string, filename: string, phase: string, baseDir: string = "output/task"): ParsedTask[] {
   const tasks: ParsedTask[] = [];
   const lines = content.split("\n");
-  const sourcePath = `output/task/${phase}/${filename}`;
+  const sourcePath = `${baseDir}/${phase}/${filename}`;
 
   const header = lines[0] || "";
   const headerMatch = header.match(/^#\s+(\S+)\s*[|]\s*(.+)/);

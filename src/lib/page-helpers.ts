@@ -9,6 +9,7 @@ export type PageHelpKey =
   | "overview"
   | "fsd"
   | "erd"
+  | "canvas"
   | "spec"
   | "tasks"
   | "rtm"
@@ -228,6 +229,28 @@ const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
         "Create pages via the New Page button; edit markdown in the editor (MDXEditor).",
         "Link artifact/FSD files in wiki pages via markdown to stay connected with the pipeline.",
         "Changes save to the project root — keep the folder structure tidy.",
+      ],
+    },
+  },
+
+  canvas: {
+    title: { id: "Sketch & Wireframe Canvas — Petunjuk Pemakaian", en: "Sketch & Wireframe Canvas — How to Use" },
+    tips: {
+      id: [
+        "Canvas interaktif berbasis Excalidraw untuk coret-coretan arsitektur, flow ideasi, dan wireframing UI.",
+        "Import Mermaid: Masukkan sintaks Mermaid (flowchart, sequence, class, architecture) dan ubah langsung jadi node vektor yang bisa diedit/digeser.",
+        "Wireframes: Masukkan preset komponen UI (Browser window, Mobile frame, Form input, Modal dialog, Sticky notes).",
+        "Penyimpanan File: Gambar tersimpan otomatis di output/sketches/*.excalidraw.json — aman di-commit ke Git.",
+        "Kolaborasi dengan Agent: Gunakan Agent Terminal untuk meminta pembuatan wireframe atau visual flow, lalu review dan anotasi langsung di canvas.",
+        "Export: Salin gambar ke clipboard atau download PNG/SVG untuk disisipkan ke dokumen FSD atau Wiki.",
+      ],
+      en: [
+        "Interactive Excalidraw-based canvas for architecture sketches, ideation flows, and UI wireframing.",
+        "Import Mermaid: Enter Mermaid syntax (flowchart, sequence, class, architecture) to convert directly into editable vector elements.",
+        "Wireframes: Insert standard UI component presets (Browser window, Mobile frame, Form inputs, Modal dialogs, Sticky notes).",
+        "File Storage: Sketches are saved automatically to output/sketches/*.excalidraw.json — fully trackable in Git.",
+        "Agent Collaboration: Prompt the agent in the terminal to generate wireframes or flow diagrams, then review and annotate directly on canvas.",
+        "Export: Copy image to clipboard or download PNG/SVG to embed into FSD documents or Wiki pages.",
       ],
     },
   },

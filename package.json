@@ -1,6 +1,6 @@
 {
   "name": "sa-dashboard",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "System Analyst Dashboard — ERD, API Spec, Wiki, FSD Analysis, Task Management",
   "license": "MIT",
   "private": true,
@@ -27,6 +27,8 @@
     "@codemirror/view": "^6.43.7",
     "@dagrejs/dagre": "^3.0.0",
     "@dbml/core": "^8.3.1",
+    "@excalidraw/excalidraw": "^0.18.1",
+    "@excalidraw/mermaid-to-excalidraw": "^2.2.2",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@mdxeditor/editor": "^4.2.0",
