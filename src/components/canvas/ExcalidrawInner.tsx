@@ -5,6 +5,8 @@ import {
   exportToSvg,
   serializeAsJSON,
   convertToExcalidrawElements,
+  restore,
+  restoreElements,
 } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
@@ -108,20 +110,18 @@ export default function ExcalidrawInner({
         return undefined;
       }
       const parsed = JSON.parse(initialContent);
-      const elements = parsed.elements || (Array.isArray(parsed) ? parsed : []);
-      const appState = parsed.appState || {};
-      const files = parsed.files || {};
-      const bgColor = getValidBackgroundColor(appState.viewBackgroundColor, theme);
+      const restored = restore(parsed, null, null, { repairBindings: true });
+      const bgColor = getValidBackgroundColor(restored.appState?.viewBackgroundColor, theme);
       return {
-        elements,
+        elements: restored.elements,
         appState: {
-          ...appState,
+          ...restored.appState,
           isLoading: false,
           errorMessage: null,
           theme,
           viewBackgroundColor: bgColor,
         },
-        files,
+        files: restored.files || {},
       };
     } catch {
       return {
@@ -254,7 +254,7 @@ export default function ExcalidrawInner({
           isLoading: false,
           errorMessage: null,
           theme,
-        },
+        } as any,
       });
 
       checkMermaidElements(initialData.elements || []);
@@ -389,9 +389,10 @@ export default function ExcalidrawInner({
         excalidrawAPI.addFiles(newFiles);
       }
 
-      excalidrawAPI.updateScene({ elements: updatedElements });
+      const restored = restoreElements(updatedElements, null, { repairBindings: true });
+      excalidrawAPI.updateScene({ elements: restored });
       setIsDirty(true);
-      checkMermaidElements(updatedElements);
+      checkMermaidElements(restored);
 
       if (compiledCount > 0) {
         setCompileToast(true);
