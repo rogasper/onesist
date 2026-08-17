@@ -57,6 +57,26 @@ function isMermaidText(text: string): boolean {
   );
 }
 
+function sanitizeElements(elements: any[]): any[] {
+  if (!Array.isArray(elements)) return [];
+  return elements.map((el) => {
+    if (!el || typeof el !== "object") return el;
+    // Excalidraw fractional indexing keys always follow a strict format (e.g. "a0", "a1", "a0V").
+    // Non-standard index keys (like "zsepr", "z00bgr", etc.) will cause Excalidraw's validator to throw "invalid order key".
+    // Removing the invalid `index` lets restore() generate fresh, valid fractional indices for all elements.
+    const isStandardIndex =
+      typeof el.index === "string" &&
+      /^a[0-9a-zA-Z]{1,8}$/.test(el.index);
+
+    if (!isStandardIndex && el.index !== undefined) {
+      const copy = { ...el };
+      delete copy.index;
+      return copy;
+    }
+    return el;
+  });
+}
+
 function getValidBackgroundColor(savedBg: string | undefined, theme: "dark" | "light"): string {
   if (!savedBg || savedBg === "transparent") {
     return theme === "dark" ? "#121212" : "#ffffff";
@@ -110,7 +130,14 @@ export default function ExcalidrawInner({
         return undefined;
       }
       const parsed = JSON.parse(initialContent);
-      const restored = restore(parsed, null, null, { repairBindings: true });
+      const rawElements = parsed.elements || (Array.isArray(parsed) ? parsed : []);
+      const cleanElements = sanitizeElements(rawElements);
+      const restored = restore(
+        { ...parsed, elements: cleanElements },
+        null,
+        null,
+        { repairBindings: true }
+      );
       const bgColor = getValidBackgroundColor(restored.appState?.viewBackgroundColor, theme);
       return {
         elements: restored.elements,
@@ -123,7 +150,8 @@ export default function ExcalidrawInner({
         },
         files: restored.files || {},
       };
-    } catch {
+    } catch (e) {
+      console.warn("Failed to restore canvas JSON:", e);
       return {
         elements: [],
         appState: {

@@ -243,21 +243,19 @@ function CanvasPage() {
           }
           className="flex-1"
         />
+      ) : !activeFileContent || activeFileContent.path !== selectedFile ? (
+        <div className="flex-1 min-h-0 bg-kumo-base overflow-hidden rounded-xl border border-kumo-line flex items-center justify-center">
+          <ListSkeleton rows={4} className="w-full max-w-xs px-4" />
+        </div>
       ) : (
         <div className="flex-1 min-h-0 bg-kumo-base overflow-hidden rounded-xl border border-kumo-line relative">
-          {contentLoading || !activeFileContent || activeFileContent.path !== selectedFile ? (
-            <div className="flex items-center justify-center h-full">
-              <ListSkeleton rows={4} className="w-full max-w-xs px-4" />
-            </div>
-          ) : (
-            <ExcalidrawCanvas
-              key={selectedFile}
-              initialContent={activeFileContent.text}
-              fileName={selectedFile.split("/").pop() || "sketch.excalidraw.json"}
-              projectId={id}
-              onSave={handleSave}
-            />
-          )}
+          <ExcalidrawCanvas
+            key={selectedFile}
+            initialContent={activeFileContent.text}
+            fileName={selectedFile.split("/").pop() || "sketch.excalidraw.json"}
+            projectId={id}
+            onSave={handleSave}
+          />
         </div>
       )}
 
