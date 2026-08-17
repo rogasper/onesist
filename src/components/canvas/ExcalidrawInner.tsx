@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
 import {
   Excalidraw,
   exportToBlob,
@@ -35,6 +34,7 @@ import {
   ArrowsOutSimple,
   ArrowsInSimple,
   Check,
+  Sparkle,
 } from "@phosphor-icons/react";
 
 interface ExcalidrawInnerProps {
@@ -42,6 +42,17 @@ interface ExcalidrawInnerProps {
   fileName: string;
   projectId: string;
   onSave: (content: string) => Promise<boolean> | boolean;
+}
+
+function isMermaidText(text: string): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  return (
+    /^(graph\s+[A-Za-z]+|flowchart\s+[A-Za-z]+|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|journey|gantt|pie|gitGraph|mindmap|timeline)\b/m.test(
+      trimmed
+    ) ||
+    /^\s*(subgraph\s+|actor\s+|participant\s+|autonumber|section\s+)/m.test(trimmed)
+  );
 }
 
 export default function ExcalidrawInner({
@@ -56,12 +67,22 @@ export default function ExcalidrawInner({
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
+  const [compileToast, setCompileToast] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [isCompilingMermaid, setIsCompilingMermaid] = useState(false);
+  const [detectedMermaidCount, setDetectedMermaidCount] = useState(0);
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const initialLoadedRef = useRef<string | null>(null);
+  const initialLoadedKeyRef = useRef<string | null>(null);
+
+  const checkMermaidElements = useCallback((elements: readonly any[]) => {
+    const count = elements.filter(
+      (el) => el.type === "text" && !el.isDeleted && isMermaidText((el as any).text || (el as any).originalText || "")
+    ).length;
+    setDetectedMermaidCount(count);
+  }, []);
 
   // Esc key to exit fullscreen
   useEffect(() => {
@@ -94,7 +115,8 @@ export default function ExcalidrawInner({
 
   // Detect theme from DOM (Kumo theme)
   useEffect(() => {
-    const isDark = document.documentElement.classList.contains("dark") ||
+    const isDark =
+      document.documentElement.classList.contains("dark") ||
       window.matchMedia("(prefers-color-scheme: dark)").matches;
     setTheme(isDark ? "dark" : "light");
 
@@ -109,8 +131,9 @@ export default function ExcalidrawInner({
   // Parse initial content into scene
   useEffect(() => {
     if (!excalidrawAPI || initialContent === null) return;
-    if (initialLoadedRef.current === initialContent) return;
-    initialLoadedRef.current = initialContent;
+    const currentKey = `${fileName}:${initialContent}`;
+    if (initialLoadedKeyRef.current === currentKey) return;
+    initialLoadedKeyRef.current = currentKey;
 
     try {
       if (initialContent.trim().length > 0) {
@@ -120,25 +143,26 @@ export default function ExcalidrawInner({
           (fileName.endsWith(".md") && !initialContent.trim().startsWith("{"))
         ) {
           const rawMermaid = initialContent.replace(/```mermaid\n?([\s\S]*?)```/, "$1").trim();
-          parseMermaidToExcalidraw(rawMermaid).then((res) => {
-            if (res.files && Object.keys(res.files).length > 0) {
-              const fileList = Object.values(res.files).map((f: any) => ({
-                id: f.id,
-                dataURL: f.dataURL,
-                mimeType: f.mimeType || "image/svg+xml",
-                created: f.created || Date.now(),
-                lastRetrieved: f.lastRetrieved || Date.now(),
-              }));
-              excalidrawAPI.addFiles(fileList);
-            }
-            if (res.elements) {
-              const converted = convertToExcalidrawElements(res.elements);
-              excalidrawAPI.updateScene({ elements: converted });
-              excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
-            }
-          }).catch(() => {
-            // If fail, just ignore
-          });
+          parseMermaidToExcalidraw(rawMermaid)
+            .then((res) => {
+              if (res.files && Object.keys(res.files).length > 0) {
+                const fileList = Object.values(res.files).map((f: any) => ({
+                  id: f.id,
+                  dataURL: f.dataURL,
+                  mimeType: f.mimeType || "image/svg+xml",
+                  created: f.created || Date.now(),
+                  lastRetrieved: f.lastRetrieved || Date.now(),
+                }));
+                excalidrawAPI.addFiles(fileList);
+              }
+              if (res.elements) {
+                const converted = convertToExcalidrawElements(res.elements);
+                excalidrawAPI.updateScene({ elements: converted });
+                excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
+                checkMermaidElements(converted);
+              }
+            })
+            .catch(() => {});
         } else {
           // Standard Excalidraw JSON format
           const parsed = JSON.parse(initialContent);
@@ -155,21 +179,22 @@ export default function ExcalidrawInner({
             }));
             excalidrawAPI.addFiles(fileList);
           }
-          const converted = convertToExcalidrawElements(elements);
           excalidrawAPI.updateScene({
-            elements: converted,
+            elements,
             appState: { ...appState, theme },
           });
-          excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
+          excalidrawAPI.scrollToContent(elements, { fitToViewport: true });
+          checkMermaidElements(elements);
         }
       } else {
         excalidrawAPI.resetScene();
+        setDetectedMermaidCount(0);
       }
       setIsDirty(false);
     } catch (e) {
       console.warn("Failed to load initial sketch scene:", e);
     }
-  }, [excalidrawAPI, initialContent, fileName, theme]);
+  }, [excalidrawAPI, initialContent, fileName, theme, checkMermaidElements]);
 
   // Handle Save
   const handleSave = useCallback(async () => {
@@ -185,16 +210,16 @@ export default function ExcalidrawInner({
       if (ok) {
         setIsDirty(false);
         setLastSavedTime(new Date());
-        initialLoadedRef.current = jsonStr;
+        initialLoadedKeyRef.current = `${fileName}:${jsonStr}`;
       }
     } catch (err) {
       console.error("Failed to save sketch:", err);
     } finally {
       setIsSaving(false);
     }
-  }, [excalidrawAPI, onSave]);
+  }, [excalidrawAPI, onSave, fileName]);
 
-  // Handle Mermaid Import
+  // Handle Mermaid Import from Dialog
   const handleMermaidImport = async (code: string, replaceExisting: boolean) => {
     if (!excalidrawAPI) return;
     const res = await parseMermaidToExcalidraw(code);
@@ -218,7 +243,6 @@ export default function ExcalidrawInner({
       excalidrawAPI.updateScene({ elements: newElements });
     } else {
       const current = excalidrawAPI.getSceneElements();
-      // Calculate offset so new diagram doesn't overlap perfectly
       const maxY = current.reduce((max, el) => Math.max(max, el.y + el.height), 0);
       const offsetY = current.length > 0 ? maxY + 60 : 0;
       const shifted = newElements.map((el) => ({ ...el, y: el.y + offsetY }));
@@ -227,6 +251,82 @@ export default function ExcalidrawInner({
 
     excalidrawAPI.scrollToContent(newElements, { fitToViewport: true });
     setIsDirty(true);
+    checkMermaidElements(excalidrawAPI.getSceneElements());
+  };
+
+  // Compile Mermaid text elements on the canvas into interactive vector diagrams
+  const handleCompileMermaid = async () => {
+    if (!excalidrawAPI) return;
+    setIsCompilingMermaid(true);
+    try {
+      const elements = excalidrawAPI.getSceneElements();
+      const mermaidTexts = elements.filter(
+        (el) => el.type === "text" && !el.isDeleted && isMermaidText((el as any).text || (el as any).originalText || "")
+      );
+      if (mermaidTexts.length === 0) return;
+
+      let updatedElements = [...elements];
+      const newFiles: any[] = [];
+      let compiledCount = 0;
+
+      for (const textEl of mermaidTexts) {
+        try {
+          const anyEl = textEl as any;
+          const rawCode = (anyEl.text || anyEl.originalText || "").trim();
+          const res = await parseMermaidToExcalidraw(rawCode);
+          if (res && res.elements && res.elements.length > 0) {
+            if (res.files && Object.keys(res.files).length > 0) {
+              const fileList = Object.values(res.files).map((f: any) => ({
+                id: f.id,
+                dataURL: f.dataURL,
+                mimeType: f.mimeType || "image/svg+xml",
+                created: f.created || Date.now(),
+                lastRetrieved: f.lastRetrieved || Date.now(),
+              }));
+              newFiles.push(...fileList);
+            }
+
+            const minX = Math.min(...res.elements.map((e: any) => e.x));
+            const minY = Math.min(...res.elements.map((e: any) => e.y));
+
+            const offsetX = anyEl.x - minX;
+            const offsetY = anyEl.y - minY;
+            const converted = convertToExcalidrawElements(res.elements).map((e) => ({
+              ...e,
+              x: e.x + offsetX,
+              y: e.y + offsetY,
+            }));
+
+            // Mark old text element (and its container frame if any) as deleted
+            updatedElements = updatedElements.map((el) => {
+              if (el.id === anyEl.id) return { ...el, isDeleted: true };
+              if (anyEl.containerId && el.id === anyEl.containerId) return { ...el, isDeleted: true };
+              return el;
+            });
+
+            updatedElements.push(...converted);
+            compiledCount++;
+          }
+        } catch (err) {
+          console.warn("Failed to compile mermaid element:", textEl.id, err);
+        }
+      }
+
+      if (newFiles.length > 0) {
+        excalidrawAPI.addFiles(newFiles);
+      }
+
+      excalidrawAPI.updateScene({ elements: updatedElements });
+      setIsDirty(true);
+      checkMermaidElements(updatedElements);
+
+      if (compiledCount > 0) {
+        setCompileToast(true);
+        setTimeout(() => setCompileToast(false), 3000);
+      }
+    } finally {
+      setIsCompilingMermaid(false);
+    }
   };
 
   // Insert Wireframe Presets
@@ -235,9 +335,8 @@ export default function ExcalidrawInner({
     const current = excalidrawAPI.getSceneElements();
     const appState = excalidrawAPI.getAppState();
 
-    // Center insertion on the viewport
-    const centerX = -appState.scrollX + (window.innerWidth / 3);
-    const centerY = -appState.scrollY + (window.innerHeight / 3);
+    const centerX = -appState.scrollX + window.innerWidth / 3;
+    const centerY = -appState.scrollY + window.innerHeight / 3;
 
     let rawElements: any[] = [];
     switch (type) {
@@ -260,12 +359,12 @@ export default function ExcalidrawInner({
 
     const converted = convertToExcalidrawElements(rawElements);
     excalidrawAPI.updateScene({ elements: [...current, ...converted] });
-    excalidrawAPI.scrollToContent(converted);
-    setIsDirty(true);
+    excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
     setIsPresetsOpen(false);
+    setIsDirty(true);
   };
 
-  // Export to PNG Blob / Download
+  // Export PNG
   const handleExportPng = async () => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
@@ -288,7 +387,7 @@ export default function ExcalidrawInner({
     setIsExportOpen(false);
   };
 
-  // Export to SVG / Download
+  // Export SVG
   const handleExportSvg = async () => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
@@ -343,10 +442,11 @@ export default function ExcalidrawInner({
     if (!excalidrawAPI) return;
     excalidrawAPI.resetScene();
     setIsDirty(true);
+    setDetectedMermaidCount(0);
     setIsClearDialogOpen(false);
   };
 
-  const canvasContent = (
+  return (
     <div
       className={`w-full h-full flex flex-col overflow-hidden bg-kumo-base ${
         isFullscreen
@@ -378,6 +478,21 @@ export default function ExcalidrawInner({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1.5">
+          {/* Compile Mermaid Button (Shown when raw Mermaid code is detected on canvas) */}
+          {detectedMermaidCount > 0 && (
+            <AppButton
+              variant="secondary"
+              size="sm"
+              onClick={handleCompileMermaid}
+              disabled={isCompilingMermaid}
+              icon={<Sparkle size={13} className="text-amber-400 animate-pulse" />}
+              className="px-2.5 bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
+              title="Convert detected Mermaid code boxes into vector diagrams"
+            >
+              {isCompilingMermaid ? "Compiling…" : `Compile Mermaid (${detectedMermaidCount})`}
+            </AppButton>
+          )}
+
           {/* Import Mermaid */}
           <AppButton
             variant="chip"
@@ -490,6 +605,13 @@ export default function ExcalidrawInner({
             </span>
           )}
 
+          {/* Compile Toast Indicator */}
+          {compileToast && (
+            <span className="flex items-center gap-1 text-[11px] text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded animate-in fade-in">
+              <Sparkle size={12} /> Diagrams Compiled!
+            </span>
+          )}
+
           {/* Clear Scene */}
           <button
             type="button"
@@ -532,10 +654,11 @@ export default function ExcalidrawInner({
         <Excalidraw
           excalidrawAPI={(api) => setExcalidrawAPI(api)}
           theme={theme}
-          onChange={() => {
-            if (!isDirty && initialLoadedRef.current !== null) {
+          onChange={(elements) => {
+            if (!isDirty && initialLoadedKeyRef.current !== null) {
               setIsDirty(true);
             }
+            checkMermaidElements(elements);
           }}
           UIOptions={{
             canvasActions: {
@@ -570,10 +693,4 @@ export default function ExcalidrawInner({
       </ConfirmDialog>
     </div>
   );
-
-  if (isFullscreen && typeof document !== "undefined") {
-    return createPortal(canvasContent, document.body);
-  }
-
-  return canvasContent;
 }

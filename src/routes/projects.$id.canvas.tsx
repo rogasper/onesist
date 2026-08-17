@@ -212,7 +212,7 @@ function CanvasPage() {
           className="flex-1"
         />
       ) : (
-        <div className="flex-1 min-h-0 glass-container overflow-hidden rounded-xl border border-kumo-line">
+        <div className="flex-1 min-h-0 bg-kumo-base overflow-hidden rounded-xl border border-kumo-line relative">
           <ExcalidrawCanvas
             key={selectedFile}
             initialContent={fileText}
