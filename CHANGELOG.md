@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.18 — Import tasks_*.md (plural prefix), file tree terbaca di folder dalam
+
+### Import Tasks
+- **Terima prefix `tasks_` (jamak)** (`src/lib/task-parser.ts`) — scanner hanya mengenali `task_*.md` (tunggal, sesuai skill); file yang dihasilkan agent sebagai `tasks_001.md`/`tasks_002.md` tidak pernah di-scan sama sekali (0 task, tanpa feedback). Kini `/^tasks?_/i` diterima (case-insensitive).
+- **Kode unik per file** — sisa angka setelah prefix (`tasks_001` → `001`) dipertahankan sebagai module, sehingga kode task `001-1..001-5` / `002-1..002-6` tidak bertabrakan antar file (sebelumnya diruntuhkan ke `task-*` → dedupe membuang task file kedua). Terverifikasi dengan 2 file riil (11 task, SP benar).
+
+### File Tree (Overview)
+- **Indentasi per level dikurangi** ±27-29px → ±19px (wrapper 15px→10px, per-level 12-14px→9px) dan **panel diperlebar** `w-56` (224px) → `w-64` (256px) — nama di kedalaman 7 kini terbaca ±10-12 karakter sebelum ellipsis (sebelumnya 1-3 karakter).
+- Perilaku tetap standar (seperti Windows File Explorer): ellipsis + tooltip nama lengkap saat hover, tanpa scroll horizontal di tree.
+
+---
+
 ## v0.1.17 — Fix Dock Quit macOS tidak benar-benar keluar (sumber kebocoran RAM 80-100 GB)
 
 ### Bugfix / Hardening (macOS)

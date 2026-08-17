@@ -47,7 +47,7 @@ export function FileRow({
           ? "liquid-wash border-transparent font-medium"
           : "border-transparent text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
       } ${className ?? ""}`}
-      style={depth ? { paddingLeft: `${12 + depth * 12}px` } : undefined}
+      style={depth ? { paddingLeft: `${12 + depth * 9}px` } : undefined}
     >
       {icon && <span className={`shrink-0 ${active ? "text-white/90" : "opacity-50"}`}>{icon}</span>}
       <div className={`flex-1 ${noTruncate ? "min-w-max" : "min-w-0 truncate"}`}>{children}</div>

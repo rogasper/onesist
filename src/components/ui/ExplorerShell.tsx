@@ -18,7 +18,7 @@ export function ExplorerShell({
   collapsed,
   onToggle,
   label,
-  width = "w-56",
+  width = "w-64",
   header,
   children,
 }: ExplorerShellProps) {

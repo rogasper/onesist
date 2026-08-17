@@ -206,7 +206,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
               onClick={() => toggleCollapse(node.path)}
               onContextMenu={(e) => onDirContextMenu?.(e, node.path)}
               className="flex items-center gap-1.5 px-2 py-1 w-full text-left text-kumo-subtle hover:bg-kumo-elevated/50 cursor-pointer whitespace-nowrap"
-              style={{ paddingLeft: `${8 + depth * 14}px` }}
+              style={{ paddingLeft: `${8 + depth * 9}px` }}
             >
               {isCollapsed ? <CaretRight size={10} /> : <CaretDown size={10} />}
               <Folder size={11} className="opacity-60" />
@@ -214,7 +214,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
               <span className="text-[10px] text-kumo-subtle ml-auto shrink-0">{countFiles(node)}</span>
             </button>
             {!isCollapsed && (
-              <div className="ml-[9px] pl-1.5 border-l border-kumo-line/25">{renderTreeNodes(node.children ?? [], depth + 1)}</div>
+              <div className="ml-[6px] pl-[4px] border-l border-kumo-line/25">{renderTreeNodes(node.children ?? [], depth + 1)}</div>
             )}
           </div>
         );
@@ -225,7 +225,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
       return (
         <div key={f.path}>
           {renaming === f.path ? (
-            <div className="my-0.5 mx-1.5" style={{ paddingLeft: `${12 + depth * 12}px` }}>
+            <div className="my-0.5 mx-1.5" style={{ paddingLeft: `${12 + depth * 9}px` }}>
               <RenameInput
                 initial={f.name}
                 onCommit={(name) => {
@@ -336,7 +336,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
             return (
               <div key={f.path}>
                 {renaming === f.path ? (
-                  <div className="my-0.5 mx-1.5" style={{ paddingLeft: `${12 + 0 * 12}px` }}>
+                  <div className="my-0.5 mx-1.5" style={{ paddingLeft: `${12 + 0 * 9}px` }}>
                     <RenameInput
                       initial={f.name}
                       onCommit={(name) => {

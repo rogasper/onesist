@@ -21,7 +21,7 @@ export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skipp
   if (!fs.existsSync(taskRoot)) return { tasks, skippedFiles };
 
   const rootFiles = fs.readdirSync(taskRoot).filter((f) =>
-    f.endsWith(".md") && !f.startsWith(".") && (f.startsWith("task_") || f === "task.md" || f === "MASTER_TASK.md"),
+    f.endsWith(".md") && !f.startsWith(".") && (/^tasks?_/i.test(f) || f === "task.md" || f === "MASTER_TASK.md"),
   );
   for (const file of rootFiles) {
     const content = fs.readFileSync(path.join(taskRoot, file), "utf-8");
@@ -153,8 +153,11 @@ function parseTaskFile(content: string, filename: string): ParsedTask[] {
   const tasks: ParsedTask[] = [];
   const lines = content.split("\n");
   // Combined task files (task.md / MASTER_TASK.md) share no module prefix —
-  // normalize them to "task" so codes come out like "task-T01".
-  const moduleName = filename.replace(/\.md$/i, "").replace(/^task_/, "").replace(/^MASTER_TASK$/i, "task") || "task";
+  // normalize them to "task" so codes come out like "task-T01". Accept both
+  // singular (task_fe.md) and plural (tasks_001.md) prefixes — agents write
+  // either; a numeric remainder (tasks_001) stays as the module so codes from
+  // different files (001-1 vs 002-1) never collide in the dedupe.
+  const moduleName = filename.replace(/\.md$/i, "").replace(/^MASTER_TASK$/i, "task").replace(/^tasks?_/i, "") || "task";
 
   // Find story points table
   let inSpTable = false;
