@@ -75,7 +75,7 @@ export default function ExcalidrawInner({
   const [detectedMermaidCount, setDetectedMermaidCount] = useState(0);
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const initialLoadedKeyRef = useRef<string | null>(null);
+  const isInitialMountRef = useRef(true);
 
   const initialData = useMemo(() => {
     if (!initialContent || initialContent.trim().length === 0) return undefined;
@@ -151,49 +151,20 @@ export default function ExcalidrawInner({
     return () => observer.disconnect();
   }, []);
 
-  // Parse initial content into scene
+  // Initialize scene on API ready / file mount
   useEffect(() => {
-    if (!excalidrawAPI || initialContent === null) return;
-    const currentKey = `${fileName}:${initialContent}`;
-    if (initialLoadedKeyRef.current === currentKey) return;
-    initialLoadedKeyRef.current = currentKey;
+    if (!excalidrawAPI) return;
 
-    try {
-      if (initialContent.trim().length > 0) {
-        // If the file is markdown or raw mermaid, try to parse as mermaid
-        if (
-          fileName.endsWith(".mmd") ||
-          (fileName.endsWith(".md") && !initialContent.trim().startsWith("{"))
-        ) {
-          const rawMermaid = initialContent.replace(/```mermaid\n?([\s\S]*?)```/, "$1").trim();
-          parseMermaidToExcalidraw(rawMermaid)
-            .then((res) => {
-              if (res.files && Object.keys(res.files).length > 0) {
-                const fileList = Object.values(res.files).map((f: any) => ({
-                  id: f.id,
-                  dataURL: f.dataURL,
-                  mimeType: f.mimeType || "image/svg+xml",
-                  created: f.created || Date.now(),
-                  lastRetrieved: f.lastRetrieved || Date.now(),
-                }));
-                excalidrawAPI.addFiles(fileList);
-              }
-              if (res.elements) {
-                const converted = convertToExcalidrawElements(res.elements);
-                excalidrawAPI.updateScene({ elements: converted });
-                excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
-                checkMermaidElements(converted);
-              }
-            })
-            .catch(() => {});
-        } else {
-          // Standard Excalidraw JSON format
-          const parsed = JSON.parse(initialContent);
-          const elements = parsed.elements || (Array.isArray(parsed) ? parsed : []);
-          const appState = parsed.appState || {};
-          const files = parsed.files || {};
-          if (Object.keys(files).length > 0) {
-            const fileList = Object.values(files).map((f: any) => ({
+    if (
+      initialContent &&
+      (fileName.endsWith(".mmd") ||
+        (fileName.endsWith(".md") && !initialContent.trim().startsWith("{")))
+    ) {
+      const rawMermaid = initialContent.replace(/```mermaid\n?([\s\S]*?)```/, "$1").trim();
+      parseMermaidToExcalidraw(rawMermaid)
+        .then((res) => {
+          if (res.files && Object.keys(res.files).length > 0) {
+            const fileList = Object.values(res.files).map((f: any) => ({
               id: f.id,
               dataURL: f.dataURL,
               mimeType: f.mimeType || "image/svg+xml",
@@ -202,22 +173,40 @@ export default function ExcalidrawInner({
             }));
             excalidrawAPI.addFiles(fileList);
           }
-          excalidrawAPI.updateScene({
-            elements,
-            appState: { ...appState, theme },
-          });
-          excalidrawAPI.scrollToContent(elements, { fitToViewport: true });
-          checkMermaidElements(elements);
-        }
-      } else {
-        excalidrawAPI.resetScene();
-        setDetectedMermaidCount(0);
-      }
-      setIsDirty(false);
-    } catch (e) {
-      console.warn("Failed to load initial sketch scene:", e);
+          if (res.elements) {
+            const converted = convertToExcalidrawElements(res.elements);
+            excalidrawAPI.updateScene({ elements: converted });
+            setTimeout(() => {
+              excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
+            }, 60);
+            checkMermaidElements(converted);
+          }
+        })
+        .catch(() => {});
+      return;
     }
-  }, [excalidrawAPI, initialContent, fileName, theme, checkMermaidElements]);
+
+    if (initialData?.files && Object.keys(initialData.files).length > 0) {
+      const fileList = Object.values(initialData.files).map((f: any) => ({
+        id: f.id,
+        dataURL: f.dataURL,
+        mimeType: f.mimeType || "image/svg+xml",
+        created: f.created || Date.now(),
+        lastRetrieved: f.lastRetrieved || Date.now(),
+      }));
+      excalidrawAPI.addFiles(fileList);
+    }
+
+    if (initialData?.elements && initialData.elements.length > 0) {
+      checkMermaidElements(initialData.elements);
+      const timer = setTimeout(() => {
+        excalidrawAPI.scrollToContent(initialData.elements, { fitToViewport: true });
+      }, 60);
+      return () => clearTimeout(timer);
+    } else {
+      setDetectedMermaidCount(0);
+    }
+  }, [excalidrawAPI, fileName, initialContent, initialData, checkMermaidElements]);
 
   // Handle Save
   const handleSave = useCallback(async () => {
@@ -233,14 +222,13 @@ export default function ExcalidrawInner({
       if (ok) {
         setIsDirty(false);
         setLastSavedTime(new Date());
-        initialLoadedKeyRef.current = `${fileName}:${jsonStr}`;
       }
     } catch (err) {
       console.error("Failed to save sketch:", err);
     } finally {
       setIsSaving(false);
     }
-  }, [excalidrawAPI, onSave, fileName]);
+  }, [excalidrawAPI, onSave]);
 
   // Handle Mermaid Import from Dialog
   const handleMermaidImport = async (code: string, replaceExisting: boolean) => {
@@ -679,7 +667,9 @@ export default function ExcalidrawInner({
           excalidrawAPI={(api) => setExcalidrawAPI(api)}
           theme={theme}
           onChange={(elements) => {
-            if (!isDirty && initialLoadedKeyRef.current !== null) {
+            if (isInitialMountRef.current) {
+              isInitialMountRef.current = false;
+            } else {
               setIsDirty(true);
             }
             checkMermaidElements(elements);

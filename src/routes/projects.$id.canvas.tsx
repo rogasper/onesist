@@ -18,12 +18,42 @@ function CanvasPage() {
   const { id } = Route.useParams();
   const { files, loading: filesLoading, refresh: refreshFileList } = useFileList("output/sketches", id);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const { content: fileText, refresh: refreshContent } = useFileContent(selectedFile, id);
+  const [activeFileContent, setActiveFileContent] = useState<{ path: string; text: string } | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
 
   const [isNewDialogOpen, setIsNewDialogOpen] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [newFileTemplate, setNewFileTemplate] = useState<"blank" | "flowchart" | "mobile" | "web">("blank");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  // Fetch content strictly for the selected file
+  const fetchActiveContent = useCallback(async (filePath: string) => {
+    setContentLoading(true);
+    try {
+      const res = await fetch(
+        `/api/files/read?path=${encodeURIComponent(filePath)}&projectId=${encodeURIComponent(id)}`,
+        { cache: "no-store" }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        setActiveFileContent({ path: filePath, text: d.content ?? "" });
+      }
+    } catch (err) {
+      console.error("Failed to read sketch file:", err);
+    } finally {
+      setContentLoading(false);
+    }
+  }, [id]);
+
+  // When selectedFile changes, clear old content immediately and fetch new file
+  useEffect(() => {
+    if (!selectedFile) {
+      setActiveFileContent(null);
+      return;
+    }
+    setActiveFileContent(null);
+    fetchActiveContent(selectedFile);
+  }, [selectedFile, fetchActiveContent]);
 
   // Auto-select first file if available
   useEffect(() => {
@@ -35,7 +65,9 @@ function CanvasPage() {
   // Live file watch
   useFileWatch("sketch", (path) => {
     refreshFileList();
-    if (path === selectedFile) refreshContent();
+    if (path === selectedFile) {
+      fetchActiveContent(selectedFile);
+    }
   });
 
   // Handle Save
@@ -53,7 +85,7 @@ function CanvasPage() {
           }),
         });
         if (res.ok) {
-          refreshContent();
+          setActiveFileContent({ path: selectedFile, text: content });
           return true;
         }
       } catch (e) {
@@ -61,7 +93,7 @@ function CanvasPage() {
       }
       return false;
     },
-    [selectedFile, id, refreshContent]
+    [selectedFile, id]
   );
 
   // Handle Create New Sketch
@@ -213,14 +245,14 @@ function CanvasPage() {
         />
       ) : (
         <div className="flex-1 min-h-0 bg-kumo-base overflow-hidden rounded-xl border border-kumo-line relative">
-          {fileText === null ? (
+          {contentLoading || !activeFileContent || activeFileContent.path !== selectedFile ? (
             <div className="flex items-center justify-center h-full">
               <ListSkeleton rows={4} className="w-full max-w-xs px-4" />
             </div>
           ) : (
             <ExcalidrawCanvas
               key={selectedFile}
-              initialContent={fileText}
+              initialContent={activeFileContent.text}
               fileName={selectedFile.split("/").pop() || "sketch.excalidraw.json"}
               projectId={id}
               onSave={handleSave}
