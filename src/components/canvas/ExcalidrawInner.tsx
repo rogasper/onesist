@@ -55,6 +55,16 @@ function isMermaidText(text: string): boolean {
   );
 }
 
+function getValidBackgroundColor(savedBg: string | undefined, theme: "dark" | "light"): string {
+  if (!savedBg || savedBg === "transparent") {
+    return theme === "dark" ? "#121212" : "#ffffff";
+  }
+  if (theme === "light" && (savedBg === "#121212" || savedBg === "#000000" || savedBg === "#1e1e1e")) {
+    return "#ffffff";
+  }
+  return savedBg;
+}
+
 export default function ExcalidrawInner({
   initialContent,
   fileName,
@@ -78,7 +88,18 @@ export default function ExcalidrawInner({
   const isInitialMountRef = useRef(true);
 
   const initialData = useMemo(() => {
-    if (!initialContent || initialContent.trim().length === 0) return undefined;
+    if (!initialContent || initialContent.trim().length === 0) {
+      return {
+        elements: [],
+        appState: {
+          isLoading: false,
+          errorMessage: null,
+          theme,
+          viewBackgroundColor: theme === "dark" ? "#121212" : "#ffffff",
+        },
+        files: {},
+      };
+    }
     try {
       if (
         fileName.endsWith(".mmd") ||
@@ -90,13 +111,29 @@ export default function ExcalidrawInner({
       const elements = parsed.elements || (Array.isArray(parsed) ? parsed : []);
       const appState = parsed.appState || {};
       const files = parsed.files || {};
+      const bgColor = getValidBackgroundColor(appState.viewBackgroundColor, theme);
       return {
         elements,
-        appState: { ...appState, theme },
+        appState: {
+          ...appState,
+          isLoading: false,
+          errorMessage: null,
+          theme,
+          viewBackgroundColor: bgColor,
+        },
         files,
       };
     } catch {
-      return undefined;
+      return {
+        elements: [],
+        appState: {
+          isLoading: false,
+          errorMessage: null,
+          theme,
+          viewBackgroundColor: theme === "dark" ? "#121212" : "#ffffff",
+        },
+        files: {},
+      };
     }
   }, [initialContent, fileName, theme]);
 
@@ -175,38 +212,63 @@ export default function ExcalidrawInner({
           }
           if (res.elements) {
             const converted = convertToExcalidrawElements(res.elements);
-            excalidrawAPI.updateScene({ elements: converted });
+            excalidrawAPI.updateScene({
+              elements: converted,
+              appState: {
+                isLoading: false,
+                errorMessage: null,
+                theme,
+                viewBackgroundColor: theme === "dark" ? "#121212" : "#ffffff",
+              },
+            });
             setTimeout(() => {
               excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
             }, 60);
             checkMermaidElements(converted);
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          excalidrawAPI.updateScene({
+            appState: { isLoading: false, theme },
+          });
+        });
       return;
     }
 
-    if (initialData?.files && Object.keys(initialData.files).length > 0) {
-      const fileList = Object.values(initialData.files).map((f: any) => ({
-        id: f.id,
-        dataURL: f.dataURL,
-        mimeType: f.mimeType || "image/svg+xml",
-        created: f.created || Date.now(),
-        lastRetrieved: f.lastRetrieved || Date.now(),
-      }));
-      excalidrawAPI.addFiles(fileList);
-    }
+    if (initialData) {
+      if (initialData.files && Object.keys(initialData.files).length > 0) {
+        const fileList = Object.values(initialData.files).map((f: any) => ({
+          id: f.id,
+          dataURL: f.dataURL,
+          mimeType: f.mimeType || "image/svg+xml",
+          created: f.created || Date.now(),
+          lastRetrieved: f.lastRetrieved || Date.now(),
+        }));
+        excalidrawAPI.addFiles(fileList);
+      }
 
-    if (initialData?.elements && initialData.elements.length > 0) {
-      checkMermaidElements(initialData.elements);
-      const timer = setTimeout(() => {
-        excalidrawAPI.scrollToContent(initialData.elements, { fitToViewport: true });
-      }, 60);
-      return () => clearTimeout(timer);
-    } else {
-      setDetectedMermaidCount(0);
+      excalidrawAPI.updateScene({
+        elements: initialData.elements,
+        appState: {
+          ...initialData.appState,
+          isLoading: false,
+          errorMessage: null,
+          theme,
+        },
+      });
+
+      checkMermaidElements(initialData.elements || []);
+
+      if (initialData.elements && initialData.elements.length > 0) {
+        const timer = setTimeout(() => {
+          excalidrawAPI.scrollToContent(initialData.elements, { fitToViewport: true });
+        }, 60);
+        return () => clearTimeout(timer);
+      } else {
+        setDetectedMermaidCount(0);
+      }
     }
-  }, [excalidrawAPI, fileName, initialContent, initialData, checkMermaidElements]);
+  }, [excalidrawAPI, fileName, initialContent, initialData, theme, checkMermaidElements]);
 
   // Handle Save
   const handleSave = useCallback(async () => {

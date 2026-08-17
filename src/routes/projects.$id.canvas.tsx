@@ -107,7 +107,7 @@ function CanvasPage() {
       version: 2,
       source: "https://onesist.internal",
       elements: [],
-      appState: { viewBackgroundColor: "#121212", currentItemFontFamily: 1 },
+      appState: { viewBackgroundColor: "#ffffff", currentItemFontFamily: 1 },
       files: {},
     }, null, 2);
 
