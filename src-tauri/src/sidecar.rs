@@ -146,6 +146,10 @@ impl SidecarState {
             .env("PATH", resolve_user_path())
             .spawn()?;
 
+        let pid = child.pid();
+        #[cfg(target_os = "windows")]
+        assign_pid_to_job(pid);
+
         *self.child.lock().unwrap() = Some(child);
 
         // Drain output + watch for termination in the background.
@@ -239,17 +243,55 @@ impl Drop for SidecarState {
     }
 }
 
-/// Kill stale onesist-server / terminal-server processes from previous
-/// sessions (crashed / force-quit). On macOS use `pkill -f` on the exact
-/// process names; safe because these are our own bundled binaries.
-fn kill_stale_processes() {
-    for pattern in ["onesist-server", "terminal-server.ts"] {
-        let _ = std::process::Command::new("pkill")
-            .arg("-9")
-            .arg("-f")
-            .arg(pattern)
-            .status();
+#[cfg(target_os = "windows")]
+fn assign_pid_to_job(pid: u32) {
+    use windows_sys::Win32::Foundation::*;
+    use windows_sys::Win32::System::JobObjects::*;
+    use windows_sys::Win32::System::Threading::*;
+
+    unsafe {
+        let process_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+        if process_handle != 0 {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job != 0 {
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    &info as *const _ as *const _,
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+                AssignProcessToJobObject(job, process_handle);
+            }
+            CloseHandle(process_handle);
+        }
     }
+}
+
+/// Kill stale onesist-server / terminal-server / opencode processes from previous
+/// sessions (crashed / force-quit). On Windows, uses taskkill to terminate process trees.
+fn kill_stale_processes() {
+    #[cfg(target_os = "windows")]
+    {
+        for img in ["onesist-server.exe", "opencode.exe"] {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/IM", img])
+                .status();
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        for pattern in ["onesist-server", "terminal-server.ts"] {
+            let _ = std::process::Command::new("pkill")
+                .arg("-9")
+                .arg("-f")
+                .arg(pattern)
+                .status();
+        }
+    }
+
     // Give the kernel a moment to release ports before we bind.
     std::thread::sleep(std::time::Duration::from_millis(500));
 }

@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { buildAgentCommand, agentLogo, type AgentCli } from "~/lib/agent-command";
 import { attach, park, destroy as destroyCache, register } from "~/lib/xterm-cache";
+import { loadTerminalPrefs, getTerminalTheme, TERMINAL_PREFS_EVENT, type TerminalPrefs } from "~/lib/terminal-prefs";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import "@xterm/xterm/css/xterm.css";
 
@@ -103,6 +104,32 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   // agent mid-session only updates the label — the running session continues
   // (the auto-connect effect reattaches rather than respawning).
   useEffect(() => { setAgentName(defaultAgent); }, [defaultAgent]);
+
+  // Live update xterm options when terminal preferences change in Settings
+  useEffect(() => {
+    const applyPrefs = (prefs: TerminalPrefs) => {
+      const term = termRef.current;
+      if (!term) return;
+      term.options.fontSize = prefs.fontSize;
+      term.options.cursorStyle = prefs.cursor;
+      term.options.theme = getTerminalTheme(prefs.theme);
+      try {
+        fitRef.current?.fit();
+      } catch {}
+    };
+
+    const handlePrefsEvent = (e: Event) => {
+      const prefs = (e as CustomEvent<TerminalPrefs>).detail || loadTerminalPrefs();
+      applyPrefs(prefs);
+    };
+
+    window.addEventListener(TERMINAL_PREFS_EVENT, handlePrefsEvent);
+    window.addEventListener("storage", handlePrefsEvent);
+    return () => {
+      window.removeEventListener(TERMINAL_PREFS_EVENT, handlePrefsEvent);
+      window.removeEventListener("storage", handlePrefsEvent);
+    };
+  }, []);
 
   // Auto-connect when panel opens; reattach the running session instead of respawning
   useEffect(() => {
@@ -278,21 +305,17 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     // node detaches the screen element and corrupts React's DOM bookkeeping.
     if (!document.contains(containerRef.current)) return;
 
+    const prefs = loadTerminalPrefs();
     const fit = new FitAddon();
     const webLinks = new WebLinksAddon();
     const term = new Terminal({
-      cursorBlink: true, cursorStyle: "bar", fontSize: 13,
+      cursorBlink: true,
+      cursorStyle: prefs.cursor,
+      fontSize: prefs.fontSize,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, Menlo, monospace",
-      theme: {
-        background: "#0d0d0d", foreground: "#e0e0e0", cursor: "#4ade80",
-        selectionBackground: "#4ade8040",
-        black: "#1a1a1a", red: "#f87171", green: "#4ade80", yellow: "#fbbf24",
-        blue: "#60a5fa", magenta: "#c084fc", cyan: "#67e8f9", white: "#e0e0e0",
-        brightBlack: "#404040", brightRed: "#fca5a5", brightGreen: "#86efac",
-        brightYellow: "#fde68a", brightBlue: "#93c5fd", brightMagenta: "#d8b4fe",
-        brightCyan: "#a5f3fc", brightWhite: "#ffffff",
-      },
-      allowProposedApi: true, scrollback: 5000,
+      theme: getTerminalTheme(prefs.theme),
+      allowProposedApi: true,
+      scrollback: 500,
     });
 
     term.loadAddon(fit);

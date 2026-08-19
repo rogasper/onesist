@@ -32,7 +32,8 @@ function getOffscreenHolder(): HTMLDivElement {
 }
 
 const cache = new Map<string, CachedTerminal>();
-const MAX_PARKED = 8;
+// Limit parked terminals to 2 to avoid hoarding detached DOM nodes and xterm buffers in memory
+const MAX_PARKED = 2;
 const parkOrder: string[] = [];
 
 function evictIfNeeded() {

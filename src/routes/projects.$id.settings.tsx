@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadProjectRouteData } from "~/lib/project-queries";
-import { Gear, Check } from "@phosphor-icons/react";
+import { Gear, Check, WarningCircle } from "@phosphor-icons/react";
 import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 import { agentLogo } from "~/lib/agent-command";
+import { loadTerminalPrefs, saveTerminalPrefs, type TerminalPrefs } from "~/lib/terminal-prefs";
 
 export const Route = createFileRoute("/projects/$id/settings")({
   loader: async ({ params }) => loadProjectRouteData(params.id),
@@ -26,22 +27,12 @@ const CURSORS = [
   { value: "underline", label: "Underline" },
 ];
 
-interface TerminalPrefs {
-  fontSize: number;
-  theme: "dark" | "light";
-  cursor: "bar" | "block" | "underline";
-}
-
-function loadTerminalPrefs(): TerminalPrefs {
-  try {
-    const raw = localStorage.getItem("terminalPrefs");
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return { fontSize: 13, theme: "dark", cursor: "bar" };
-}
-
-function saveTerminalPrefs(prefs: TerminalPrefs) {
-  localStorage.setItem("terminalPrefs", JSON.stringify(prefs));
+interface DetectedAgent {
+  name: string;
+  command: string;
+  found: boolean;
+  version: string | null;
+  path: string | null;
 }
 
 function SettingsPage() {
@@ -55,7 +46,21 @@ function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  const [detectedAgents, setDetectedAgents] = useState<DetectedAgent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+
   const [terminalPrefs, setTerminalPrefs] = useState<TerminalPrefs>(loadTerminalPrefs);
+
+  useEffect(() => {
+    setAgentsLoading(true);
+    fetch("/api/agent/detect", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: DetectedAgent[]) => {
+        setDetectedAgents(Array.isArray(data) ? data : []);
+        setAgentsLoading(false);
+      })
+      .catch(() => setAgentsLoading(false));
+  }, []);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -113,24 +118,61 @@ function SettingsPage() {
           <div className="flex gap-2 flex-wrap">
             {AGENTS.map((a) => {
               const logo = agentLogo(a.value);
+              const detected = detectedAgents.find(
+                (d) => d.command === a.command || d.name.toLowerCase() === a.value.toLowerCase()
+              );
+              const isFound = detected ? detected.found : false;
+              const isSelected = defaultAgent === a.value;
+
               return (
                 <AppButton
                   key={a.value}
                   variant="chip"
                   size="sm"
-                  active={defaultAgent === a.value}
-                  onClick={(e) => { e.stopPropagation(); setDefaultAgent(a.value); }}
-                  className="px-3"
+                  active={isSelected}
+                  disabled={!isFound}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isFound) setDefaultAgent(a.value);
+                  }}
+                  className={`px-3 transition-opacity ${!isFound ? "opacity-40 cursor-not-allowed grayscale" : ""}`}
+                  title={!isFound ? `${a.label} is not installed on this machine` : detected?.version ? `${a.label} (${detected.version})` : a.label}
                 >
                   <span className="flex items-center gap-1.5">
-                    {logo && <img src={logo} alt="" className="w-4 h-4 rounded-sm object-contain" />}
+                    {logo && <img src={logo} alt="" className={`w-4 h-4 rounded-sm object-contain ${!isFound ? "opacity-60" : ""}`} />}
                     {a.label}
-                    {defaultAgent === a.value && <Check size={10} className="text-kumo-brand" weight="bold" />}
+                    {isSelected && <Check size={10} className="text-kumo-brand" weight="bold" />}
+                    {!isFound && <span className="text-[10px] text-kumo-subtle">(not installed)</span>}
                   </span>
                 </AppButton>
               );
             })}
           </div>
+          {agentsLoading ? (
+            <p className="text-[11px] text-kumo-subtle italic mt-2">Checking installed agent CLIs…</p>
+          ) : (
+            <div className="mt-1 space-y-1">
+              <p className="text-[11px] text-kumo-subtle">
+                Only installed CLI agents can be selected.
+              </p>
+              {(() => {
+                const currentAgentInfo = detectedAgents.find(
+                  (d) => d.command === defaultAgent || d.name.toLowerCase() === defaultAgent.toLowerCase()
+                );
+                if (currentAgentInfo && !currentAgentInfo.found) {
+                  return (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-400 mt-1">
+                      <WarningCircle size={14} className="shrink-0" />
+                      <span>
+                        The current default agent (<b>{defaultAgent}</b>) is not detected on this machine.
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
         </Section>
 
         {/* Terminal */}

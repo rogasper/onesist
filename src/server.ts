@@ -75,7 +75,7 @@ async function ensureTerminalServer() {
       // install dirs directly before falling back to PATH.
       const nodeExe = resolveNodeExe();
       console.log(`[server] terminal server node: ${nodeExe}`);
-      const child = spawn(nodeExe, [nodeServerPath], {
+      const child = spawn(nodeExe, ["--max-old-space-size=256", nodeServerPath], {
         env: { ...process.env, TERMINAL_PORT: String(port) },
         stdio: ["ignore", "pipe", "pipe"],
         detached: true,

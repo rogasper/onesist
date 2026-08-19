@@ -54,6 +54,16 @@ pub fn run() {
         )?;
       }
 
+      // On Windows, cap WebView2 (Chromium) V8 heap and enable timer throttling when hidden
+      // to keep RAM consumption low under intense TUI ANSI streams (xterm.js).
+      #[cfg(target_os = "windows")]
+      {
+        std::env::set_var(
+          "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+          "--js-flags=\"--max-old-space-size=512\" --disable-background-timer-throttling=0",
+        );
+      }
+
       // Watch our own RSS (Tauri shell + WebView) — the sidecar has its own
       // watchdog, but nothing guarded the main process against a leaking
       // WebView (observed 80 GB during update install/relaunch on macOS).

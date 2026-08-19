@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,7 +18,9 @@ interface AgentSession {
   backend: "conpty" | "cmdpipe" | "python" | "node-pty";
 }
 
-const MAX_REPLAY = 64 * 1024;
+// 16 KB is plenty for terminal handshakes and TUI replay while preventing
+// excessive string memory accumulation under continuous full-screen TUI repaints.
+const MAX_REPLAY = 16 * 1024;
 
 const sessions = new Map<string, AgentSession>();
 
@@ -307,6 +309,13 @@ function resizeSession(id: string, cols: number, rows: number) {
 function killSession(id: string) {
   const session = sessions.get(id);
   if (!session) return;
+  const pid = session.pty?.pid || session.proc?.pid;
+  if (pid && process.platform === "win32") {
+    try {
+      // /T = terminate process tree (including child opencode.exe/node.exe), /F = force
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {}
+  }
   try {
     if (session.pty) {
       session.pty.kill();
@@ -318,6 +327,9 @@ function killSession(id: string) {
     try { fs.unlinkSync(session.sizeFile); } catch {}
   }
   sessions.delete(id);
+  try {
+    (globalThis as any).Bun?.gc?.(true);
+  } catch {}
 }
 
 // Kill every live session when this process exits (crash, SIGTERM, quit).
