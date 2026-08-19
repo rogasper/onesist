@@ -146,9 +146,11 @@ impl SidecarState {
             .env("PATH", resolve_user_path())
             .spawn()?;
 
-        let pid = child.pid();
         #[cfg(target_os = "windows")]
-        assign_pid_to_job(pid);
+        {
+            let pid = child.pid();
+            assign_pid_to_job(pid);
+        }
 
         *self.child.lock().unwrap() = Some(child);
 

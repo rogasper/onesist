@@ -39,4 +39,4 @@ objc2 = "0.6"
 objc2-foundation = "0.3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Foundation", "Win32_System_JobObjects"] }
+windows-sys = { version = "0.52", features = ["Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Foundation", "Win32_System_JobObjects", "Win32_Security"] }
