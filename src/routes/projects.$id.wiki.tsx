@@ -6,6 +6,7 @@ import { loadProjectRouteData } from "~/lib/project-queries";
 import { WikiSidebar } from "~/components/wiki/WikiSidebar";
 import { WikiContent } from "~/components/wiki/WikiContent";
 import { PageHeader } from "~/components/ui/PageHeader";
+import { AppButton } from "~/components/ui/AppButton";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { Placeholder } from "~/components/ui/Placeholder";
 
@@ -142,10 +143,15 @@ function WikiPage() {
         help="wiki"
         badges={pages.length > 0 && <Badge variant="neutral" className="text-[11px]">{pages.length} pages</Badge>}
         actions={
-          <button onClick={handleGenerateDocs}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-white bg-kumo-brand rounded-full hover:opacity-90 transition-opacity">
-            <FileText size={12} /> Generate from artifacts
-          </button>
+          <AppButton
+            variant="primary"
+            size="sm"
+            onClick={handleGenerateDocs}
+            icon={<FileText size={12} />}
+            className="rounded-full px-3"
+          >
+            Generate from artifacts
+          </AppButton>
         }
         below={error && <InlineAlert kind="error">{error}</InlineAlert>}
       />

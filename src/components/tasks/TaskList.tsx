@@ -90,6 +90,7 @@ export function TaskList({
         const groupTasks = group.tasks;
         const doneCount = groupTasks.filter((t) => t.status === "done").length;
         const totalPoints = groupTasks.reduce((s, t) => s + (t.storyPoints ?? 0), 0);
+        const percentDone = groupTasks.length > 0 ? Math.round((doneCount / groupTasks.length) * 100) : 0;
         const allArchived = groupTasks.length > 0 && groupTasks.every((t) => t.archived);
         const allPhaseSelected =
           groupTasks.length > 0 && groupTasks.every((t) => selectedIds.has(t.id));
@@ -140,6 +141,17 @@ export function TaskList({
                   <span className="text-[10px] text-kumo-subtle font-mono shrink-0">
                     ({doneCount}/{groupTasks.length} done{totalPoints > 0 ? ` · ${totalPoints} SP` : ""})
                   </span>
+                  {groupTasks.length > 0 && (
+                    <div
+                      className="w-14 h-1.5 rounded-full bg-kumo-line/60 overflow-hidden shrink-0 hidden sm:block"
+                      title={`${percentDone}% completed`}
+                    >
+                      <div
+                        className="h-full bg-green-500 rounded-full transition-all duration-300"
+                        style={{ width: `${percentDone}%` }}
+                      />
+                    </div>
+                  )}
                   {allArchived && (
                     <span className="text-[9px] px-1.5 py-0.2 rounded border border-amber-500/30 text-amber-400/90 bg-amber-500/10 uppercase tracking-wide font-medium shrink-0">
                       Archived

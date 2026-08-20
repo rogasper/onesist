@@ -5,6 +5,7 @@ import { LinkSimple, Plus, Robot, TrayArrowDown, Copy, DownloadSimple, CaretDown
 import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { Toast, type ToastMessage } from "~/components/ui/Toast";
 import { AgentStream } from "~/components/agent/AgentStream";
 import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
 import { RtmMatrix } from "~/components/rtm/RtmMatrix";
@@ -354,17 +355,12 @@ function RtmPage() {
         title="Traceability"
         help="rtm"
         badges={
-          <>
-            {summary && summary.frCount > 0 && (
-              <>
-                <Badge variant="neutral" className="text-[11px]">{summary.frCount} FR</Badge>
-                <Badge variant="neutral" className="text-[11px]">{summary.brMapped}/{summary.brMapped + summary.brUnmapped} FR → BR</Badge>
-                <Badge variant="neutral" className="text-[11px] text-green-400/80">{summary.full} lengkap</Badge>
-                <Badge variant="neutral" className="text-[11px] text-amber-400/80">{summary.designOnly + summary.testOnly} parsial</Badge>
-                <Badge variant="neutral" className="text-[11px] text-red-400/80">{summary.none} belum ditracing</Badge>
-              </>
-            )}
-          </>
+          summary && summary.frCount > 0 ? (
+            <Badge variant="neutral" className="text-[11px]">
+              {summary.frCount} FR · {summary.brMapped}/{summary.brMapped + summary.brUnmapped} mapped · {summary.full} lengkap
+              {summary.none > 0 && ` · ${summary.none} unmapped`}
+            </Badge>
+          ) : undefined
         }
         actions={
           <>
@@ -444,15 +440,7 @@ function RtmPage() {
         }
       />
 
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-3 py-2 rounded-lg border text-xs shadow-lg ${
-          toast.kind === "success"
-            ? "border-green-500/40 bg-green-500/15 text-green-400"
-            : "border-red-500/40 bg-red-500/15 text-red-400"
-        }`}>
-          {toast.text}
-        </div>
-      )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
 
       {genSessionId && (
         <div className="shrink-0 mb-3">
@@ -515,15 +503,20 @@ function RtmPage() {
 
 function GapStat({ label, value, danger }: { label: string; value: number; danger: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1">
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-medium transition-colors ${
+        danger
+          ? "border-red-500/30 bg-red-500/10 text-red-400"
+          : "border-kumo-line/60 bg-kumo-elevated text-kumo-subtle"
+      }`}
+    >
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${danger ? "bg-red-400" : "bg-green-400"}`} />
-      <span className="text-kumo-subtle">{label}:</span>
-      <span className={danger ? "text-red-400 font-medium" : "text-kumo-default"}>{value}</span>
+      <span>{label}:</span>
+      <span className={danger ? "text-red-400 font-bold" : "text-kumo-default"}>{value}</span>
     </span>
   );
 }
 
-/** Searchable scope (BRD/FSD) dropdown — one scope = one BRD/FSD. */
 /** Searchable scope (RTM) dropdown — pick which RTM scope is active. */
 function ScopePicker({ value, scopes, loading, onChange }: {
   value: string;
@@ -537,15 +530,16 @@ function ScopePicker({ value, scopes, loading, onChange }: {
   const filtered = scopes.filter((s) => s.toLowerCase().includes(query));
 
   return (
-    <div className="relative">
+    <div className="relative shrink-0">
       <button
+        type="button"
         onClick={() => setOpen((p) => !p)}
-        className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default hover:border-kumo-brand/50 transition-colors"
+        className="h-7 inline-flex items-center gap-1.5 px-3 text-xs font-medium rounded-full border border-kumo-line/80 bg-kumo-elevated text-kumo-default hover:border-kumo-brand/50 hover:bg-kumo-elevated/80 transition-all shadow-xs"
         title="Scope RTM — satu scope = satu file RTM"
       >
         <span className="text-kumo-subtle text-[10px] uppercase tracking-wider">Scope</span>
-        <span className="font-medium">{loading ? "Memuat…" : value === "default" ? "default" : value}</span>
-        <CaretDown size={11} className="text-kumo-subtle" />
+        <span className="font-semibold">{loading ? "Memuat…" : value === "default" ? "default" : value}</span>
+        <CaretDown size={11} weight="bold" className="text-kumo-subtle" />
       </button>
       {open && (
         <>
@@ -570,6 +564,7 @@ function ScopePicker({ value, scopes, loading, onChange }: {
                 filtered.map((s) => (
                   <button
                     key={s}
+                    type="button"
                     onClick={() => { onChange(s); setOpen(false); setQ(""); }}
                     className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[11px] rounded hover:bg-kumo-tint transition-colors ${s === value ? "text-kumo-brand font-medium" : "text-kumo-default"}`}
                   >
@@ -595,23 +590,22 @@ function FdPills({ fds, selectedFds, onToggleFd }: {
 }) {
   if (fds.length === 0) return null;
   return (
-    <div className="flex-1 flex items-center gap-1 py-0.5 px-1 overflow-x-auto min-w-0">
+    <div className="flex-1 flex items-center gap-1 py-0.5 overflow-x-auto min-w-0 no-scrollbar">
       {fds.map((fd) => {
         const active = selectedFds.length === 0 || selectedFds.includes(fd);
-        const label = fd.replace(/^fsd_/, "");
+        const label = fd.replace(/^fsd_/, "").replace(/\.(md|json|docx)$/, "");
         return (
-          <button
+          <AppButton
             key={fd}
+            variant="chip"
+            size="xs"
+            active={active}
             onClick={() => onToggleFd(fd)}
-            className={`shrink-0 rounded-full px-2.5 h-7 text-[11px] ring-1 transition-colors ${
-              active
-                ? "bg-kumo-brand text-white ring-kumo-brand font-medium"
-                : "bg-kumo-elevated ring-kumo-line/50 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
-            }`}
+            className="px-2.5 shrink-0 truncate max-w-[180px]"
             title={active ? `Hapus ${label} dari seleksi` : `Tambahkan ${label} ke seleksi`}
           >
             {label}
-          </button>
+          </AppButton>
         );
       })}
     </div>

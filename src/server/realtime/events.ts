@@ -9,6 +9,12 @@ interface EventPayload {
 }
 
 class AppEventBus extends EventEmitter {
+  constructor() {
+    super();
+    // Allow up to 64 listeners without EventEmitter warning (supports MAX_STREAMS)
+    this.setMaxListeners(64);
+  }
+
   private tickets = new Map<string, number>();
 
   /** Per-session ring buffer of agent events (status/log/done/error) so a

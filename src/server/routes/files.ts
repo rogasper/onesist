@@ -15,9 +15,20 @@ import {
   scanDirectory,
   writeFile,
   getProjectSummary,
+  searchProjectFiles,
 } from "~/lib/file-router";
 
 export const router = new Router();
+
+// GET /api/files/search
+router.get("files/search", ({ query }) => {
+  const q = query.get("q") || "";
+  const projectId = query.get("projectId");
+  const mode = (query.get("mode") as "all" | "filename" | "content") || "all";
+  const limit = Math.min(parseInt(query.get("limit") || "40", 10) || 40, 100);
+  const root = resolveRoot(projectId);
+  return json(searchProjectFiles(root, q, mode, limit));
+});
 
 // GET /api/files/list
 router.get("files/list", ({ query }) => {

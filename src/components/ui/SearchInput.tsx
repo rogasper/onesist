@@ -19,27 +19,34 @@ export function SearchInput({
 }: SearchInputProps) {
   const pill = variant === "pill";
   return (
-    <div className={`relative ${className}`}>
+    <div className={`relative inline-flex items-center group shrink-0 ${className}`}>
       <MagnifyingGlass
-        size={pill ? 12 : 11}
-        className={`absolute top-1/2 -translate-y-1/2 text-kumo-subtle pointer-events-none ${pill ? "left-2.5" : "left-3.5"}`}
+        size={pill ? 13 : 11}
+        className={`absolute top-1/2 -translate-y-1/2 text-kumo-subtle group-hover:text-kumo-default pointer-events-none transition-colors ${
+          pill ? "left-2.5" : "left-2.5"
+        }`}
       />
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={pill
-          ? "app-input w-full h-7 pl-7 pr-6 text-xs text-kumo-default placeholder:text-kumo-subtle"
-          : "w-full bg-kumo-elevated/60 border border-kumo-line rounded pl-6 pr-6 py-1 text-xs text-kumo-default placeholder:text-kumo-subtle focus:border-kumo-brand focus:outline-none"}
+        className={
+          pill
+            ? "w-full h-7 pl-7.5 pr-7 text-xs font-medium text-kumo-default placeholder:text-kumo-subtle rounded-full border border-kumo-line/80 bg-kumo-elevated hover:bg-kumo-elevated/80 hover:border-kumo-brand/50 focus:border-kumo-brand/80 focus:ring-1 focus:ring-kumo-brand/30 outline-none transition-all shadow-xs"
+            : "w-full bg-kumo-elevated border border-kumo-line/80 rounded-md pl-6.5 pr-6 py-1 text-xs font-medium text-kumo-default placeholder:text-kumo-subtle hover:border-kumo-brand/50 focus:border-kumo-brand/80 focus:ring-1 focus:ring-kumo-brand/30 outline-none transition-all shadow-xs"
+        }
       />
       {value && (
         <button
           type="button"
           onClick={() => onChange("")}
-          className={`absolute top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-default ${pill ? "right-2" : "right-2.5"}`}
+          className={`absolute top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-default p-0.5 rounded transition-colors ${
+            pill ? "right-2" : "right-1.5"
+          }`}
+          title="Clear search"
         >
-          <X size={pill ? 12 : 10} />
+          <X size={pill ? 11 : 10} weight="bold" />
         </button>
       )}
     </div>

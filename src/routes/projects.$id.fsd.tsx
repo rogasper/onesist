@@ -13,6 +13,7 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { ExplorerShell } from "~/components/ui/ExplorerShell";
 import { Placeholder } from "~/components/ui/Placeholder";
+import { Toast, type ToastMessage } from "~/components/ui/Toast";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
 import { useFsdConversion, useFileList, usePageVisible } from "~/lib/use-file-data";
 import type { CompletenessResult } from "~/lib/fsd-completeness";
@@ -144,6 +145,11 @@ function FsdPage() {
         const d = await res.json();
         if (!mounted || !d.ticket) return;
         es = new EventSource(`/api/events?ticket=${d.ticket}`);
+        if (!mounted) {
+          es.close();
+          es = null;
+          return;
+        }
         es.addEventListener("file:changed", schedule);
         es.addEventListener("fsd:conversion", schedule);
         // Guard against infinite browser auto-reconnect loops: if the server
@@ -353,19 +359,17 @@ function FsdPage() {
         }
         actions={
           activeSession && (
-            <button
+            <AppButton
+              variant={activeSession.status === "ready" ? "chip" : "secondary"}
+              size="sm"
               onClick={() => handleReady()}
               disabled={activeSession.status === "ready"}
-              className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-full border transition-all disabled:opacity-40 ${
-                activeSession.status === "ready"
-                  ? "border-green-500/40 text-green-400 bg-green-500/10"
-                  : "border-kumo-line/50 text-kumo-subtle hover:text-kumo-default hover:bg-white/5"
-              }`}
+              icon={<SealCheck size={12} />}
+              className="px-3"
               title="Mark as ready for analysis"
             >
-              <SealCheck size={12} />
               {activeSession.status === "ready" ? "Ready" : "Mark Ready"}
-            </button>
+            </AppButton>
           )
         }
         below={!loaded && <div className="text-xs text-kumo-subtle">Loading documents...</div>}
@@ -439,15 +443,7 @@ function FsdPage() {
         <span className="block mt-1 text-kumo-subtle">This action cannot be undone.</span>
       </ConfirmDialog>
 
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-3 py-2 rounded-lg border text-xs shadow-lg ${
-          toast.kind === "success"
-            ? "border-green-500/40 bg-green-500/15 text-green-400"
-            : "border-red-500/40 bg-red-500/15 text-red-400"
-        }`}>
-          {toast.text}
-        </div>
-      )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
 
       <div className="flex flex-1 min-h-0 gap-3">
       <ExplorerShell

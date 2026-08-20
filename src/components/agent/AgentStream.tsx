@@ -256,6 +256,11 @@ export function AgentStream({ sessionId, onDone, onError, onStopped, onFeedback,
         if (!mounted) return;
         if (!ticketRes.ticket) throw new Error("no ticket");
         es = new EventSource(`/api/events?ticket=${ticketRes.ticket}`);
+        if (!mounted) {
+          es.close();
+          es = null;
+          return;
+        }
 
         const handleLive = (type: string) => (e: MessageEvent) => {
           if (!mounted) return;

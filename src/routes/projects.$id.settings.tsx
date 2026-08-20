@@ -4,6 +4,7 @@ import { loadProjectRouteData } from "~/lib/project-queries";
 import { Gear, Check, WarningCircle } from "@phosphor-icons/react";
 import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
+import { FilterSelect } from "~/components/ui/FilterSelect";
 import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 import { agentLogo } from "~/lib/agent-command";
 import { loadTerminalPrefs, saveTerminalPrefs, type TerminalPrefs } from "~/lib/terminal-prefs";
@@ -178,10 +179,16 @@ function SettingsPage() {
         {/* Terminal */}
         <Section title="Terminal">
           <Field label="Font Size">
-            <select value={terminalPrefs.fontSize} onChange={(e) => setTerminalPrefs(p => ({ ...p, fontSize: Number(e.target.value) }))}
-              className="bg-kumo-elevated/40 text-sm text-kumo-default rounded-full border border-kumo-line/50 px-3.5 py-1.5 outline-none focus:border-kumo-brand">
-              {FONT_SIZES.map((s) => <option key={s} value={s}>{s}px</option>)}
-            </select>
+            <FilterSelect
+              value={String(terminalPrefs.fontSize)}
+              onChange={(val) => setTerminalPrefs((p) => ({ ...p, fontSize: Number(val) }))}
+            >
+              {FONT_SIZES.map((s) => (
+                <option key={s} value={s}>
+                  {s}px
+                </option>
+              ))}
+            </FilterSelect>
           </Field>
           <Field label="Theme">
             <div className="flex gap-2">
@@ -215,13 +222,15 @@ function SettingsPage() {
 
         {/* Save */}
         <div className="flex items-center gap-3">
-          <button
+          <AppButton
+            variant="primary"
+            size="base"
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-kumo-brand rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="rounded px-4"
           >
             {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
-          </button>
+          </AppButton>
           {saved && <span className="text-xs text-kumo-brand">Settings saved</span>}
         </div>
       </div>

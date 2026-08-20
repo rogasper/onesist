@@ -26,12 +26,18 @@ router.get("events", async (ctx) => {
     return json({ error: "Too many event streams" }, 429);
   }
   activeStreams += 1;
+  let isCleanedUp = false;
   let cleanup: (() => void) | null = null;
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
       const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        if (isCleanedUp) return;
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          cleanup?.();
+        }
       };
       const handlers: Record<string, (...args: any[]) => void> = {};
       for (const event of ["file:changed", "agent:log", "agent:status", "agent:done", "agent:error", "task:status", "fsd:conversion"]) {
@@ -42,9 +48,12 @@ router.get("events", async (ctx) => {
       send("connected", { message: "SSE connected" });
       const keepAlive = setInterval(() => send("keepalive", { ts: Date.now() }), 15000);
       cleanup = () => {
+        if (isCleanedUp) return;
+        isCleanedUp = true;
         for (const [event, handler] of Object.entries(handlers)) eventBus.off(event, handler);
         clearInterval(keepAlive);
         activeStreams = Math.max(0, activeStreams - 1);
+        try { controller.close(); } catch {}
       };
       ctx.request.signal.addEventListener("abort", cleanup);
     },

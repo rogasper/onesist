@@ -296,3 +296,162 @@ export function getProjectSummary(rootPath: string): Record<string, number> {
   } catch {}
   return summary;
 }
+
+export interface FileContentMatch {
+  line: number;
+  preview: string;
+}
+
+export interface FileSearchResult {
+  name: string;
+  path: string;
+  type: FileEntry["type"];
+  ext: string;
+  size: number;
+  modifiedAt: number;
+  matchType: "filename" | "content";
+  matches?: FileContentMatch[];
+}
+
+const IGNORED_DIRS = new Set([
+  "node_modules", ".git", "dist", "binaries", "target", ".gemini", ".cache", "coverage", ".next", ".turbo",
+]);
+
+const TEXT_EXTS = new Set([
+  ".md", ".json", ".dbml", ".sql", ".html", ".txt", ".yaml", ".yml", ".ts", ".tsx", ".js", ".jsx", ".csv", ".excalidraw",
+]);
+
+export function searchProjectFiles(
+  rootPath: string,
+  rawQuery: string,
+  mode: "all" | "filename" | "content" = "all",
+  limit = 40
+): FileSearchResult[] {
+  if (!fs.existsSync(rootPath)) return [];
+
+  const query = rawQuery.trim();
+  const qLower = query.toLowerCase();
+
+  const fileResults: FileSearchResult[] = [];
+  const contentResults: FileSearchResult[] = [];
+
+  const walk = (dir: string, relDir: string) => {
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") && entry.name !== ".env") continue;
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(entry.name)) continue;
+        walk(path.join(dir, entry.name), relDir ? `${relDir}/${entry.name}` : entry.name);
+      } else if (entry.isFile()) {
+        const normRelPath = (relDir ? `${relDir}/${entry.name}` : entry.name).replace(/\\/g, "/");
+        const ext = path.extname(entry.name).toLowerCase();
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(path.join(dir, entry.name));
+        } catch {
+          continue;
+        }
+
+        const type = detectRoute(normRelPath) as FileEntry["type"];
+        const nameLower = entry.name.toLowerCase();
+        const pathLower = normRelPath.toLowerCase();
+
+        // 1. Filename match
+        let isNameMatch = false;
+        if (!query) {
+          isNameMatch = true;
+        } else if (nameLower.includes(qLower) || pathLower.includes(qLower)) {
+          isNameMatch = true;
+        }
+
+        if (isNameMatch && (mode === "all" || mode === "filename")) {
+          fileResults.push({
+            name: entry.name,
+            path: normRelPath,
+            type,
+            ext,
+            size: stat.size,
+            modifiedAt: stat.mtimeMs,
+            matchType: "filename",
+          });
+        }
+
+        // 2. Content match (only if query is non-empty, file is text, and size <= 2MB)
+        if (query && (mode === "all" || mode === "content") && TEXT_EXTS.has(ext) && stat.size <= 2 * 1024 * 1024) {
+          try {
+            const content = fs.readFileSync(path.join(dir, entry.name), "utf-8");
+            if (content.toLowerCase().includes(qLower)) {
+              const lines = content.split(/\r?\n/);
+              const matches: FileContentMatch[] = [];
+              for (let i = 0; i < lines.length && matches.length < 3; i++) {
+                const lineContent = lines[i];
+                if (lineContent.toLowerCase().includes(qLower)) {
+                  matches.push({
+                    line: i + 1,
+                    preview: lineContent.trim().slice(0, 140),
+                  });
+                }
+              }
+              if (matches.length > 0) {
+                contentResults.push({
+                  name: entry.name,
+                  path: normRelPath,
+                  type,
+                  ext,
+                  size: stat.size,
+                  modifiedAt: stat.mtimeMs,
+                  matchType: "content",
+                  matches,
+                });
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+  };
+
+  walk(rootPath, "");
+
+  // Sort filename results: exact match > name start > name contains > path contains
+  if (query) {
+    fileResults.sort((a, b) => {
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      const aExact = aName === qLower ? 4 : aName.startsWith(qLower) ? 3 : aName.includes(qLower) ? 2 : 1;
+      const bExact = bName === qLower ? 4 : bName.startsWith(qLower) ? 3 : bName.includes(qLower) ? 2 : 1;
+      if (bExact !== aExact) return bExact - aExact;
+      return b.modifiedAt - a.modifiedAt;
+    });
+  } else {
+    fileResults.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  }
+
+  contentResults.sort((a, b) => b.modifiedAt - a.modifiedAt);
+
+  if (mode === "filename") {
+    return fileResults.slice(0, limit);
+  }
+  if (mode === "content") {
+    return contentResults.slice(0, limit);
+  }
+
+  // mode === "all": merge filename results first, then content results (deduplicating if same path and already in top results)
+  const combined: FileSearchResult[] = [...fileResults];
+  const seenPaths = new Set(combined.map((r) => r.path));
+  for (const c of contentResults) {
+    if (!seenPaths.has(c.path)) {
+      combined.push(c);
+      seenPaths.add(c.path);
+    }
+  }
+
+  return combined.slice(0, limit);
+}
+

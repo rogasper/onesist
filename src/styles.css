@@ -29,6 +29,11 @@
   button:active:not(:disabled) {
     transform: scale(0.98);
   }
+  select option {
+    background-color: #18181b;
+    color: #f4f4f5;
+    padding: 6px 10px;
+  }
 }
 
 .spec-markdown { color: #e0e0e0; background: #161616; padding: 0.5rem 1rem; border-radius: 6px; }
@@ -100,11 +105,17 @@
 /* App input: pill, elevated surface, brand focus ring */
 .app-input {
   border-radius: 9999px;
-  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 50%, transparent);
-  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 40%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 80%, transparent);
+  background-color: var(--color-kumo-elevated, #18181b);
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.app-input:hover {
+  border-color: color-mix(in srgb, var(--color-kumo-brand) 50%, var(--color-kumo-line, #2a2a2a));
+  background-color: color-mix(in srgb, var(--color-kumo-elevated, #18181b) 90%, transparent);
 }
 .app-input:focus {
   border-color: var(--color-kumo-brand);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-kumo-brand) 30%, transparent);
   outline: none;
 }
 

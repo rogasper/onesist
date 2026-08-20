@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { Badge } from "@cloudflare/kumo";
-import { Cube, Terminal as TerminalIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle } from "@phosphor-icons/react";
+import { Cube, Terminal as TerminalIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
@@ -100,6 +100,22 @@ function ProjectLayout() {
     setActiveTabPath(null);
   }, [project?.id]);
 
+  useEffect(() => {
+    const handleOpenFileEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ path: string; name: string }>;
+      if (customEvent.detail?.path) {
+        const { path, name } = customEvent.detail;
+        setOpenTabs((prev) => {
+          if (prev.some((t) => t.path === path)) return prev;
+          return [...prev, { path, name: name || path.split("/").pop() || path }];
+        });
+        setActiveTabPath(path);
+      }
+    };
+    window.addEventListener("open-project-file", handleOpenFileEvent);
+    return () => window.removeEventListener("open-project-file", handleOpenFileEvent);
+  }, []);
+
   const handleFileClick = (file: { name: string; path: string }) => {
     if (!file.path.endsWith(".md")) return;
     setOpenTabs((prev) => {
@@ -129,7 +145,7 @@ function ProjectLayout() {
   return (
     <div className="flex h-full">
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="mb-5">
+        <div className="mb-3">
           <div className="text-xs text-kumo-subtle mb-1">
             <Link to="/" className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
             <span className="mx-1.5 text-kumo-subtle">/</span>
@@ -139,33 +155,45 @@ function ProjectLayout() {
           <div className="flex items-center gap-2">
             <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
             <h1 className="text-xl font-semibold tracking-tight text-kumo-default">{project.name}</h1>
-            {project.company && <Badge variant="neutral" className="text-[11px]">{project.company}</Badge>}
-            <AppButton
-              onClick={() => setTerminalOpen((p) => !p)}
-              variant="chip"
-              size="sm"
-              active={terminalOpen}
-              activeColor="success"
-              icon={<TerminalIcon size={12} />}
-              className="ml-auto px-3"
-            >
-              <span className="flex items-center gap-1.5">
-                {/* Always-rendered indicator — the running state toggles a class,
-                    NOT a conditional child. React inserting/removing a span inside
-                    a kumo Button while the terminal connects raced with its async
-                    work and crashed with "insertBefore not a child". */}
-                <span
-                  className={`w-1.5 h-1.5 rounded-full transition-opacity ${terminalRunning ? "bg-green-400 animate-pulse opacity-100" : "opacity-0"}`}
-                  title="Agent session running"
-                />
-                Terminal
-              </span>
-            </AppButton>
-            <PageHelpButton help="overview" />
+            <div className="ml-auto flex items-center gap-2">
+              <AppButton
+                onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
+                variant="secondary"
+                size="sm"
+                icon={<MagnifyingGlass size={12} />}
+                className="rounded-full px-2.5 text-xs"
+                title="Quick Open & Content Search (Cmd+P or Ctrl+P)"
+              >
+                Search
+                <kbd className="text-[10px] font-mono px-1 py-0.2 rounded bg-kumo-elevated text-kumo-subtle border border-kumo-line/60 ml-1">⌘P</kbd>
+              </AppButton>
+              <AppButton
+                onClick={() => setTerminalOpen((p) => !p)}
+                variant="chip"
+                size="sm"
+                active={terminalOpen}
+                activeColor="success"
+                icon={<TerminalIcon size={12} />}
+                className="px-3"
+              >
+                <span className="flex items-center gap-1.5">
+                  {/* Always-rendered indicator — the running state toggles a class,
+                      NOT a conditional child. React inserting/removing a span inside
+                      a kumo Button while the terminal connects raced with its async
+                      work and crashed with "insertBefore not a child". */}
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full transition-opacity ${terminalRunning ? "bg-green-400 animate-pulse opacity-100" : "opacity-0"}`}
+                    title="Agent session running"
+                  />
+                  Terminal
+                </span>
+              </AppButton>
+              <PageHelpButton help="overview" />
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 mb-5 flex-wrap">
+        <div className="flex items-center gap-1 mb-3 flex-wrap">
           {TAB_ITEMS.map((t) => (
             <AppButton
               key={t.value}

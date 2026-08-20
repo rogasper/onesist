@@ -14,6 +14,7 @@ import { InlineAlert } from "~/components/ui/InlineAlert";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { Placeholder } from "~/components/ui/Placeholder";
 import { SearchInput } from "~/components/ui/SearchInput";
+import { Toast, type ToastMessage } from "~/components/ui/Toast";
 import { AgentStream } from "~/components/agent/AgentStream";
 import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
 import { FeedbackBox } from "~/components/agent/FeedbackBox";
@@ -158,6 +159,11 @@ function SpecPage() {
         const d = await res.json();
         if (!mounted || !d.ticket) return;
         es = new EventSource(`/api/events?ticket=${d.ticket}`);
+        if (!mounted) {
+          es.close();
+          es = null;
+          return;
+        }
         es.addEventListener("file:changed", (e) => {
           try {
             const msg = JSON.parse((e as MessageEvent).data);
@@ -456,15 +462,7 @@ function SpecPage() {
         </div>
       )}
 
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-3 py-2 rounded-lg border text-xs shadow-lg ${
-          toast.kind === "success"
-            ? "border-green-500/40 bg-green-500/15 text-green-400"
-            : "border-red-500/40 bg-red-500/15 text-red-400"
-        }`}>
-          {toast.text}
-        </div>
-      )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
 
       <ModelPickerDialog
         open={modelPickerOpen}

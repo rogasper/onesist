@@ -6,6 +6,7 @@ import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { ListSkeleton } from "~/components/ui/Skeleton";
+import { Toast, type ToastMessage } from "~/components/ui/Toast";
 import { AgentStream } from "~/components/agent/AgentStream";
 import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
 import { SitDashboard } from "~/components/sit/SitDashboard";
@@ -340,15 +341,7 @@ function SitPage() {
         }
       />
 
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-3 py-2 rounded-lg border text-xs shadow-lg ${
-          toast.kind === "success"
-            ? "border-green-500/40 bg-green-500/15 text-green-400"
-            : "border-red-500/40 bg-red-500/15 text-red-400"
-        }`}>
-          {toast.text}
-        </div>
-      )}
+      <Toast toast={toast} onClose={() => setToast(null)} />
 
       {genSessionId && (
         <div className="shrink-0 mb-3">

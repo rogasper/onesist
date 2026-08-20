@@ -20,6 +20,7 @@ import type { Task } from "~/shared/types";
 import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { SearchInput } from "~/components/ui/SearchInput";
+import { FilterSelect } from "~/components/ui/FilterSelect";
 
 export const Route = createFileRoute("/projects/$id/tasks")({
   loader: async ({ params }) => {
@@ -47,7 +48,6 @@ function TasksPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
-  const [phaseFilter, setPhaseFilter] = useState("all");
   const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -90,7 +90,6 @@ function TasksPage() {
     return tasks.filter((t) => {
       if (!showArchived && t.archived) return false;
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
-      if (phaseFilter !== "all" && t.phase !== phaseFilter && t.module !== phaseFilter) return false;
       const assignees = t.assignee ? t.assignee.split(/\s*\+\s*/).map((a) => a.trim().toLowerCase()) : [];
       if (assigneeFilter !== "all" && !assignees.includes(assigneeFilter.toLowerCase())) return false;
       if (unassignedOnly && t.assignee) return false;
@@ -106,7 +105,7 @@ function TasksPage() {
       ].join("\n").toLowerCase();
       return haystack.includes(q);
     });
-  }, [tasks, search, statusFilter, assigneeFilter, phaseFilter, unassignedOnly, showArchived]);
+  }, [tasks, search, statusFilter, assigneeFilter, unassignedOnly, showArchived]);
 
   const groupedTasks: TaskGroup[] = useMemo(() => {
     const map = new Map<string | null, Task[]>();
@@ -309,6 +308,11 @@ function TasksPage() {
         const d = await res.json();
         if (!mounted || !d.ticket) return;
         es = new EventSource(`/api/events?ticket=${d.ticket}`);
+        if (!mounted) {
+          es.close();
+          es = null;
+          return;
+        }
         es.addEventListener("file:changed", (e) => {
           try {
             const msg = JSON.parse((e as MessageEvent).data);
@@ -342,17 +346,10 @@ function TasksPage() {
         badges={
           <>
             {tasks.length > 0 && (
-              <>
-                <Badge variant="neutral" className="text-[11px]">{tasks.length} tasks</Badge>
-                <Badge variant="neutral" className="text-[11px]">{totalPoints} SP</Badge>
-                <Badge variant="neutral" className="text-[11px]">{assignedCount} assigned</Badge>
-                <Badge variant="neutral" className="text-[11px]">{unassignedCount} unassigned</Badge>
-                {archivedCount > 0 && (
-                  <Badge variant="neutral" className="text-[11px] text-amber-400">
-                    {archivedCount} archived
-                  </Badge>
-                )}
-              </>
+              <Badge variant="neutral" className="text-[11px]">
+                {tasks.length} tasks · {totalPoints} SP · {unassignedCount} unassigned
+                {archivedCount > 0 && ` · ${archivedCount} archived`}
+              </Badge>
             )}
             {importResult && (
               <Badge variant="neutral" className="text-[11px]">
@@ -421,35 +418,20 @@ function TasksPage() {
                   placeholder="Search code, title, assignee, content…"
                   className="w-72"
                 />
-                <select
+                <FilterSelect
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5"
-                >
-                  {STATUS_FILTERS.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
-                <select
+                  onChange={setStatusFilter}
+                  options={STATUS_FILTERS}
+                />
+                <FilterSelect
                   value={assigneeFilter}
-                  onChange={(e) => setAssigneeFilter(e.target.value)}
-                  className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5"
+                  onChange={setAssigneeFilter}
                 >
                   <option value="all">All developers</option>
                   {developers.map((d) => (
                     <option key={d} value={d}>{d}</option>
                   ))}
-                </select>
-                <select
-                  value={phaseFilter}
-                  onChange={(e) => setPhaseFilter(e.target.value)}
-                  className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5"
-                >
-                  <option value="all">All phases</option>
-                  {phases.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
+                </FilterSelect>
                 <AppButton
                   onClick={() => setUnassignedOnly((p) => !p)}
                   variant="chip"
@@ -489,9 +471,11 @@ function TasksPage() {
                       ? "Cancel Select"
                       : "Select"}
                 </AppButton>
-                <span className="text-[10px] text-kumo-subtle ml-auto">
-                  {filteredTasks.length}/{tasks.length} tasks
-                </span>
+                {filteredTasks.length !== tasks.length && (
+                  <span className="text-[10px] text-kumo-subtle ml-auto font-mono">
+                    {filteredTasks.length} of {tasks.length} tasks
+                  </span>
+                )}
               </div>
 
               {/* Prominent Bulk Action Bar */}

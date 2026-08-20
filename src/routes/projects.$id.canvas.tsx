@@ -5,7 +5,7 @@ import { Cube, PaintBrushBroad, Plus, Trash, Sparkle, GitBranch } from "@phospho
 import { ExcalidrawCanvas } from "~/components/canvas/ExcalidrawCanvas";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { ListSkeleton } from "~/components/ui/Skeleton";
-import { PageHelpButton } from "~/components/ui/PageHelpButton";
+import { PageHeader } from "~/components/ui/PageHeader";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
@@ -25,6 +25,13 @@ function CanvasPage() {
   const [newFileName, setNewFileName] = useState("");
   const [newFileTemplate, setNewFileTemplate] = useState<"blank" | "flowchart" | "mobile" | "web">("blank");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  // Filter out hidden files / dotfiles (.gitkeep, etc)
+  const sketchFiles = (files || []).filter(
+    (f) =>
+      !f.name.startsWith(".") &&
+      (f.ext === ".json" || f.ext === ".excalidraw" || f.name.includes(".excalidraw."))
+  );
 
   // Fetch content strictly for the selected file
   const fetchActiveContent = useCallback(async (filePath: string) => {
@@ -57,10 +64,10 @@ function CanvasPage() {
 
   // Auto-select first file if available
   useEffect(() => {
-    if (files.length > 0 && (!selectedFile || !files.some((f) => f.path === selectedFile))) {
-      setSelectedFile(files[0].path);
+    if (sketchFiles.length > 0 && (!selectedFile || !sketchFiles.some((f) => f.path === selectedFile))) {
+      setSelectedFile(sketchFiles[0].path);
     }
-  }, [files, selectedFile]);
+  }, [sketchFiles, selectedFile]);
 
   // Live file watch
   useFileWatch("sketch", (path) => {
@@ -157,76 +164,67 @@ function CanvasPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Top Bar Header */}
-      <div className="mb-3 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="rounded bg-kumo-elevated p-1">
-            <Cube size={14} className="text-kumo-brand" />
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-kumo-default">Sketch & Wireframe Canvas</h1>
-          {files.length > 0 && (
-            <Badge variant="neutral" className="text-[11px]">
-              {files.length} sketches
-            </Badge>
-          )}
-          <PageHelpButton help="canvas" />
-
-          {/* New Sketch Button */}
-          <AppButton
-            variant="secondary"
-            size="sm"
-            onClick={() => setIsNewDialogOpen(true)}
-            icon={<Plus size={12} />}
-            className="ml-2 px-2.5"
-          >
-            New Sketch
-          </AppButton>
-
-          {/* Sketch File Tabs */}
-          <div className="ml-3 flex-1 flex items-center gap-1.5 py-1 px-1.5 overflow-x-auto min-w-0">
-            {files.map((f) => {
-              const isActive = selectedFile === f.path;
-              return (
-                <div
-                  key={f.path}
-                  className={`flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 rounded-md border text-xs transition-colors shrink-0 ${
-                    isActive
-                      ? "border-kumo-brand/50 bg-kumo-brand/10 text-kumo-default font-medium shadow-sm"
-                      : "border-kumo-line bg-kumo-elevated/60 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedFile(f.path)}
-                    className="truncate max-w-[160px] text-left focus:outline-none"
-                    title={f.name}
+      <PageHeader
+        icon={<Cube size={14} className="text-kumo-brand" />}
+        title="Sketch & Wireframe Canvas"
+        help="canvas"
+        badges={sketchFiles.length > 0 ? <Badge variant="neutral" className="text-[11px]">{sketchFiles.length} sketches</Badge> : undefined}
+        actions={
+          <div className="flex items-center gap-2 overflow-x-auto min-w-0">
+            <AppButton
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsNewDialogOpen(true)}
+              icon={<Plus size={12} />}
+              className="px-2.5 shrink-0"
+            >
+              New Sketch
+            </AppButton>
+            <div className="flex items-center gap-1.5 py-1 px-1 overflow-x-auto min-w-0">
+              {sketchFiles.map((f) => {
+                const isActive = selectedFile === f.path;
+                return (
+                  <div
+                    key={f.path}
+                    className={`flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 rounded-md border text-xs transition-colors shrink-0 ${
+                      isActive
+                        ? "border-kumo-brand/50 bg-kumo-brand/10 text-kumo-default font-medium shadow-sm"
+                        : "border-kumo-line bg-kumo-elevated/60 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated"
+                    }`}
                   >
-                    {f.name.replace(/\.(excalidraw\.json|excalidraw|json|mmd)$/, "")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteTarget(f.path);
-                    }}
-                    title="Delete sketch"
-                    className="p-1 rounded text-kumo-subtle hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                  >
-                    <Trash size={12} />
-                  </button>
-                </div>
-              );
-            })}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(f.path)}
+                      className="truncate max-w-[160px] text-left focus:outline-none"
+                      title={f.name}
+                    >
+                      {f.name.replace(/\.(excalidraw\.json|excalidraw|json|mmd)$/, "")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget(f.path);
+                      }}
+                      title="Delete sketch"
+                      className="p-1 rounded text-kumo-subtle hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Main Area */}
       {filesLoading ? (
         <div className="flex items-center justify-center flex-1">
           <ListSkeleton rows={4} className="w-full max-w-xs px-4" />
         </div>
-      ) : !selectedFile ? (
+      ) : sketchFiles.length === 0 || !selectedFile ? (
         <EmptyState
           icon={<PaintBrushBroad size={28} />}
           title="No sketches found"

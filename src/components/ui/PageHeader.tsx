@@ -17,10 +17,10 @@ interface PageHeaderProps {
 
 export function PageHeader({ icon, title, badges, actions, below, help, className }: PageHeaderProps) {
   return (
-    <div className={className ?? "mb-3 shrink-0 space-y-2"}>
+    <div className={className ?? "mb-2.5 shrink-0 space-y-2"}>
       <div className="flex items-center gap-2">
         {icon && <div className="rounded bg-kumo-elevated p-1">{icon}</div>}
-        <h1 className="text-xl font-semibold tracking-tight text-kumo-default">{title}</h1>
+        <h2 className="text-lg font-semibold tracking-tight text-kumo-default">{title}</h2>
         {badges}
         <div className="ml-auto flex items-center gap-1.5">
           {actions}

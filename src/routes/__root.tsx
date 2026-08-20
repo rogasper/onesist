@@ -8,11 +8,12 @@ import {
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
-import { House, Folder, Sun, Moon, ArrowUp } from "@phosphor-icons/react";
+import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
+import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -145,6 +146,7 @@ function RootComponent() {
       <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
         <UpdateBanner />
         <InstanceWatch />
+        <QuickOpenModal />
         <div className="flex flex-1 min-h-0">
           <Sidebar.Provider defaultOpen collapsible="icon" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
             <SidebarPersistence />
@@ -156,6 +158,16 @@ function RootComponent() {
                   <Sidebar.Menu>
                     <Sidebar.MenuButton active={isDashboardActive} icon={House} tooltip="Dashboard">
                       <Link to="/" className="no-underline text-inherit">Dashboard</Link>
+                    </Sidebar.MenuButton>
+                    <Sidebar.MenuButton
+                      onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
+                      icon={MagnifyingGlass}
+                      tooltip="Quick Open (⌘P)"
+                    >
+                      <span className="flex items-center justify-between w-full">
+                        <span>Quick Open</span>
+                        <kbd className="text-[10px] font-mono px-1 py-0.2 rounded bg-kumo-elevated text-kumo-subtle border border-kumo-line/60">⌘P</kbd>
+                      </span>
                     </Sidebar.MenuButton>
                   </Sidebar.Menu>
                 </Sidebar.Group>
