@@ -99,6 +99,7 @@ export const tasks = sqliteTable("tasks", {
   dependenciesJson: text("dependencies_json"),
   sourcePath: text("source_path"),
   phase: text("phase"),
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").default("datetime('now')"),
   updatedAt: text("updated_at").default("datetime('now')"),
 });

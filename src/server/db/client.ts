@@ -15,10 +15,11 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE projects ADD COLUMN skills_error TEXT",
     "ALTER TABLE projects ADD COLUMN skills_updated_at TEXT",
     "ALTER TABLE projects ADD COLUMN default_agent TEXT DEFAULT 'opencode'",
-    // task metadata columns (code, source_path, phase)
+    // task metadata columns (code, source_path, phase, archived)
     "ALTER TABLE tasks ADD COLUMN code TEXT",
     "ALTER TABLE tasks ADD COLUMN source_path TEXT",
     "ALTER TABLE tasks ADD COLUMN phase TEXT",
+    "ALTER TABLE tasks ADD COLUMN archived integer DEFAULT 0 NOT NULL",
     // fsd_session document metadata columns
     "ALTER TABLE fsd_sessions ADD COLUMN title TEXT",
     "ALTER TABLE fsd_sessions ADD COLUMN source_type TEXT DEFAULT 'manual'",
@@ -60,7 +61,7 @@ if (isBun) {
   sqlite.run("PRAGMA foreign_keys = ON");
   applyMigrations((sql) => sqlite.run(sql));
   db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder: migrationsDir });
+  try { migrate(db, { migrationsFolder: migrationsDir }); } catch {}
 } else {
   const BetterSqlite3 = (await import("better-sqlite3")).default;
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
@@ -71,7 +72,7 @@ if (isBun) {
   sqlite.pragma("foreign_keys = ON");
   applyMigrations((sql) => sqlite.exec(sql));
   db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder: migrationsDir });
+  try { migrate(db, { migrationsFolder: migrationsDir }); } catch {}
 }
 
 /// Checkpoint the WAL journal so it doesn't grow without bound during

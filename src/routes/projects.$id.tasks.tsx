@@ -1,10 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { Badge } from "@cloudflare/kumo";
-import { ListChecks, ListDashes, ArrowsClockwise, CalendarDots, SquaresFour, Rows } from "@phosphor-icons/react";
+import {
+  ListChecks,
+  ListDashes,
+  ArrowsClockwise,
+  CalendarDots,
+  SquaresFour,
+  CheckSquare,
+  Archive,
+  X,
+} from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { usePageVisible } from "~/lib/use-file-data";
-import { TaskList, type TaskViewMode } from "~/components/tasks/TaskList";
+import { TaskList, type TaskViewMode, type TaskGroup } from "~/components/tasks/TaskList";
 import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
 import type { Task } from "~/shared/types";
@@ -40,12 +49,21 @@ function TasksPage() {
   const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [phaseFilter, setPhaseFilter] = useState("all");
   const [unassignedOnly, setUnassignedOnly] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [view, setView] = useState<"tasks" | "timeline">("tasks");
   const [viewMode, setViewMode] = useState<TaskViewMode>("list");
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null;
 
   const totalPoints = useMemo(
-    () => tasks.reduce((s, t) => s + (t.storyPoints ?? 0), 0),
+    () => tasks.filter((t) => !t.archived).reduce((s, t) => s + (t.storyPoints ?? 0), 0),
+    [tasks],
+  );
+
+  const archivedCount = useMemo(
+    () => tasks.filter((t) => t.archived).length,
     [tasks],
   );
 
@@ -64,12 +82,13 @@ function TasksPage() {
       if (t.phase) set.add(t.phase);
       else if (t.module) set.add(t.module);
     }
-    return [...set].sort();
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [tasks]);
 
   const filteredTasks = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tasks.filter((t) => {
+      if (!showArchived && t.archived) return false;
       if (statusFilter !== "all" && t.status !== statusFilter) return false;
       if (phaseFilter !== "all" && t.phase !== phaseFilter && t.module !== phaseFilter) return false;
       const assignees = t.assignee ? t.assignee.split(/\s*\+\s*/).map((a) => a.trim().toLowerCase()) : [];
@@ -87,10 +106,48 @@ function TasksPage() {
       ].join("\n").toLowerCase();
       return haystack.includes(q);
     });
-  }, [tasks, search, statusFilter, assigneeFilter, phaseFilter, unassignedOnly]);
+  }, [tasks, search, statusFilter, assigneeFilter, phaseFilter, unassignedOnly, showArchived]);
 
-  const assignedCount = tasks.filter((t) => t.assignee).length;
-  const unassignedCount = tasks.length - assignedCount;
+  const groupedTasks: TaskGroup[] = useMemo(() => {
+    const map = new Map<string | null, Task[]>();
+    for (const t of filteredTasks) {
+      const p = t.phase ?? null;
+      if (!map.has(p)) map.set(p, []);
+      map.get(p)!.push(t);
+    }
+    const sortedKeys = [...map.keys()].sort((a, b) => {
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a.localeCompare(b, undefined, { numeric: true });
+    });
+    return sortedKeys.map((phase) => ({
+      phase,
+      tasks: map.get(phase)!,
+      isArchived: map.get(phase)!.every((t) => t.archived),
+    }));
+  }, [filteredTasks]);
+
+  // Default auto-collapse all-done groups on initial load
+  useEffect(() => {
+    setCollapsedGroups((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const g of groupedTasks) {
+        const key = g.phase ?? "__no_phase__";
+        if (next[key] === undefined) {
+          const allDone = g.tasks.length > 0 && g.tasks.every((t) => t.status === "done");
+          if (allDone) {
+            next[key] = true;
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [groupedTasks]);
+
+  const assignedCount = tasks.filter((t) => !t.archived && t.assignee).length;
+  const unassignedCount = tasks.filter((t) => !t.archived).length - assignedCount;
 
   const handleStatusChange = useCallback(async (taskId: string, status: string) => {
     const res = await fetch(`/api/projects/${id}/tasks/${taskId}`, {
@@ -121,6 +178,90 @@ function TasksPage() {
       setSelectedId(null);
     }
   }, [id]);
+
+  // Bulk update handler for status / archive
+  const handleBulkAction = useCallback(
+    async (patch: { status?: string; archived?: boolean }, targetIds?: string[]) => {
+      const idsToUpdate = targetIds ?? Array.from(selectedIds);
+      if (idsToUpdate.length === 0) return;
+      try {
+        const res = await fetch(`/api/projects/${id}/tasks/bulk`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: idsToUpdate, patch }),
+        });
+        if (res.ok) {
+          setTasks((prev) =>
+            prev.map((t) => (idsToUpdate.includes(t.id) ? { ...t, ...patch } : t))
+          );
+          if (!targetIds) {
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+          }
+        }
+      } catch (err) {
+        console.error("Bulk action failed:", err);
+      }
+    },
+    [id, selectedIds]
+  );
+
+  const handleArchivePhase = useCallback(
+    async (phase: string | null, archive: boolean) => {
+      const phaseTasks = tasks.filter((t) => (t.phase ?? null) === phase);
+      const ids = phaseTasks.map((t) => t.id);
+      if (ids.length === 0) return;
+      await handleBulkAction({ archived: archive }, ids);
+    },
+    [tasks, handleBulkAction]
+  );
+
+  const handleToggleSelect = useCallback((taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectPhase = useCallback(
+    (phase: string | null) => {
+      const phaseTasks = filteredTasks.filter((t) => (t.phase ?? null) === phase);
+      const phaseIds = phaseTasks.map((t) => t.id);
+      const allSelected = phaseIds.length > 0 && phaseIds.every((tid) => selectedIds.has(tid));
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (allSelected) {
+          phaseIds.forEach((tid) => next.delete(tid));
+        } else {
+          phaseIds.forEach((tid) => next.add(tid));
+        }
+        return next;
+      });
+    },
+    [filteredTasks, selectedIds]
+  );
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds(new Set(filteredTasks.map((t) => t.id)));
+  }, [filteredTasks]);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleToggleGroup = useCallback((groupKey: string) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
+  }, []);
 
   // Reconcile the tasks DB with the artifact files (output/task/*). Idempotent
   // upsert that preserves user-edited status/assignee, so it is safe to run
@@ -176,8 +317,6 @@ function TasksPage() {
             schedule();
           } catch {}
         });
-        // Guard against infinite browser auto-reconnect loops: close the
-        // stream after a few errors instead of leaking reconnect requests.
         es.onerror = () => {
           errorCount += 1;
           if (errorCount > 5) { es?.close(); es = null; }
@@ -191,6 +330,8 @@ function TasksPage() {
       es?.close();
     };
   }, [pageVisible, syncFromDisk]);
+
+  const isBulkBarVisible = selectionMode || selectedIds.size > 0;
 
   return (
     <div className="h-full flex flex-col">
@@ -206,6 +347,11 @@ function TasksPage() {
                 <Badge variant="neutral" className="text-[11px]">{totalPoints} SP</Badge>
                 <Badge variant="neutral" className="text-[11px]">{assignedCount} assigned</Badge>
                 <Badge variant="neutral" className="text-[11px]">{unassignedCount} unassigned</Badge>
+                {archivedCount > 0 && (
+                  <Badge variant="neutral" className="text-[11px] text-amber-400">
+                    {archivedCount} archived
+                  </Badge>
+                )}
               </>
             )}
             {importResult && (
@@ -243,63 +389,203 @@ function TasksPage() {
         }
         below={
           view === "tasks" && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center p-0.5 rounded-full border border-kumo-line/50 bg-kumo-elevated/40">
-                <AppButton
-                  onClick={() => setViewMode("list")}
-                  variant="chip"
-                  size="xs"
-                  active={viewMode === "list"}
-                  icon={<ListDashes size={11} />}
-                  className="px-2.5"
-                  title="List view"
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center p-0.5 rounded-full border border-kumo-line/50 bg-kumo-elevated/40">
+                  <AppButton
+                    onClick={() => setViewMode("list")}
+                    variant="chip"
+                    size="xs"
+                    active={viewMode === "list"}
+                    icon={<ListDashes size={11} />}
+                    className="px-2.5"
+                    title="List view"
+                  >
+                    List
+                  </AppButton>
+                  <AppButton
+                    onClick={() => setViewMode("cards")}
+                    variant="chip"
+                    size="xs"
+                    active={viewMode === "cards"}
+                    icon={<SquaresFour size={11} />}
+                    className="px-2.5"
+                    title="Card view"
+                  >
+                    Cards
+                  </AppButton>
+                </div>
+                <SearchInput
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search code, title, assignee, content…"
+                  className="w-72"
+                />
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5"
                 >
-                  List
+                  {STATUS_FILTERS.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+                <select
+                  value={assigneeFilter}
+                  onChange={(e) => setAssigneeFilter(e.target.value)}
+                  className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5"
+                >
+                  <option value="all">All developers</option>
+                  {developers.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+                <select
+                  value={phaseFilter}
+                  onChange={(e) => setPhaseFilter(e.target.value)}
+                  className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5"
+                >
+                  <option value="all">All phases</option>
+                  {phases.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <AppButton
+                  onClick={() => setUnassignedOnly((p) => !p)}
+                  variant="chip"
+                  size="sm"
+                  active={unassignedOnly}
+                  className="px-3"
+                >
+                  Unassigned only
                 </AppButton>
                 <AppButton
-                  onClick={() => setViewMode("cards")}
+                  onClick={() => setShowArchived((p) => !p)}
                   variant="chip"
-                  size="xs"
-                  active={viewMode === "cards"}
-                  icon={<SquaresFour size={11} />}
-                  className="px-2.5"
-                  title="Card view"
+                  size="sm"
+                  active={showArchived}
+                  icon={<Archive size={11} />}
+                  className="px-3"
+                  title="Toggle archived tasks visibility"
                 >
-                  Cards
+                  Show archived {archivedCount > 0 ? `(${archivedCount})` : ""}
                 </AppButton>
+                <AppButton
+                  onClick={() => {
+                    const next = !selectionMode;
+                    setSelectionMode(next);
+                    if (!next) setSelectedIds(new Set());
+                  }}
+                  variant="chip"
+                  size="sm"
+                  active={selectionMode || selectedIds.size > 0}
+                  icon={<CheckSquare size={11} />}
+                  className="px-3"
+                  title="Toggle multi-select mode"
+                >
+                  {selectedIds.size > 0
+                    ? `Selected (${selectedIds.size})`
+                    : selectionMode
+                      ? "Cancel Select"
+                      : "Select"}
+                </AppButton>
+                <span className="text-[10px] text-kumo-subtle ml-auto">
+                  {filteredTasks.length}/{tasks.length} tasks
+                </span>
               </div>
-              <SearchInput
-                value={search}
-                onChange={setSearch}
-                placeholder="Search code, title, assignee, content…"
-                className="w-72"
-              />
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
-                {STATUS_FILTERS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-              <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}
-                className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
-                <option value="all">All developers</option>
-                {developers.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)}
-                className="h-7 text-xs rounded-full border border-kumo-line/50 bg-kumo-elevated/40 text-kumo-default outline-none focus:border-kumo-brand px-2.5">
-                <option value="all">All phases</option>
-                {phases.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <AppButton
-                onClick={() => setUnassignedOnly((p) => !p)}
-                variant="chip"
-                size="sm"
-                active={unassignedOnly}
-                className="px-3"
-              >
-                Unassigned only
-              </AppButton>
-              <span className="text-[10px] text-kumo-subtle ml-auto">
-                {filteredTasks.length}/{tasks.length} tasks
-              </span>
+
+              {/* Prominent Bulk Action Bar */}
+              {isBulkBarVisible && (
+                <div className="flex items-center gap-2 p-2.5 bg-kumo-elevated border-2 border-kumo-brand/40 shadow-sm rounded-xl flex-wrap text-xs">
+                  <div className="flex items-center gap-1.5 font-semibold text-kumo-brand text-xs px-1">
+                    <CheckSquare size={14} weight="fill" />
+                    <span>{selectedIds.size} of {filteredTasks.length} selected</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSelectAll}
+                    className="text-[11px] px-2.5 py-1 rounded-md border border-kumo-line bg-kumo-base/60 text-kumo-default hover:bg-kumo-base transition-colors"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearSelection}
+                    className="text-[11px] px-2.5 py-1 rounded-md border border-kumo-line bg-kumo-base/60 text-kumo-subtle hover:text-kumo-default transition-colors"
+                  >
+                    Clear
+                  </button>
+
+                  <div className="h-4 w-px bg-kumo-line mx-1 shrink-0" />
+
+                  <span className="text-[11px] text-kumo-subtle font-medium">Set status:</span>
+                  <div className="flex items-center gap-1">
+                    <AppButton
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => void handleBulkAction({ status: "done" })}
+                      disabled={selectedIds.size === 0}
+                      className="text-green-400 font-medium px-2.5"
+                    >
+                      Done
+                    </AppButton>
+                    <AppButton
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => void handleBulkAction({ status: "in_progress" })}
+                      disabled={selectedIds.size === 0}
+                      className="text-amber-400 font-medium px-2.5"
+                    >
+                      In Progress
+                    </AppButton>
+                    <AppButton
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => void handleBulkAction({ status: "todo" })}
+                      disabled={selectedIds.size === 0}
+                      className="text-blue-400 font-medium px-2.5"
+                    >
+                      To Do
+                    </AppButton>
+                  </div>
+
+                  <div className="h-4 w-px bg-kumo-line mx-1 shrink-0" />
+
+                  <div className="flex items-center gap-1">
+                    <AppButton
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => void handleBulkAction({ archived: true })}
+                      disabled={selectedIds.size === 0}
+                      icon={<Archive size={11} />}
+                      className="px-2.5"
+                    >
+                      Archive
+                    </AppButton>
+                    <AppButton
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => void handleBulkAction({ archived: false })}
+                      disabled={selectedIds.size === 0}
+                      className="px-2.5"
+                    >
+                      Unarchive
+                    </AppButton>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectionMode(false);
+                      setSelectedIds(new Set());
+                    }}
+                    className="ml-auto text-[11px] text-kumo-subtle hover:text-kumo-default flex items-center gap-1 px-2 py-1 rounded hover:bg-kumo-base/60 transition-colors"
+                  >
+                    <X size={12} />
+                    Done
+                  </button>
+                </div>
+              )}
             </div>
           )
         }
@@ -310,12 +596,25 @@ function TasksPage() {
       ) : (
         <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
           <div className="flex-1 flex flex-col min-w-0">
-            <TaskList tasks={filteredTasks} selectedId={selectedId} viewMode={viewMode} onSelect={setSelectedId} />
+            <TaskList
+              groups={groupedTasks}
+              selectedId={selectedId}
+              viewMode={viewMode}
+              selectionMode={selectionMode}
+              selectedIds={selectedIds}
+              collapsedGroups={collapsedGroups}
+              onSelect={setSelectedId}
+              onToggleSelect={handleToggleSelect}
+              onToggleGroup={handleToggleGroup}
+              onArchivePhase={handleArchivePhase}
+              onSelectPhase={handleSelectPhase}
+            />
           </div>
           {selectedTask && (
             <TaskDetail
               task={selectedTask}
               developers={developers}
+              phases={phases}
               onSave={handleSave}
               onDelete={handleDelete}
               onClose={() => setSelectedId(null)}
@@ -326,3 +625,4 @@ function TasksPage() {
     </div>
   );
 }
+

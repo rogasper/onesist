@@ -6,6 +6,7 @@ import type { Task } from "~/shared/types";
 interface TaskDetailProps {
   task: Task;
   developers: string[];
+  phases?: string[];
   onSave: (id: string, data: Partial<Task>) => Promise<void>;
   onDelete: (id: string) => void;
   onClose: () => void;
@@ -25,7 +26,7 @@ function statusBadge(status: string) {
   return <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${opt.color}`}>{opt.label}</span>;
 }
 
-export function TaskDetail({ task, developers, onSave, onDelete, onClose }: TaskDetailProps) {
+export function TaskDetail({ task, developers, phases = [], onSave, onDelete, onClose }: TaskDetailProps) {
   const [width, setWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem("task-detail-width") ?? "", 10);
     return isNaN(saved) ? 320 : Math.min(Math.max(saved, MIN_WIDTH), MAX_WIDTH);
@@ -37,6 +38,8 @@ export function TaskDetail({ task, developers, onSave, onDelete, onClose }: Task
   const [storyPoints, setStoryPoints] = useState(task.storyPoints?.toString() ?? "");
   const [assignee, setAssignee] = useState(task.assignee ?? "");
   const [module_, setModule] = useState(task.module ?? "");
+  const [phase, setPhase] = useState(task.phase ?? "");
+  const [archived, setArchived] = useState(task.archived ?? false);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<"jira" | "md" | null>(null);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
@@ -58,8 +61,10 @@ export function TaskDetail({ task, developers, onSave, onDelete, onClose }: Task
     setStoryPoints(task.storyPoints?.toString() ?? "");
     setAssignee(task.assignee ?? "");
     setModule(task.module ?? "");
+    setPhase(task.phase ?? "");
+    setArchived(task.archived ?? false);
     setEditing(false);
-  }, [task.id]);
+  }, [task.id, task.archived, task.phase]);
 
   useEffect(() => () => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
@@ -95,9 +100,17 @@ export function TaskDetail({ task, developers, onSave, onDelete, onClose }: Task
       storyPoints: storyPoints ? parseInt(storyPoints, 10) : null,
       assignee: assignee || null,
       module: module_ || null,
+      phase: phase || null,
+      archived,
     });
     setSaving(false);
     setEditing(false);
+  };
+
+  const handleToggleArchive = async () => {
+    setSaving(true);
+    await onSave(task.id, { archived: !task.archived });
+    setSaving(false);
   };
 
   const buildJiraText = () => {
@@ -201,10 +214,25 @@ export function TaskDetail({ task, developers, onSave, onDelete, onClose }: Task
                   className="w-full bg-kumo-elevated border border-kumo-line rounded px-2 py-1 text-xs text-kumo-default outline-none focus:border-kumo-brand" />
               </div>
             </div>
-            <div>
-              <label className="text-[10px] text-kumo-subtle uppercase tracking-wider block mb-1">Module</label>
-              <input value={module_} onChange={(e) => setModule(e.target.value)} placeholder="e.g. auth"
-                className="w-full bg-kumo-elevated border border-kumo-line rounded px-2 py-1 text-xs text-kumo-default outline-none focus:border-kumo-brand" />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-kumo-subtle uppercase tracking-wider block mb-1">Phase</label>
+                <input
+                  value={phase}
+                  onChange={(e) => setPhase(e.target.value)}
+                  placeholder="e.g. Phase 1"
+                  list="task-phases"
+                  className="w-full bg-kumo-elevated border border-kumo-line rounded px-2 py-1 text-xs text-kumo-default outline-none focus:border-kumo-brand"
+                />
+                <datalist id="task-phases">
+                  {phases.map((p) => <option key={p} value={p} />)}
+                </datalist>
+              </div>
+              <div>
+                <label className="text-[10px] text-kumo-subtle uppercase tracking-wider block mb-1">Module</label>
+                <input value={module_} onChange={(e) => setModule(e.target.value)} placeholder="e.g. auth"
+                  className="w-full bg-kumo-elevated border border-kumo-line rounded px-2 py-1 text-xs text-kumo-default outline-none focus:border-kumo-brand" />
+              </div>
             </div>
             <div>
               <label className="text-[10px] text-kumo-subtle uppercase tracking-wider block mb-1">Assignee</label>
@@ -218,6 +246,17 @@ export function TaskDetail({ task, developers, onSave, onDelete, onClose }: Task
               <datalist id="task-developers">
                 {developers.map((d) => <option key={d} value={d} />)}
               </datalist>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <label className="flex items-center gap-2 text-xs text-kumo-default cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={archived}
+                  onChange={(e) => setArchived(e.target.checked)}
+                  className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
+                />
+                <span>Archived</span>
+              </label>
             </div>
             <div className="flex gap-2 pt-2">
               <button onClick={() => onDelete(task.id)}
@@ -247,6 +286,11 @@ export function TaskDetail({ task, developers, onSave, onDelete, onClose }: Task
             <div className="text-sm font-medium text-kumo-default leading-snug">{displayTitle}</div>
             <div className="flex items-center gap-2 flex-wrap">
               {statusBadge(status)}
+              {task.archived && (
+                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-400/90 bg-amber-500/10 border border-amber-500/30">
+                  Archived
+                </span>
+              )}
               {task.storyPoints != null && (
                 <span className="text-[10px] text-kumo-subtle font-mono">{task.storyPoints} SP</span>
               )}
@@ -264,9 +308,17 @@ export function TaskDetail({ task, developers, onSave, onDelete, onClose }: Task
                 {task.sourcePath && <div className="text-[9px] text-kumo-subtle font-mono">{task.sourcePath}</div>}
               </div>
             )}
-            <div className="flex items-center gap-1.5 pt-1">
+            <div className="flex items-center gap-1.5 pt-1 flex-wrap">
               {copyBtn("jira")}
               {copyBtn("md")}
+              <button
+                onClick={handleToggleArchive}
+                disabled={saving}
+                className="px-2 py-1 text-[10px] rounded border border-kumo-line text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated transition-colors ml-auto"
+                title={task.archived ? "Restore task to active" : "Archive task"}
+              >
+                {task.archived ? "Unarchive" : "Archive"}
+              </button>
             </div>
           </div>
 

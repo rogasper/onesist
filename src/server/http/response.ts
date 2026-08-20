@@ -14,3 +14,7 @@ export function json(data: unknown, status = 200): Response {
 export function notFound(): Response {
   return json({ error: "Not found" }, 404);
 }
+
+export function badRequest(error = "Bad request"): Response {
+  return json({ error }, 400);
+}

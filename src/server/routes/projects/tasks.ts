@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { json, notFound } from "../../http/response";
+import { eq, and } from "drizzle-orm";
+import { json, notFound, badRequest } from "../../http/response";
 import { Router } from "../../http/router";
 import { defaultRoot, getProject } from "../../http/route-utils";
 import { scanAllTaskFiles } from "~/lib/task-parser";
@@ -31,11 +31,39 @@ router.post("projects/:id/tasks", async ({ params, body }) => {
     dependenciesJson: (data.dependenciesJson as string) ?? null,
     sourcePath: (data.sourcePath as string) ?? null,
     phase: (data.phase as string) ?? null,
+    archived: Boolean(data.archived) ?? false,
     createdAt: now,
     updatedAt: now,
   };
   db.insert(tasks).values(task).run();
   return json(task, 201);
+});
+
+// POST /api/projects/:id/tasks/bulk — bulk update status / archived
+router.post("projects/:id/tasks/bulk", async ({ params, body }) => {
+  const data = await body();
+  const ids = Array.isArray(data.ids) ? (data.ids as string[]) : [];
+  const patch = data.patch as { status?: string; archived?: boolean } | undefined;
+  if (!ids.length || !patch) {
+    return badRequest("ids array and patch object are required");
+  }
+
+  const now = new Date().toISOString();
+  const updates: Record<string, unknown> = { updatedAt: now };
+  if (patch.status !== undefined) updates.status = patch.status;
+  if (patch.archived !== undefined) updates.archived = Boolean(patch.archived);
+
+  let updated = 0;
+  for (const taskId of ids) {
+    const res = db
+      .update(tasks)
+      .set(updates)
+      .where(and(eq(tasks.id, taskId), eq(tasks.projectId, params.id)))
+      .run();
+    if (res.changes) updated += res.changes;
+  }
+
+  return json({ updated });
 });
 
 // POST /api/projects/:id/tasks/import — re-import from artifacts
@@ -65,11 +93,14 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
       module: pt.module,
       dependenciesJson: pt.parentCode ? JSON.stringify([pt.parentCode]) : null,
       sourcePath: pt.sourcePath,
-      phase: pt.phase,
       updatedAt: now,
     };
+    // Sticky phase: only overwrite phase if the parsed file explicitly provided a phase
+    if (pt.phase) {
+      values.phase = pt.phase;
+    }
     if (existingTask) {
-      // Preserve user-owned fields: status, assignee, manual title/description edits
+      // Preserve user-owned fields: status, assignee, archived, and manual title/description edits
       db.update(tasks).set(values).where(eq(tasks.id, existingTask.id)).run();
       updated++;
     } else {
@@ -78,6 +109,8 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
         projectId: id,
         status: "todo",
         assignee: pt.assignee,
+        phase: pt.phase ?? null,
+        archived: false,
         ...values,
         createdAt: now,
       } as any).run();
@@ -87,15 +120,16 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
   // Remove tasks whose source file is gone (keep user-created tasks without code).
   // Guard: only when at least one task parsed — a format regression that makes
   // every file yield 0 tasks would otherwise wipe all existing tasks.
+  // IMPORTANT: Archived tasks are NOT removed during cleanup even if deleted from disk!
   let removed = 0;
   if (parsed.length > 0) {
-    const stale = existing.filter((t) => t.code && !seenCodes.has(t.code));
+    const stale = existing.filter((t) => t.code && !seenCodes.has(t.code) && !t.archived);
     for (const s of stale) {
       db.delete(tasks).where(eq(tasks.id, s.id)).run();
     }
     // Remove legacy tasks without a code — the app has no manual create flow,
-    // so code-less rows are orphans from pre-code imports
-    const orphans = existing.filter((t) => !t.code);
+    // so code-less rows are orphans from pre-code imports (unless archived)
+    const orphans = existing.filter((t) => !t.code && !t.archived);
     for (const o of orphans) {
       db.delete(tasks).where(eq(tasks.id, o.id)).run();
     }
@@ -125,6 +159,7 @@ router.put("projects/:id/tasks/:taskId", async ({ params, body }) => {
   if (data.code !== undefined) updates.code = data.code;
   if (data.sourcePath !== undefined) updates.sourcePath = data.sourcePath;
   if (data.phase !== undefined) updates.phase = data.phase;
+  if (data.archived !== undefined) updates.archived = Boolean(data.archived);
   db.update(tasks).set(updates).where(eq(tasks.id, params.taskId)).run();
   const updated = db.select().from(tasks).where(eq(tasks.id, params.taskId)).get();
   return json(updated);
@@ -135,3 +170,4 @@ router.delete("projects/:id/tasks/:taskId", ({ params }) => {
   db.delete(tasks).where(eq(tasks.id, params.taskId)).run();
   return json({ deleted: true });
 });
+

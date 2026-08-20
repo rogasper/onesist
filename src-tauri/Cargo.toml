@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.21"
+version = "0.1.22"
 description = "Onesist — SA Dashboard desktop shell"
 authors = ["rogasper"]
 license = ""

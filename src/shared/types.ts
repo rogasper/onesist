@@ -32,6 +32,7 @@ export interface Task {
   dependenciesJson: string | null;
   sourcePath: string | null;
   phase: string | null;
+  archived: boolean;
   createdAt: string;
   updatedAt: string;
 }
