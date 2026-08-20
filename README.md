@@ -1,269 +1,152 @@
-# SA Dashboard
+# Onesist (SA Dashboard)
 
-**A full-stack web dashboard for System Analysts.** View and manage FSD documents, API specs, ERD schemas, task cards, wiki pages, and development timelines — all powered by AI agents with the `fsd-analyzer` skill.
+**A full-stack desktop & web workspace for System Analysts.** View, edit, and orchestrate AI-generated system specifications, FSD documents, API specs, ERD schemas, test cases, task breakdowns, traceability matrices, and visual canvas sketches — all integrated seamlessly with CLI AI agents.
 
 ```mermaid
 flowchart TD
-    A["📄 FSD Documents<br/>input/fsd/"] --> B["🔍 FSD Analyzer<br/>OpenCode + skills"]
+    A["📄 FSD Documents<br/>input/fsd/"] --> B["🔍 AI Agent Engine<br/>OpenCode / Claude / Codex / Antigravity"]
     B --> C["📡 API Specs<br/>output/spec/"]
     B --> D["🗄️ ERD / DBML<br/>output/erd/"]
-    B --> E["✅ Task Cards<br/>output/task/"]
-    B --> F["📅 Timeline<br/>output/timeline.html"]
-    C & D & E & F --> G["💻 SA Dashboard<br/>localhost:4321"]
+    B --> E["✅ Tasks & Phase Breakdown<br/>output/task/"]
+    B --> F["🧪 SIT Test Cases<br/>output/sit/"]
+    B --> G["🗺️ Traceability (RTM)<br/>BR ➔ FR ➔ DS ➔ TC"]
+    B --> H["🎨 Sketches / Canvas<br/>output/sketches/"]
+    B --> I["📑 Technical Docs<br/>DOCX / Markdown"]
+    C & D & E & F & G & H & I --> J["💻 Onesist Dashboard<br/>Desktop App (Tauri) / localhost:4321"]
 ```
 
 [![GitHub Stars](https://img.shields.io/github/stars/rogasper/onesist?style=flat-square&label=Stars)](https://github.com/rogasper/onesist)
 
-<!--
-Star history chart: GitHub restricted the stargazers API (June 2026) to repo
-owners/collaborators, so the plain api.star-history.com URL is blocked. To
-restore the live graph for this repo:
-  1. Create a GitHub token scoped to rogasper/onesist (fine-grained: Metadata
-     Read + Contents Read-and-write; or classic token with `public_repo` scope).
-  2. On https://star-history.com add the token, then use "Show real-time chart
-     on your README.md" → Generate embed code (the token is encrypted).
-  3. Replace the badge below with the generated embed URL.
--->
-
 ## Features
 
-| Page | What it does |
-|------|-------------|
-| **Projects** | Open project folders, auto-install required AI skills |
-| **Overview** | File browser, stat cards, Markdown content viewer |
-| **ERD** | DBML editor with interactive schema visualization, table editor |
-| **API Spec** | Parsed spec viewer with module sidebar, search, markdown cards |
-| **Wiki** | Editable project wiki pages with history |
-| **Tasks** | Task cards with search, filters, developer assignment, copy to Jira/Monday |
-| **FSD Analyzer** | Notion-like Markdown editor, completeness checklist, PDF/DOCX upload → Markdown conversion, Run Analysis via OpenCode |
-| **Traceability** | Requirement Traceability Matrix (RTM) per scope — BR → FR → DS → TC with gap detection, AI-assisted generation |
-| **Timeline** | Rendered Gantt chart viewer (`output/timeline.html`) |
-| **Terminal** | Built-in agent terminal for running CLI commands |
-| **Help (?)** | Per-page help popup with best practices / usage tips (bilingual, distilled from `docs/`) |
+| Feature / Page | What it does |
+|----------------|-------------|
+| **Projects Dashboard** | Manage and organize project repositories with automatic skill installation (`fsd-analyzer`, `markitdown`). |
+| **Project Overview** | Project hub with multi-root file browser, stats, quick actions, and native file context menu actions. |
+| **FSD Analyzer** | MDXEditor rich markdown editor for FSDs, completeness checklist, one-click PDF/DOCX-to-Markdown conversion, and AI analysis runner. |
+| **ERD Studio** | Interactive database schema visualization (ReactFlow + Dagre layout) powered by DBML, visual table editor, and SQL/DBML export. |
+| **API Specs** | Parsed REST/OpenAPI spec viewer with module navigation, interactive search, request/response payloads, and markdown endpoint cards. |
+| **Tasks & Phases** | Sprint & phase-grouped task breakdown with Story Point trackers, collapsible phase accordions, multi-select bulk actions (status update, mass archive/unarchive), manual sticky phase edits, and Jira/Monday export. |
+| **SIT (System Integration Testing)** | Module and scope-based test case manager with step-by-step test execution, expected results, and status tracking. |
+| **Traceability Matrix (RTM)** | Requirement Traceability Matrix mapping: **Business Requirements (BR) → Functional Requirements (FR) → Design Solutions (DS) → Test Cases (TC)** with AI gap detection. |
+| **Canvas / Sketches** | Embedded Excalidraw canvas for whiteboard diagrams, UI wireframes, flowcharts, and system architecture sketches (`output/sketches/*.excalidraw.json`). |
+| **Technical Documentation** | Technical documentation generator with automated metadata compilation and one-click DOCX & Markdown export. |
+| **Wiki** | Knowledge base with versioned markdown wiki pages and snapshot history. |
+| **Development Timeline** | Visual Gantt chart viewer (`output/timeline.html`) for multi-phase development timelines. |
+| **Agent Terminal** | Embedded real-time CLI terminal (xterm.js + WebSocket) with live preference customization (font, cursor, themes) supporting multi-agent switching. |
+| **Help & Guide (?)** | Per-page contextual help popups with curated best practices and prompt templates (bilingual: ID / EN). |
 
-## Documentation
+## Supported AI CLI Agents
 
-Detailed bilingual usage guides live in [`docs/`](docs/README.md), covering the full SA workflow with Mermaid diagrams, a copy-paste prompt library, and best practices:
+Onesist delegates AI analysis, artifact generation, and code tasks to local CLI agents. The application auto-detects installed agents on your `PATH`:
 
-- **Indonesian** — [`docs/id/`](docs/id/): alur kerja lengkap (FSD → Markdown via markitdown → split FD → discovery → ERD → Spec API + OpenAPI → Tasks + Timeline → Technical Documentation), [Prompt Library](docs/id/08-prompt-library.md), dan [Best Practices](docs/id/09-best-practices.md).
-- **English** — [`docs/en/`](docs/en/): [overview](docs/en/00-overview.md), [prompt library](docs/en/08-prompt-library.md), and [best practices](docs/en/09-best-practices.md).
+| Agent | CLI Binary | Install Command | Capabilities |
+|-------|------------|-----------------|--------------|
+| **OpenCode** | `opencode` | `npm i -g opencode-ai` or [opencode.ai](https://opencode.ai) | Headless JSON execution, multi-agent workflows, skill auto-loading |
+| **Claude Code** | `claude` | `npm i -g @anthropic-ai/claude-code` | High-depth reasoning, streaming JSON output |
+| **Codex** | `codex` | `npm i -g @openai/codex` | Autonomous coding and file modifications |
+| **Antigravity** | `agy` | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` | Fast agentic workflows with background subagent coordination |
 
-The guides follow an **agent-CLI first** approach: every action (convert, split, generate ERD/spec/tasks, timeline, docs) is run as a prompt in the embedded agent terminal, and the UI tabs are used for reviewing the generated artifacts. UI action buttons are considered experimental.
-
-Every page also has a **"?" help button** in its header that pops up a short bilingual best-practice cheat-sheet distilled from these guides.
-
-## Prerequisites
-
-The dashboard delegates AI analysis (FSD → API specs, ERD, tasks, timeline) to a local CLI agent. **You must have at least one of these installed and on your `PATH`** — the app auto-detects them in this priority order:
-
-| Agent | Install command |
-|-------|-----------------|
-| **OpenCode** | `npm i -g opencode-ai` or see [opencode.ai](https://opencode.ai) |
-| **Claude Code** | `npm i -g @anthropic-ai/claude-code` |
-| **Codex** | `npm i -g @openai/codex` |
-| **Antigravity** | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
-
-The FSD **Run Analysis** button, agent terminal, and skills auto-install all depend on a detected agent.
-
-## Quick Start
+## Quick Start (Web Development)
 
 ```bash
-# Requirements: Bun 1.3+, one of OpenCode / Claude Code / Codex (see above)
+# Prerequisites: Bun 1.3+, Node.js (for terminal ConPTY), and at least one CLI agent installed
 
-cd app
+# 1. Install dependencies
 bun install
+
+# 2. Start development server
 bun run dev
-# → http://localhost:4321
+# Open http://localhost:4321
 ```
 
-1. Click **Open Project** in the dashboard
-2. Select a project folder (must have `input/` and `output/` structure)
-3. Required skills (`fsd-analyzer`, `markitdown`) auto-install on first open
-4. Use the **FSD Analyzer** tab to edit FSDs and run AI analysis
+1. Click **Open Project** in the dashboard.
+2. Select your project folder containing standard `input/` and `output/` directories.
+3. Required project skills (`fsd-analyzer`, `markitdown`) are detected and auto-installed.
+4. Open the **FSD Analyzer** or **Agent Terminal** to generate specs, ERD, tasks, and documentation.
 
-## Desktop App (Tauri)
+## Desktop App (Tauri 2)
 
-Onesist also ships as a native desktop app for **macOS (arm64/x64)** and **Windows**, built with Tauri 2. The web app runs as a self-contained compiled Bun server (sidecar) inside the desktop shell.
+Onesist ships as a native, lightweight desktop application for **macOS (Apple Silicon & Intel)** and **Windows**, powered by Tauri 2 and a compiled Bun sidecar server.
 
-### Prerequisites (developer machine)
-
-The same [agent CLI requirement](#prerequisites) applies to the desktop app: install at least one of **OpenCode**, **Claude Code**, or **Codex** and make sure it's on your `PATH` (the sidecar spawns it via `which`).
+### Desktop Development
 
 ```bash
-# Rust toolchain
-curl https://sh.rustup.rs -sSf | sh
+# Install Rust toolchain if not already installed
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Tauri CLI (via Bun)
-cd app
-bun add -D @tauri-apps/cli
-```
+# Run desktop in dev mode
+bunx tauri dev
 
-- macOS: Xcode Command Line Tools (`xcode-select --install`)
-- Windows: Visual Studio Build Tools (MSVC C++ workload)
-
-### Run desktop app (dev mode)
-
-```bash
-cd app
-bun run tauri dev
-```
-
-### Build desktop app (release)
-
-```bash
-cd app
+# Build desktop release installer
 bunx tauri build
-# macOS → src-tauri/target/release/bundle/dmg/Onesist_*.dmg
-# Windows → src-tauri/target/release/bundle/msi/Onesist_*.msi
+# macOS  → src-tauri/target/release/bundle/dmg/Onesist_*.dmg
+# Windows → src-tauri/target/release/bundle/nsis/Onesist_*.exe
 ```
 
-Debug build (faster, for testing):
+### Desktop Architecture & Lifecycle
 
-```bash
-bunx tauri build --debug
-# → src-tauri/target/debug/bundle/
-```
+* **Sidecar Engine:** The desktop shell spawns a compiled Bun server binary (`onesist-server`) that serves SSR, API routes, and handles SQLite database operations with auto-recovery and memory watchdogs.
+* **Tray & Close-to-Tray:** Closing the main window minimizes to the system tray so long-running agent tasks and file watchers continue running without interruption.
+* **Auto-Updater:** Built-in auto-update checking with release signatures (`@tauri-apps/plugin-updater`).
+* **Desktop App Data Directory:**
+  * **macOS:** `~/Library/Application Support/com.rogasper.onesist/`
+  * **Windows:** `%APPDATA%\com.rogasper.onesist\`
 
-### Server-only build (for sidecar bundling)
+## Documentation & Prompt Library
 
-```bash
-cd app
-bun run build:server
-```
+Comprehensive bilingual guides and prompt libraries are available in [`docs/`](docs/README.md):
 
-Produces `dist/server/server.js` + a self-contained compiled executable in `src-tauri/binaries/onesist-server-<triple>`. Tauri bundles this as the sidecar and copies `dist/` (web assets) + `vendor/skills` into the app data folder on first run.
-
-### Desktop app data location
-
-- macOS: `~/Library/Application Support/com.rogasper.onesist/`
-- Windows: `%APPDATA%\com.rogasper.onesist\`
-
-Contains `data.db` (SQLite), `server/` (copied web assets), `vendor-skills/`, and `logs/`.
-
-### Important: don't run `bun run dev` while the desktop app is running
-
-The dev server and the desktop sidecar both listen on port 4321. Running them at the same time causes the desktop WebView to hit the wrong server (agent detection, file watching, etc. break). Always **quit the desktop app** (tray → Quit) before starting `bun run dev`, and vice versa.
-
-### Tray & lifecycle
-
-- Close window → app hides to tray (agent sessions keep running)
-- Tray menu: **Show Onesist** / **Restart Server** / **Quit** — only Quit fully exits
-- If the sidecar crashes it auto-restarts (max 3× per 60s)
-
-## Scripts
-
-```bash
-bun run dev          # Start dev server (web, http://localhost:4321)
-bun run build        # Production build (Vite)
-bun run typecheck    # TypeScript type checking
-bun run start        # Start production server
-bun run build:server # Build server bundle + compiled sidecar executable
-bunx tauri dev       # Run desktop app in dev mode
-bunx tauri build     # Build desktop app (release)
-bunx tauri build --debug  # Build desktop app (debug, faster)
-```
-
-## Architecture
-
-```
-Browser (React)
-    ↕
-Vite Dev Server (SSR)
-    ↕
-TanStack Start (fetch handler)
-    ↕
-API Router (Bun)
-    ↕
-┌─────────────────────────────────────────────────────────┐
-│ Drizzle ORM (Bun SQLite)                                │
-│ ├── projects, tasks, wikiPages, erds, apiSpecs,         │
-│ │   apiEndpoints, fsdSessions, changeLog                │
-│ └── snapshots: wikiSnapshots, taskSnapshots,            │
-│                erdSnapshots, apiSnapshots               │
-├─────────────────────────────────────────────────────────┤
-│ File System (project-root/)                             │
-│ ├── input/fsd/         FSD documents                    │
-│ ├── input/figma/       Screenshots                      │
-│ ├── output/spec/       Generated API specs              │
-│ ├── output/erd/        Generated ERD schemas            │
-│ ├── output/task/       Generated task cards             │
-│ └── output/timeline.html Gantt chart                    │
-├─────────────────────────────────────────────────────────┤
-│ OpenCode CLI (headless)                                 │
-│ ├── fsd-analyzer skill → generate specs, erd, tasks     │
-│ └── markitdown skill   → convert PDF/DOCX to Markdown   │
-├─────────────────────────────────────────────────────────┤
-│ Terminal Server (ws://localhost:4323)                    │
-│ └── xterm.js + WebSocket for agent terminal             │
-└─────────────────────────────────────────────────────────┘
-```
+* **Indonesian Guides** — [`docs/id/`](docs/id/): Alur kerja SA (FSD ➔ markitdown ➔ split FD ➔ discovery ➔ ERD ➔ API Spec ➔ Tasks + Timeline ➔ RTM ➔ Technical Docs), [Prompt Library](docs/id/08-prompt-library.md), dan [Best Practices](docs/id/09-best-practices.md).
+* **English Guides** — [`docs/en/`](docs/en/): [Overview](docs/en/00-overview.md), [Prompt Library](docs/en/08-prompt-library.md), and [Best Practices](docs/en/09-best-practices.md).
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Runtime | Bun 1.3+ |
-| Frontend | React 19, TanStack Start (SSR), TanStack Router |
-| Editor | CodeMirror 6 + @codemirror/lang-markdown |
-| Diagrams | Mermaid 11, DBML (@dbml/core) |
-| ERD Layout | @xyflow/react + @dagrejs/dagre |
-| Markdown | react-markdown + remark-gfm |
-| Database | Drizzle ORM + Bun SQLite (WAL mode) |
-| Terminal | xterm.js + WebSocket |
-| Styling | @cloudflare/kumo + Tailwind CSS 4 |
-| Icons | @phosphor-icons/react |
-| Agent CLI | OpenCode / Claude / Codex / Antigravity (headless + JSONL output) |
-| Build | Vite 8, TypeScript 6 |
-| Desktop | Tauri 2 (Rust), Bun sidecar (compiled executable) |
+| **Runtime** | Bun 1.3+ & Node.js |
+| **Framework** | React 19, TanStack Start (SSR), TanStack Router (File-based) |
+| **Desktop Shell** | Tauri 2 (Rust) + Bun Sidecar |
+| **UI Components & Styling** | @cloudflare/kumo + Tailwind CSS 4 + @phosphor-icons/react |
+| **Editors** | MDXEditor (FSD/Wiki), CodeMirror 6 (+ Markdown grammar) |
+| **Diagrams & Visual Canvas** | Excalidraw, Mermaid 11, DBML (@dbml/core), @xyflow/react |
+| **Database & ORM** | SQLite (WAL mode) + Drizzle ORM (Automated migrations) |
+| **Agent CLI & Terminal** | xterm.js + WebSocket server (Node-PTY / ConPTY) |
+| **Build Tools** | Vite 8, TypeScript 6, Drizzle Kit |
 
-## Project Skill Requirements
-
-The SA Dashboard requires two skills installed per project folder:
-
-| Skill | Source | Purpose |
-|-------|--------|---------|
-| `fsd-analyzer` | [rogasper/system-analyst-skill](https://github.com/rogasper/system-analyst-skill) | FSD → API spec, ERD, UML, tasks, timeline |
-| `markitdown` | [julianobarbosa/claude-code-skills](https://github.com/julianobarbosa/claude-code-skills) | Convert PDF/DOCX/PPTX/XLSX to Markdown |
-
-These are auto-installed into `.agents/skills/` when opening a project folder.
-
-## OpenCode Agents
-
-Three agents are configured for this app:
-
-| Agent | Purpose |
-|-------|---------|
-| `architecture-plan` | High-level planning and reasoning (read-only) |
-| `execute` | Code generation, file operations, command execution |
-| `code-reviewer` | Security, performance, and edge-case review |
-
-## Scripts
+## Available Scripts
 
 ```bash
-bun run dev          # Start dev server (web, http://localhost:4321)
-bun run build        # Production build (Vite)
-bun run typecheck    # TypeScript type checking
-bun run start        # Start production server
-bun run build:server # Build server bundle + compiled sidecar executable
-bunx tauri dev       # Run desktop app in dev mode
-bunx tauri build     # Build desktop app (release)
-bunx tauri build --debug  # Build desktop app (debug, faster)
+bun run dev          # Start web development server (http://localhost:4321)
+bun run typecheck    # Run strict TypeScript validation
+bun run build        # Build production web bundle (Vite + SSR)
+bun run build:server # Build server bundle + compile native sidecar binary
+bun run start        # Start compiled production web server
+bun run db:generate  # Generate Drizzle migrations from schema changes
+bun run db:push      # Push schema changes directly to SQLite database
+bunx tauri dev       # Launch desktop application in development mode
+bunx tauri build     # Build production desktop installers (.dmg / .exe)
 ```
 
-## Database
+## Project Directory Structure Conventions
 
-```bash
-# Generate migrations after schema changes
-bun run db:generate
+When opening a project in Onesist, the workspace organizes artifacts under standardized directory paths:
 
-# Push schema to database
-bun run db:push
 ```
-
-Tables: `projects`, `erds`, `erd_snapshots`, `api_specs`, `api_snapshots`, `api_endpoints`, `wiki_pages`, `wiki_snapshots`, `tasks`, `task_snapshots`, `fsd_sessions`, `change_log`, `exports`
-
-Migrations run automatically at startup via ALTER TABLE in `src/server/db/client.ts`.
+<project-root>/
+├── input/
+│   ├── fsd/             # Raw FSD files (PDF, DOCX, MD)
+│   └── figma/           # Design screenshots and mockups
+└── output/
+    ├── spec/            # OpenAPI specs & module endpoints (.md / .yaml)
+    ├── erd/             # DBML schema files (.dbml)
+    ├── task/            # Phase-grouped task markdown cards (<phase>/<task>.md)
+    ├── sit/             # System integration test case definitions (.md)
+    ├── sketches/        # Excalidraw whiteboard sketches (.excalidraw.json)
+    ├── docs/            # Generated technical documentation (.docx / .md)
+    └── timeline.html    # Development Gantt chart
+```
 
 ## License
 
-MIT
+MIT © [rogasper](https://github.com/rogasper)
