@@ -41,7 +41,7 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
   const [phase, setPhase] = useState(task.phase ?? "");
   const [archived, setArchived] = useState(task.archived ?? false);
   const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState<"jira" | "md" | null>(null);
+  const [copied, setCopied] = useState<"jira" | "md" | "prompt" | null>(null);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -53,6 +53,9 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
       : task.title;
 
   const deps: string[] = task.dependenciesJson ? (JSON.parse(task.dependenciesJson) as string[]) : [];
+  const blocks: string[] = (task as any).blocksJson ? (JSON.parse((task as any).blocksJson) as string[]) : [];
+  const filesScope: string[] = (task as any).filesScopeJson ? (JSON.parse((task as any).filesScopeJson) as string[]) : [];
+  const ac: string[] = (task as any).acceptanceCriteriaJson ? (JSON.parse((task as any).acceptanceCriteriaJson) as string[]) : [];
 
   useEffect(() => {
     setTitle(task.title);
@@ -122,7 +125,13 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
       `Story Points: ${task.storyPoints != null ? task.storyPoints : "—"}`,
       `Module: ${task.module || "—"}`,
       task.phase ? `Phase: ${task.phase}` : null,
-      deps.length > 0 ? `Dependencies: ${deps.join(", ")}` : null,
+      deps.length > 0 ? `Depends On: ${deps.join(", ")}` : null,
+      blocks.length > 0 ? `Blocks: ${blocks.join(", ")}` : null,
+      (task as any).risk ? `Risk: ${(task as any).risk}` : null,
+      (task as any).critical ? `Critical: Yes` : null,
+      filesScope.length > 0 ? `Files Scope: ${filesScope.join(", ")}` : null,
+      (task as any).specRef ? `Spec Ref: ${(task as any).specRef}` : null,
+      (task as any).erdRef ? `ERD Ref: ${(task as any).erdRef}` : null,
       task.sourcePath ? `Source: ${task.sourcePath}` : null,
       "",
       "---",
@@ -132,29 +141,43 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     return parts.join("\n");
   };
 
-  const handleCopy = async (kind: "jira" | "md") => {
+  const buildAgentPrompt = () => {
+    const filesScopeStr = filesScope.length > 0 ? filesScope.join(", ") : "src/modules/{domain}/* (conceptual — no repo required)";
+    const acStr = ac.length > 0 ? ac.map((a, i) => `${i + 1}. - [ ] ${a}`).join("\n") : "- [ ] Task completes as per Flow Logic";
+    const desc = task.description || "";
+    const flowMatch = desc.match(/###\s+Flow Logic[\s\S]*?((?:\d+\..*?\n)+)/i);
+    const flow = flowMatch ? flowMatch[1].trim().slice(0, 1200) : desc.slice(0, 800);
+    return `# Role: Senior ${(task.module || "Fullstack")} Developer — Task ${code}\n> Planner: Onesist (FSD → Spec → ERD → Task) — ready for external agent\n\n## Task\n**Code:** ${code}\n**Title:** ${displayTitle}\n**Module:** ${task.module || "—"} | **Phase:** ${task.phase || "—"} | **SP:** ${task.storyPoints ?? "—"} (${(task.storyPoints ?? 0) * 4}h) | **Risk:** ${(task as any).risk || "—"} | **Critical:** ${(task as any).critical ? "Yes" : "No"}\n\n## Files to modify\n${filesScopeStr}\n\n**Spec Ref:** ${(task as any).specRef || "—"}\n**ERD Ref:** ${(task as any).erdRef || "—"}\n**RTM Ref:** ${(task as any).rtmRef || "—"}\n\n## Dependencies\n- Depends On: ${deps.length > 0 ? deps.join(", ") : "—"}\n- Blocks: ${blocks.length > 0 ? blocks.join(", ") : "—"}\n\n## Steps — Flow Logic\n${flow}\n\n## Acceptance Criteria (Given-When-Then)\n${acStr}\n\n## Full Description\n${desc.slice(0, 3000)}\n`;
+  };
+
+  const handleCopy = async (kind: "jira" | "md" | "prompt") => {
     try {
-      await navigator.clipboard.writeText(kind === "jira" ? buildJiraText() : (task.description ?? ""));
+      const text = kind === "jira" ? buildJiraText() : kind === "prompt" ? buildAgentPrompt() : (task.description ?? "");
+      await navigator.clipboard.writeText(text);
       setCopied(kind);
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(null), 1500);
     } catch {}
   };
 
-  const copyBtn = (kind: "jira" | "md") => {
+  const copyBtn = (kind: "jira" | "md" | "prompt") => {
     const isCopied = copied === kind;
+    const label = kind === "jira" ? "Copy for Jira/Monday" : kind === "prompt" ? "Copy Agent Prompt" : "Copy Markdown";
+    const title = kind === "prompt" ? "Copy English prompt for external agent (one task per iteration)" : kind === "jira" ? "Copy task summary for Jira/Monday" : "Copy full markdown description";
     return (
       <button
         onClick={() => handleCopy(kind)}
         className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors ${
           isCopied
             ? "border-green-500/40 text-green-400 bg-green-500/10"
-            : "border-kumo-line text-kumo-subtle hover:text-kumo-default"
+            : kind === "prompt"
+              ? "border-kumo-brand/40 text-kumo-brand hover:bg-kumo-brand/10"
+              : "border-kumo-line text-kumo-subtle hover:text-kumo-default"
         }`}
-        title={kind === "jira" ? "Copy task summary for Jira/Monday" : "Copy full markdown description"}
+        title={title}
       >
-        <CopySimple size={11} className={isCopied ? "text-green-400" : ""} />
-        <span>{isCopied ? "Copied" : kind === "jira" ? "Copy for Jira/Monday" : "Copy Markdown"}</span>
+        <CopySimple size={11} className={isCopied ? "text-green-400" : kind === "prompt" ? "text-kumo-brand" : ""} />
+        <span>{isCopied ? "Copied" : label}</span>
       </button>
     );
   };
@@ -301,14 +324,20 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
                 <span className="text-[10px] text-kumo-subtle bg-kumo-elevated/60 px-1.5 py-0.5 rounded">{task.module}</span>
               )}
             </div>
-            {(task.phase || deps.length > 0 || task.sourcePath) && (
+            {(task.phase || deps.length > 0 || blocks.length > 0 || filesScope.length > 0 || task.sourcePath || (task as any).specRef || (task as any).erdRef) && (
               <div className="space-y-0.5">
                 {task.phase && <div className="text-[9px] text-kumo-subtle">Phase: {task.phase}</div>}
                 {deps.length > 0 && <div className="text-[9px] text-kumo-subtle">Depends on: {deps.join(", ")}</div>}
+                {blocks.length > 0 && <div className="text-[9px] text-kumo-subtle">Blocks: {blocks.join(", ")}</div>}
+                {(task as any).risk && <div className="text-[9px] text-kumo-subtle">Risk: {(task as any).risk} {(task as any).critical ? "· Critical" : ""}</div>}
+                {filesScope.length > 0 && <div className="text-[9px] text-kumo-subtle font-mono">Files: {filesScope.join(", ")}</div>}
+                {(task as any).specRef && <div className="text-[9px] text-kumo-subtle font-mono">Spec: {(task as any).specRef}</div>}
+                {(task as any).erdRef && <div className="text-[9px] text-kumo-subtle font-mono">ERD: {(task as any).erdRef}</div>}
                 {task.sourcePath && <div className="text-[9px] text-kumo-subtle font-mono">{task.sourcePath}</div>}
               </div>
             )}
             <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+              {copyBtn("prompt")}
               {copyBtn("jira")}
               {copyBtn("md")}
               <button

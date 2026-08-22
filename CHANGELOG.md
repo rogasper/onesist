@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.24 — Canvas HLD: dual-engine Mermaid+PlantUML, tech icons, Icon Library
+
+### Canvas — Sketch & Wireframe → HLD Architecture
+- **Dual-engine import** — dialog `Import Diagram` kini punya tab **Mermaid** dan **PlantUML (excaliplant)**. Mermaid tetap via `@excalidraw/mermaid-to-excalidraw`, PlantUML via `@grethel-labs/excaliplant` → ELK layout → Excalidraw JSON. PlantUML dijalankan server-side (`POST /api/canvas/plantuml` → Node subprocess `scripts/plantuml-convert.mjs`) agar tidak kena Bun Worker bug (`elk.bundled.js:6567`). Template baru: Deployment (VPC/DB/Queue), Nwdiag (network lanes), Component/C4.
+- **Tech icon enrichment** — `src/lib/arch-icons/tech-keyword-map.ts` mapping `postgres→postgresql.svg`, `redis→redis.svg`, `kafka→kafka.svg`, `react→reactjs.svg`, `bun→bunjs.svg`, `aws/ec2→EC2.svg` dst. Saat import Mermaid, label node yang match otomatis disisipkan `image` 28×28 di sebelah shape (`ExcalidrawInner.tsx:enrichMermaidWithIcons`).
+- **Icon Library 2100+** — `public/icons/{aws,azure,cncf,developer}` (18 MB, `manifest.json` 2103 shapes) dari OpenFlowKit `assets/third-party-icons`, plus `scripts/sync-icons.mjs` untuk sync ulang. Picker `src/components/canvas/IconPicker.tsx` searchable, filter pack (`aws/azure/cncf/developer`), lazy `fetch("/icons/manifest.json")`, insert sebagai `image` 56×56 + label + box. `src/lib/arch-icons/registry.ts` (`getIconDataUrl` base64 `data:image/svg+xml`).
+- **Architecture presets** — `src/components/canvas/ArchPresets.ts` (`createTechNode`, `createPostgresNode`, `createRedisNode`, `createBunNode`, `createReactNode`, `createTauriNode`, `createKafkaNode`, `createDockerNode`, `createNginxNode`, `createC4SystemBox`, `createVpcFrame`, `createMicroserviceLane`). Toolbar `Architecture` dropdown di `ExcalidrawInner.tsx:886` (tech nodes dengan icon SVG via `getIconDataUrl` + placeholder 32×32 → `image` + `restoreElements`).
+- **Fixes** — `image` element kini lengkap (`angle,fillStyle,strokeWidth,strokeStyle,roughness,opacity,frameId,roundness,crop` + `restoreElements`) agar tidak blank putih; `IconPicker` filter diperbaiki (load `allShapes` lalu `useMemo` scoring, bukan limit-60-dulu); `vite.config.ts` `optimizeDeps.exclude` & hapus alias `node:fs` yang merusak SSR `path.resolve`; `src/types/excaliplant.d.ts` stubs.
+
 ## v0.1.18 — Import tasks_*.md (plural prefix), file tree terbaca di folder dalam
 
 ### Import Tasks

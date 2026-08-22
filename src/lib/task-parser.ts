@@ -12,6 +12,15 @@ export interface ParsedTask {
   phase: string | null;
   contentMd: string | null;
   sourcePath: string | null;
+  // Agentic handoff fields (planner → executor) — conceptual paths valid even without repo
+  blocks: string[];
+  critical: boolean;
+  risk: string | null;
+  filesScope: string[];
+  specRef: string | null;
+  erdRef: string | null;
+  rtmRef: string | null;
+  acceptanceCriteria: string[];
 }
 
 export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skippedFiles: string[] } {
@@ -147,7 +156,8 @@ function parseMasterMd(content: string, phase: string, baseDir: string = "output
       }
       const sectionContent = lines.slice(currentParent.startLine, sectionEnd).join("\n");
 
-      tasks.push({
+       const handoff = extractHandoffFields(sectionContent);
+       tasks.push({
         code: fullCode,
         title: title.replace(/\[(\w+)\]\s*/, "").trim(),
         storyPoints: isNaN(sp) ? null : sp,
@@ -158,6 +168,7 @@ function parseMasterMd(content: string, phase: string, baseDir: string = "output
         phase,
         contentMd: sectionContent,
         sourcePath: `${baseDir}/${phase}/master.md`,
+        ...handoff,
       });
     }
   }
@@ -245,12 +256,14 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
     const devMatch = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
     const assignee = devMatch ? devMatch[1].trim() : null;
 
+    const handoff = extractHandoffFields(sectionContent);
     tasks.push({
       code, title, storyPoints: sp,
       assignee, module: moduleName, parentCode: null,
       status: "todo", phase: null,
       contentMd: sectionContent,
       sourcePath: `${baseDir}/${filename}`,
+      ...handoff,
     });
   }
 
@@ -305,6 +318,7 @@ function parsePhaseTaskFile(content: string, filename: string, phase: string, ba
   const roleTagMap: Record<string, string> = { BE: "BE", FE: "FE", DB: "BE", IN: "BE", CRM: "BE", DO: "DO", QC: "QC" };
 
   // Store full file content for parent task
+  const parentHandoff = extractHandoffFields(content);
   tasks.push({
     code: parentCode, title: parentTitle, storyPoints: sp,
     assignee: assigneeOrder.join(" + ") || null,
@@ -312,6 +326,7 @@ function parsePhaseTaskFile(content: string, filename: string, phase: string, ba
     parentCode: null, status: "todo", phase,
     contentMd: content,
     sourcePath,
+    ...parentHandoff,
   });
 
   // Find sub-tasks with their content blocks
@@ -349,6 +364,7 @@ function parsePhaseTaskFile(content: string, filename: string, phase: string, ba
         : (assigneeOrder[0] ?? null);
       const subSp = roleTag ? (spByRole[roleTagMap[roleTag]] ?? subSp0 ?? null) : (spByRole[Object.keys(spByRole)[0]] ?? subSp0 ?? null);
 
+      const handoff = extractHandoffFields(sectionContent);
       tasks.push({
         code: subCode, title: subTitle, storyPoints: subSp,
         assignee,
@@ -356,6 +372,7 @@ function parsePhaseTaskFile(content: string, filename: string, phase: string, ba
         parentCode, status: "todo", phase,
         contentMd: sectionContent,
         sourcePath,
+        ...handoff,
       });
     }
   }
@@ -385,4 +402,57 @@ function roleToAssignee(role: string, parentAssignee: string | null): string {
   };
   if (parentAssignee) return parentAssignee;
   return roleMap[role] || role;
+}
+
+function extractHandoffFields(content: string): Pick<ParsedTask, "blocks" | "critical" | "risk" | "filesScope" | "specRef" | "erdRef" | "rtmRef" | "acceptanceCriteria"> {
+  const getRow = (label: string): string | null => {
+    const re = new RegExp(`\\|\\s*${label}\\s*\\|\\s*(.*?)\\s*\\|`, "i");
+    const m = content.match(re);
+    if (!m) return null;
+    const v = m[1].trim();
+    if (!v || v === "—" || v === "-" || v.toLowerCase() === "n/a") return null;
+    return v;
+  };
+  const parseList = (raw: string | null): string[] => {
+    if (!raw) return [];
+    return raw.split(/[,;]/).map((s) => s.replace(/[`*_]/g, "").trim()).filter(Boolean);
+  };
+  const blocksRaw = getRow("Blocks");
+  const blocks = parseList(blocksRaw);
+
+  const criticalRaw = getRow("Critical Path") ?? getRow("Critical");
+  const critical = criticalRaw ? /^(yes|true|ya|1)/i.test(criticalRaw.trim()) : false;
+
+  const riskRaw = getRow("Risk Level") ?? getRow("Risk");
+  const risk = riskRaw ? riskRaw.replace(/[`*_]/g, "").trim() : null;
+
+  const filesScopeRaw = getRow("Files Scope");
+  const filesScope = filesScopeRaw ? filesScopeRaw.split(/[,;]/).map((s) => s.replace(/[`]/g, "").trim()).filter(Boolean).flatMap((s) => s.split(/\s+/).filter(Boolean)) : [];
+
+  const specRefRaw = getRow("Spec Ref");
+  const specRef = specRefRaw ? specRefRaw.replace(/[`]/g, "").trim() : null;
+
+  const erdRefRaw = getRow("ERD Ref");
+  const erdRef = erdRefRaw ? erdRefRaw.replace(/[`]/g, "").trim() : null;
+
+  const rtmRefRaw = getRow("RTM Ref");
+  const rtmRef = rtmRefRaw ? rtmRefRaw.replace(/[`]/g, "").trim() : null;
+
+  const acceptanceCriteria: string[] = [];
+  const acStart = content.search(/###\s+Acceptance Criteria/i);
+  if (acStart !== -1) {
+    const acSlice = content.slice(acStart);
+    const acEnd = acSlice.search(/\n###\s+/);
+    const acBlock = acEnd !== -1 ? acSlice.slice(0, acEnd) : acSlice;
+    for (const line of acBlock.split("\n")) {
+      const m = line.match(/^\s*-\s*\[[ xX]\]\s*(.+)/);
+      if (m) acceptanceCriteria.push(m[1].trim());
+      else {
+        const m2 = line.match(/^\s*-\s+(Given|When|Then).+/i);
+        if (m2) acceptanceCriteria.push(line.replace(/^\s*-\s*/, "").trim());
+      }
+    }
+  }
+
+  return { blocks, critical, risk, filesScope, specRef, erdRef, rtmRef, acceptanceCriteria };
 }

@@ -308,6 +308,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ["swagger-ui-react"],
+    exclude: ["@grethel-labs/excaliplant", "@resvg/resvg-js"],
   },
   resolve: {
     alias: {

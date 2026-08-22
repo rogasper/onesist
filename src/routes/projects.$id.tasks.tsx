@@ -10,6 +10,8 @@ import {
   CheckSquare,
   Archive,
   X,
+  DownloadSimple,
+  CaretDown,
 } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { usePageVisible } from "~/lib/use-file-data";
@@ -55,7 +57,38 @@ function TasksPage() {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [view, setView] = useState<"tasks" | "timeline">("tasks");
   const [viewMode, setViewMode] = useState<TaskViewMode>("list");
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null;
+
+  const handleExport = useCallback(async (format: string) => {
+    setExporting(format);
+    setExportMenuOpen(false);
+    try {
+      const url = `/api/projects/${id}/handoff?format=${format}`;
+      if (format === "zip") {
+        window.location.href = url;
+      } else {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error("export failed");
+        const blob = await res.blob();
+        const cd = res.headers.get("Content-Disposition") || "";
+        const filenameMatch = cd.match(/filename="([^"]+)"/);
+        const filename = filenameMatch ? filenameMatch[1] : `export-${format}-${id}.${format.includes("csv") ? "csv" : "json"}`;
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(href);
+      }
+    } catch (e) {
+      console.error("Export failed", e);
+    }
+    setExporting(null);
+  }, [id]);
 
   const totalPoints = useMemo(
     () => tasks.filter((t) => !t.archived).reduce((s, t) => s + (t.storyPoints ?? 0), 0),
@@ -372,6 +405,42 @@ function TasksPage() {
             >
               {view === "timeline" ? "Tasks" : "Timeline"}
             </AppButton>
+            <div className="relative">
+              <AppButton
+                onClick={() => setExportMenuOpen((o) => !o)}
+                disabled={tasks.length === 0 || exporting !== null}
+                variant="secondary"
+                size="sm"
+                icon={<DownloadSimple size={12} />}
+                className="rounded-full px-3"
+                title="Export handoff bundle (planner → executor)"
+              >
+                {exporting ? `Exporting ${exporting}…` : "Export"}
+                <CaretDown size={10} className={`ml-1 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
+              </AppButton>
+              {exportMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-kumo-line bg-kumo-elevated shadow-lg z-20 overflow-hidden text-xs">
+                  <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-kumo-subtle border-b border-kumo-line/50">Handoff — planner → executor</div>
+                  <button onClick={() => void handleExport("zip")} className="w-full text-left px-3 py-2.5 hover:bg-kumo-line/40 flex flex-col gap-0.5">
+                    <span className="font-medium text-kumo-default">Handoff Zip</span>
+                    <span className="text-[10px] text-kumo-subtle">context + spec + erd + tasks.json + prompts/</span>
+                  </button>
+                  <button onClick={() => void handleExport("json")} className="w-full text-left px-3 py-2.5 hover:bg-kumo-line/40 flex flex-col gap-0.5 border-t border-kumo-line/30">
+                    <span className="font-medium text-kumo-default">tasks.json</span>
+                    <span className="text-[10px] text-kumo-subtle">Machine — for agent topo-sort</span>
+                  </button>
+                  <button onClick={() => void handleExport("jira-csv")} className="w-full text-left px-3 py-2.5 hover:bg-kumo-line/40 flex flex-col gap-0.5 border-t border-kumo-line/30">
+                    <span className="font-medium text-kumo-default">Jira CSV</span>
+                    <span className="text-[10px] text-kumo-subtle">Import → Jira Issues</span>
+                  </button>
+                  <button onClick={() => void handleExport("monday-csv")} className="w-full text-left px-3 py-2.5 hover:bg-kumo-line/40 flex flex-col gap-0.5 border-t border-kumo-line/30">
+                    <span className="font-medium text-kumo-default">Monday CSV</span>
+                    <span className="text-[10px] text-kumo-subtle">Import → Monday board</span>
+                  </button>
+                  <div className="px-3 py-2 text-[9px] text-kumo-subtle bg-kumo-base/40 border-t border-kumo-line/30 leading-relaxed">Zip siap di-unzip &amp; execute per task (Files Scope conceptual, valid tanpa repo).</div>
+                </div>
+              )}
+            </div>
             <AppButton
               onClick={() => void syncFromDisk(true)}
               disabled={importing}

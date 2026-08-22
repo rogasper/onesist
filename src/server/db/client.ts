@@ -20,6 +20,15 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE tasks ADD COLUMN source_path TEXT",
     "ALTER TABLE tasks ADD COLUMN phase TEXT",
     "ALTER TABLE tasks ADD COLUMN archived integer DEFAULT 0 NOT NULL",
+    // tasks agentic handoff columns
+    "ALTER TABLE tasks ADD COLUMN blocks_json TEXT",
+    "ALTER TABLE tasks ADD COLUMN critical integer DEFAULT 0 NOT NULL",
+    "ALTER TABLE tasks ADD COLUMN risk TEXT",
+    "ALTER TABLE tasks ADD COLUMN files_scope_json TEXT",
+    "ALTER TABLE tasks ADD COLUMN spec_ref TEXT",
+    "ALTER TABLE tasks ADD COLUMN erd_ref TEXT",
+    "ALTER TABLE tasks ADD COLUMN rtm_ref TEXT",
+    "ALTER TABLE tasks ADD COLUMN acceptance_criteria_json TEXT",
     // fsd_session document metadata columns
     "ALTER TABLE fsd_sessions ADD COLUMN title TEXT",
     "ALTER TABLE fsd_sessions ADD COLUMN source_type TEXT DEFAULT 'manual'",

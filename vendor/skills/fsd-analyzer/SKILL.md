@@ -138,7 +138,7 @@ Respond using this skill when the user says things like:
 3. **Spec API** — Endpoints, auth, validation, errors, examples (see `references/spec_api_format.md`). Follow API conventions (see `references/api_conventions.md`) and error catalog (see `references/error_catalog.md`).
 4. **ERD** — Tables, columns, indexes, FKs; add **DBML** fenced block for dbdiagram (see `references/erd_format.md`).
 5. **UML** — PlantUML diagrams: sequence (API flows), class (entity model), activity (business flow), state (entity lifecycle), component (architecture), use case (actor capabilities). All in ` ```plantuml ` fenced blocks (see `references/uml_format.md`).
-6. **Tasks** — Dev-ready cards with **Story Points** (see `references/task_format.md`). Each task includes Deskripsi, Goals, Scope, Out of scope, Acceptance Criteria, Flow Logic (with optional Mermaid diagram for complex flows), QC Checklist. **Required:** `### Flow Logic (step by step)` with complete numbered steps. **Story Point** field (1 SP = 4 hours). **Dependency fields** (Depends On, Blocks, Critical Path). **SQL** is only **base query examples** in **` ```sql `** (not a replacement for flow). Request/response in **` ```json `** (valid, no `mailto:`). Order: summary table → Deskripsi → Goals → Scope → Out of scope → Acceptance Criteria → Flow Logic → SQL example → Request/Response → Notes → QC Checklist.
+6. **Tasks** — Dev-ready cards with **Story Points** (see `references/task_format.md`). Each task includes Context (3-5 lines for agent injection), Deskripsi (ID), Goals, Scope, Out of scope, Acceptance Criteria **Given-When-Then** checklist (`[ ]` testable), Flow Logic (with optional Mermaid diagram for complex flows), QC Checklist. **Required:** `### Flow Logic (step by step)` with complete numbered steps. **Story Point** field (1 SP = 4 hours). **Dependency fields** (Depends On, Blocks, Critical Path, Risk). **Agentic handoff fields** (Files Scope, Spec Ref, ERD Ref, RTM Ref) — conceptual paths valid even without a repo (no `fs.existsSync` check). **SQL** is only **base query examples** in **` ```sql `** (not a replacement for flow). Request/response in **` ```json `** (valid, no `mailto:`). Order: summary table (12 rows) → Context → Deskripsi → Goals → Scope → Out of scope → Acceptance Criteria (Given-When-Then) → Flow Logic → SQL example → Request/Response → Notes → QC Checklist. Companion `tasks.json` + `prompts/{code}.prompt.md` (English) generated for external agent execution.
 7. **Frontend tasks** — FE-specific task cards with component breakdown, API integration mapping, UI states, acceptance criteria (see `references/frontend_task_format.md`).
 8. **Gap analysis** — Structured diff vs existing artifacts (`references/gap_analysis.md`). Include migration plan when DB changes found (see `references/migration_strategy.md`).
 9. **Consistency** — Cross-check artifacts (`references/consistency_check.md`).
@@ -176,6 +176,8 @@ Respond using this skill when the user says things like:
 | ERD (slice or snapshot) | `erd.md`, `erd_now.md`, `erd_<feature>.md` |
 | Tasks (backend) | `task.md`, `task_<feature>.md` |
 | Tasks (frontend) | `task_fe.md`, `task_fe_<feature>.md` |
+| Tasks (agent) | `output/task/tasks.json` + `output/task/prompts/{code}.prompt.md` (English, per-task) |
+| Handoff bundle | `handoff-{project}-v{version}-{date}.zip` (context + spec + erd + rtm + task + prompts) |
 | Timeline HTML | `timeline_<feature>.html` |
 | RTM | `output/rtm/RTM.md` (default) / `output/rtm/RTM_<scope>.md` (scoped) |
 | OpenAPI | `output/spec/openapi.yaml` |

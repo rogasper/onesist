@@ -94,6 +94,14 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
       dependenciesJson: pt.parentCode ? JSON.stringify([pt.parentCode]) : null,
       sourcePath: pt.sourcePath,
       updatedAt: now,
+      blocksJson: pt.blocks.length > 0 ? JSON.stringify(pt.blocks) : null,
+      critical: pt.critical ? 1 : 0,
+      risk: pt.risk,
+      filesScopeJson: pt.filesScope.length > 0 ? JSON.stringify(pt.filesScope) : null,
+      specRef: pt.specRef,
+      erdRef: pt.erdRef,
+      rtmRef: pt.rtmRef,
+      acceptanceCriteriaJson: pt.acceptanceCriteria.length > 0 ? JSON.stringify(pt.acceptanceCriteria) : null,
     };
     // Sticky phase: only overwrite phase if the parsed file explicitly provided a phase
     if (pt.phase) {
@@ -156,6 +164,14 @@ router.put("projects/:id/tasks/:taskId", async ({ params, body }) => {
   if (data.assignee !== undefined) updates.assignee = data.assignee;
   if (data.module !== undefined) updates.module = data.module;
   if (data.dependenciesJson !== undefined) updates.dependenciesJson = data.dependenciesJson;
+  if (data.blocksJson !== undefined) updates.blocksJson = data.blocksJson;
+  if (data.critical !== undefined) updates.critical = Boolean(data.critical) ? 1 : 0;
+  if (data.risk !== undefined) updates.risk = data.risk;
+  if (data.filesScopeJson !== undefined) updates.filesScopeJson = data.filesScopeJson;
+  if (data.specRef !== undefined) updates.specRef = data.specRef;
+  if (data.erdRef !== undefined) updates.erdRef = data.erdRef;
+  if (data.rtmRef !== undefined) updates.rtmRef = data.rtmRef;
+  if (data.acceptanceCriteriaJson !== undefined) updates.acceptanceCriteriaJson = data.acceptanceCriteriaJson;
   if (data.code !== undefined) updates.code = data.code;
   if (data.sourcePath !== undefined) updates.sourcePath = data.sourcePath;
   if (data.phase !== undefined) updates.phase = data.phase;

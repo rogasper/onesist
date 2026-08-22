@@ -12,6 +12,7 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 import { parseMermaidToExcalidraw } from "@excalidraw/mermaid-to-excalidraw";
 import { MermaidImportDialog } from "./MermaidImportDialog";
+import { IconPicker } from "./IconPicker";
 import {
   createBrowserFrame,
   createMobileFrame,
@@ -19,6 +20,23 @@ import {
   createModalPreset,
   createStickyNote,
 } from "./WireframePresets";
+import {
+  createTechNode,
+  createPostgresNode,
+  createRedisNode,
+  createBunNode,
+  createReactNode,
+  createTauriNode,
+  createKafkaNode,
+  createDockerNode,
+  createNginxNode,
+  createC4SystemBox,
+  createVpcFrame,
+  createMicroserviceLane,
+} from "./ArchPresets";
+import { resolveTechIcon } from "~/lib/arch-icons/tech-keyword-map";
+import { getIconDataUrl } from "~/lib/arch-icons/registry";
+import type { IconShape } from "~/lib/arch-icons/types";
 import { AppButton } from "~/components/ui/AppButton";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import {
@@ -37,6 +55,7 @@ import {
   ArrowsInSimple,
   Check,
   Sparkle,
+  Shapes,
 } from "@phosphor-icons/react";
 
 interface ExcalidrawInnerProps {
@@ -96,14 +115,17 @@ export default function ExcalidrawInner({
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const [isMermaidOpen, setIsMermaidOpen] = useState(false);
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
+  const [isArchPresetsOpen, setIsArchPresetsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
   const [compileToast, setCompileToast] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isCompilingMermaid, setIsCompilingMermaid] = useState(false);
+  const [isPlantUmlLoading, setIsPlantUmlLoading] = useState(false);
   const [detectedMermaidCount, setDetectedMermaidCount] = useState(0);
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -236,10 +258,10 @@ export default function ExcalidrawInner({
               created: f.created || Date.now(),
               lastRetrieved: f.lastRetrieved || Date.now(),
             }));
-            excalidrawAPI.addFiles(fileList);
+            excalidrawAPI.addFiles(fileList as any);
           }
           if (res.elements) {
-            const converted = convertToExcalidrawElements(res.elements);
+            const converted = convertToExcalidrawElements(res.elements as any) as any;
             excalidrawAPI.updateScene({
               elements: converted,
               appState: {
@@ -272,7 +294,7 @@ export default function ExcalidrawInner({
           created: f.created || Date.now(),
           lastRetrieved: f.lastRetrieved || Date.now(),
         }));
-        excalidrawAPI.addFiles(fileList);
+        excalidrawAPI.addFiles(fileList as any);
       }
 
       excalidrawAPI.updateScene({
@@ -336,10 +358,15 @@ export default function ExcalidrawInner({
         created: f.created || Date.now(),
         lastRetrieved: f.lastRetrieved || Date.now(),
       }));
-      excalidrawAPI.addFiles(fileList);
+      excalidrawAPI.addFiles(fileList as any);
     }
 
-    const newElements = convertToExcalidrawElements(res.elements);
+    let newElements: any[] = convertToExcalidrawElements(res.elements as any) as any;
+    try {
+      const enriched = await enrichMermaidWithIcons(newElements);
+      // enrich adds image elements and files via addFiles internally
+      if (enriched.length > newElements.length) newElements = enriched;
+    } catch {}
     if (replaceExisting) {
       excalidrawAPI.updateScene({ elements: newElements });
     } else {
@@ -392,7 +419,7 @@ export default function ExcalidrawInner({
 
             const offsetX = anyEl.x - minX;
             const offsetY = anyEl.y - minY;
-            const converted = convertToExcalidrawElements(res.elements).map((e) => ({
+            const converted = (convertToExcalidrawElements(res.elements as any) as any).map((e: any) => ({
               ...e,
               x: e.x + offsetX,
               y: e.y + offsetY,
@@ -431,6 +458,302 @@ export default function ExcalidrawInner({
     }
   };
 
+  // ── PlantUML via excaliplant (dual-engine) ──
+  const isPlantUmlText = (text: string) =>
+    /^\s*@startuml\b/i.test(text.trim()) || /^\s*@start(c4|nwdiag|archimate|salt|deployment|component|state)/i.test(text.trim());
+
+  const handlePlantUmlImport = async (code: string, replaceExisting: boolean) => {
+    if (!excalidrawAPI) return;
+    setIsPlantUmlLoading(true);
+    try {
+      const res = await fetch("/api/canvas/plantuml", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data: any = await res.json();
+      if (!res.ok) throw new Error(data?.error || "PlantUML parse failed");
+      const elements = data.elements || [];
+      const files = data.files || {};
+      if (files && Object.keys(files).length > 0) {
+        const fileList = Object.values(files).map((f: any) => ({
+          id: f.id as any,
+          dataURL: f.dataURL as any,
+          mimeType: f.mimeType || "image/svg+xml",
+          created: f.created || Date.now(),
+          lastRetrieved: f.lastRetrieved || Date.now(),
+        }));
+        excalidrawAPI.addFiles(fileList as any);
+      }
+      const converted = convertToExcalidrawElements(elements as any) as any;
+      if (replaceExisting) {
+        excalidrawAPI.updateScene({ elements: converted });
+      } else {
+        const current = excalidrawAPI.getSceneElements();
+        const maxY = current.reduce((max: number, el: any) => Math.max(max, el.y + el.height), 0);
+        const offsetY = current.length > 0 ? maxY + 60 : 0;
+        const shifted = converted.map((el: any) => ({ ...el, y: el.y + offsetY }));
+        excalidrawAPI.updateScene({ elements: [...current, ...shifted] });
+      }
+      excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
+      setIsDirty(true);
+    } catch (e: any) {
+      throw new Error(e?.message || "PlantUML parse failed");
+    } finally {
+      setIsPlantUmlLoading(false);
+    }
+  };
+
+  // Enrich mermaid-converted elements with tech icons (placeholder box -> image)
+  const enrichMermaidWithIcons = async (elements: any[]) => {
+    if (!excalidrawAPI) return elements;
+    const newFiles: any[] = [];
+    const newImages: any[] = [];
+    for (const el of elements) {
+      if (el.type === "rectangle" || el.type === "ellipse" || el.type === "diamond") {
+        // Find bound text for this shape
+        const bound = elements.find((t: any) => t.type === "text" && t.containerId === el.id);
+        const label = (bound?.text || bound?.originalText || el.label || "") as string;
+        if (!label) continue;
+        const mapping = resolveTechIcon(label);
+        if (!mapping) continue;
+        try {
+          const dataURL = await getIconDataUrl(mapping.file);
+          const fileId = `icon_${Math.random().toString(36).slice(2, 9)}`;
+          newFiles.push({ id: fileId, dataURL, mimeType: "image/svg+xml", created: Date.now(), lastRetrieved: Date.now() });
+          newImages.push({
+            id: `img_${Math.random().toString(36).slice(2, 9)}`,
+            type: "image",
+            x: el.x + 8,
+            y: el.y + (el.height - 28) / 2,
+            width: 28,
+            height: 28,
+            angle: 0,
+            strokeColor: "transparent",
+            backgroundColor: "transparent",
+            fillStyle: "solid",
+            strokeWidth: 1,
+            strokeStyle: "solid",
+            roughness: 0,
+            opacity: 100,
+            groupIds: el.groupIds || [],
+            frameId: null,
+            roundness: null,
+            seed: Math.floor(Math.random() * 100000),
+            version: 1,
+            versionNonce: Math.floor(Math.random() * 100000),
+            isDeleted: false,
+            boundElements: null,
+            updated: Date.now(),
+            link: null,
+            locked: false,
+            fileId,
+            status: "saved",
+            scale: [1, 1] as [number, number],
+            crop: null,
+          });
+        } catch {}
+      }
+    }
+    if (newFiles.length > 0) excalidrawAPI.addFiles(newFiles as any);
+    const restoredImages = newImages.length ? (restoreElements(newImages, null, null as any) as any) : [];
+    return [...elements, ...restoredImages];
+  };
+
+  // Insert Architecture Presets (tech nodes + HLD containers)
+  const insertArchPreset = async (type: string) => {
+    if (!excalidrawAPI) return;
+    const current = excalidrawAPI.getSceneElements();
+    const appState = excalidrawAPI.getAppState();
+    const centerX = -appState.scrollX + window.innerWidth / 3;
+    const centerY = -appState.scrollY + window.innerHeight / 3;
+    let rawElements: any[] = [];
+    let iconFile: string | null = null;
+    switch (type) {
+      case "tech-react": rawElements = createReactNode(centerX, centerY); iconFile = "developer/Frontend/reactjs.svg"; break;
+      case "tech-bun": rawElements = createBunNode(centerX, centerY); iconFile = "developer/Backend/bunjs.svg"; break;
+      case "tech-postgres": rawElements = createPostgresNode(centerX, centerY); iconFile = "developer/Database/postgresql.svg"; break;
+      case "tech-redis": rawElements = createRedisNode(centerX, centerY); iconFile = "developer/Database/redis.svg"; break;
+      case "tech-tauri": rawElements = createTauriNode(centerX, centerY); iconFile = "developer/Languages/rust-light.svg"; break;
+      case "tech-kafka": rawElements = createKafkaNode(centerX, centerY); iconFile = "developer/Backend/kafka.svg"; break;
+      case "tech-docker": rawElements = createDockerNode(centerX, centerY); iconFile = "developer/DevOps-AI-ML/docker.svg"; break;
+      case "tech-nginx": rawElements = createNginxNode(centerX, centerY); iconFile = "developer/Infra/nginx.svg"; break;
+      case "c4-system": rawElements = createC4SystemBox(centerX, centerY); break;
+      case "vpc-frame": rawElements = createVpcFrame(centerX, centerY); break;
+      case "micro-lane": rawElements = createMicroserviceLane(centerX, centerY); break;
+      default: return;
+    }
+    let converted: any = convertToExcalidrawElements(rawElements as any) as any;
+    // If preset has an icon, replace the placeholder rectangle (second element) with image
+    if (iconFile) {
+      try {
+        const dataURL = await getIconDataUrl(iconFile);
+        const fileId = `icon_${Math.random().toString(36).slice(2, 9)}`;
+        excalidrawAPI.addFiles([{ id: fileId as any, dataURL: dataURL as any, mimeType: "image/svg+xml", created: Date.now(), lastRetrieved: Date.now() }]);
+        // Find placeholder rect (10px offset from box)
+        const placeholderIdx = converted.findIndex((e: any) => e.type === "rectangle" && e.width === 32 && e.height === 32);
+        if (placeholderIdx !== -1) {
+          const ph: any = converted[placeholderIdx];
+          const img: any = {
+            id: `img_${Math.random().toString(36).slice(2, 9)}`,
+            type: "image",
+            x: ph.x,
+            y: ph.y,
+            width: 32,
+            height: 32,
+            angle: 0,
+            strokeColor: "transparent",
+            backgroundColor: "transparent",
+            fillStyle: "solid",
+            strokeWidth: 1,
+            strokeStyle: "solid",
+            roughness: 0,
+            opacity: 100,
+            groupIds: ph.groupIds,
+            frameId: null,
+            roundness: null,
+            seed: Math.floor(Math.random() * 100000),
+            version: 1,
+            versionNonce: Math.floor(Math.random() * 100000),
+            isDeleted: false,
+            boundElements: null,
+            updated: Date.now(),
+            link: null,
+            locked: false,
+            fileId,
+            status: "saved",
+            scale: [1, 1] as [number, number],
+            crop: null,
+          };
+          // Use restore to ensure image element is valid before merging
+          const restored = restoreElements([img], null, null as any) as any;
+          const validImg = restored[0] || img;
+          converted = [...converted.slice(0, placeholderIdx), validImg, ...converted.slice(placeholderIdx + 1)];
+        }
+      } catch {}
+    }
+    excalidrawAPI.updateScene({ elements: [...current, ...converted] });
+    excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
+    setIsArchPresetsOpen(false);
+    setIsDirty(true);
+  };
+
+  const insertIconShape = async (shape: IconShape) => {
+    if (!excalidrawAPI) return;
+    const current = excalidrawAPI.getSceneElements();
+    const appState = excalidrawAPI.getAppState();
+    const cx = -appState.scrollX + window.innerWidth / 3;
+    const cy = -appState.scrollY + window.innerHeight / 3;
+    try {
+      const dataURL = await getIconDataUrl(shape.file);
+      const fileId = `icon_${shape.id}_${Math.random().toString(36).slice(2, 6)}`;
+      excalidrawAPI.addFiles([{ id: fileId as any, dataURL: dataURL as any, mimeType: "image/svg+xml", created: Date.now(), lastRetrieved: Date.now() }]);
+      const groupId = Math.random().toString(36).slice(2, 9);
+      const box: any = {
+        id: Math.random().toString(36).slice(2, 9),
+        type: "rectangle",
+        x: cx,
+        y: cy,
+        width: 140,
+        height: 92,
+        angle: 0,
+        strokeColor: "#333333",
+        backgroundColor: "#ffffff",
+        fillStyle: "solid",
+        strokeWidth: 2,
+        strokeStyle: "solid",
+        roughness: 1,
+        opacity: 100,
+        groupIds: [groupId],
+        frameId: null,
+        roundness: { type: 3 },
+        seed: Math.floor(Math.random() * 100000),
+        version: 1,
+        versionNonce: Math.floor(Math.random() * 100000),
+        isDeleted: false,
+        boundElements: null,
+        updated: Date.now(),
+        link: null,
+        locked: false,
+      };
+      const img: any = {
+        id: Math.random().toString(36).slice(2, 9),
+        type: "image",
+        x: cx + 42,
+        y: cy + 10,
+        width: 56,
+        height: 56,
+        angle: 0,
+        strokeColor: "transparent",
+        backgroundColor: "transparent",
+        fillStyle: "solid",
+        strokeWidth: 1,
+        strokeStyle: "solid",
+        roughness: 0,
+        opacity: 100,
+        groupIds: [groupId],
+        frameId: null,
+        roundness: null,
+        seed: Math.floor(Math.random() * 100000),
+        version: 1,
+        versionNonce: Math.floor(Math.random() * 100000),
+        isDeleted: false,
+        boundElements: null,
+        updated: Date.now(),
+        link: null,
+        locked: false,
+        fileId,
+        status: "saved",
+        scale: [1, 1] as [number, number],
+        crop: null,
+      };
+      const label: any = {
+        id: Math.random().toString(36).slice(2, 9),
+        type: "text",
+        x: cx + 10,
+        y: cy + 72,
+        width: 120,
+        height: 14,
+        angle: 0,
+        strokeColor: "#111827",
+        backgroundColor: "transparent",
+        fillStyle: "solid",
+        strokeWidth: 1,
+        roughness: 1,
+        opacity: 100,
+        groupIds: [groupId],
+        frameId: null,
+        roundness: null,
+        seed: Math.floor(Math.random() * 100000),
+        version: 1,
+        versionNonce: Math.floor(Math.random() * 100000),
+        isDeleted: false,
+        boundElements: null,
+        updated: Date.now(),
+        link: null,
+        locked: false,
+        text: shape.label,
+        originalText: shape.label,
+        fontSize: 12,
+        fontFamily: 1,
+        textAlign: "center" as const,
+        verticalAlign: "top" as const,
+        baseline: 0,
+        containerId: null,
+        lineHeight: 1.25,
+      };
+      const convertedBoxLabel: any = convertToExcalidrawElements([box, label] as any) as any;
+      const restoredImg = (restoreElements([img], null, null as any) as any)[0] || img;
+      const converted = [...convertedBoxLabel, restoredImg];
+      excalidrawAPI.updateScene({ elements: [...current, ...converted] });
+      excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
+      setIsDirty(true);
+      setIsIconPickerOpen(false);
+    } catch (e) {
+      console.error("Insert icon failed", e);
+    }
+  };
+
   // Insert Wireframe Presets
   const insertPreset = (type: "browser" | "mobile" | "form" | "modal" | "note") => {
     if (!excalidrawAPI) return;
@@ -459,7 +782,7 @@ export default function ExcalidrawInner({
         break;
     }
 
-    const converted = convertToExcalidrawElements(rawElements);
+    const converted = convertToExcalidrawElements(rawElements as any) as any;
     excalidrawAPI.updateScene({ elements: [...current, ...converted] });
     excalidrawAPI.scrollToContent(converted, { fitToViewport: true });
     setIsPresetsOpen(false);
@@ -595,16 +918,87 @@ export default function ExcalidrawInner({
             </AppButton>
           )}
 
-          {/* Import Mermaid */}
+          {/* Import Diagram (Mermaid + PlantUML dual-engine) */}
           <AppButton
             variant="chip"
             size="sm"
             onClick={() => setIsMermaidOpen(true)}
             icon={<GitBranch size={13} className="text-kumo-brand" />}
             className="px-2.5"
-            title="Import Mermaid syntax into editable vector elements"
+            title="Import Mermaid or PlantUML (excaliplant) → vector + tech icons"
           >
-            Import Mermaid
+            Import Diagram
+          </AppButton>
+
+          {/* Architecture / Tech Stack Presets */}
+          <div className="relative">
+            <AppButton
+              variant="chip"
+              size="sm"
+              active={isArchPresetsOpen}
+              onClick={() => {
+                setIsArchPresetsOpen((p) => !p);
+                setIsPresetsOpen(false);
+                setIsExportOpen(false);
+              }}
+              icon={<Shapes size={13} className="text-violet-400" />}
+              className="px-2.5"
+              title="High-level architecture presets with SVG icons"
+            >
+              Architecture
+            </AppButton>
+            {isArchPresetsOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-56 rounded-lg border border-kumo-line bg-kumo-elevated p-1 shadow-xl z-50 text-xs max-h-[60vh] overflow-auto">
+                <div className="px-2 py-1 text-[10px] font-semibold tracking-wide uppercase text-kumo-subtle">Tech Nodes</div>
+                <button onClick={() => insertArchPreset("tech-react")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Shapes size={14} className="text-cyan-400" /> React 19
+                </button>
+                <button onClick={() => insertArchPreset("tech-bun")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Shapes size={14} className="text-amber-400" /> Bun Server
+                </button>
+                <button onClick={() => insertArchPreset("tech-postgres")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Shapes size={14} className="text-sky-400" /> PostgreSQL
+                </button>
+                <button onClick={() => insertArchPreset("tech-redis")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Shapes size={14} className="text-red-400" /> Redis
+                </button>
+                <button onClick={() => insertArchPreset("tech-kafka")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Shapes size={14} className="text-violet-400" /> Kafka
+                </button>
+                <button onClick={() => insertArchPreset("tech-docker")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Desktop size={14} className="text-blue-400" /> Docker
+                </button>
+                <button onClick={() => insertArchPreset("tech-nginx")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Desktop size={14} className="text-emerald-400" /> Nginx / Proxy
+                </button>
+                <button onClick={() => insertArchPreset("tech-tauri")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Desktop size={14} className="text-indigo-400" /> Tauri Desktop
+                </button>
+                <div className="my-1 border-t border-kumo-line" />
+                <div className="px-2 py-1 text-[10px] font-semibold tracking-wide uppercase text-kumo-subtle">HLD Containers</div>
+                <button onClick={() => insertArchPreset("vpc-frame")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Layout size={14} className="text-purple-400" /> VPC / Cloud Frame
+                </button>
+                <button onClick={() => insertArchPreset("c4-system")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Layout size={14} className="text-blue-400" /> C4 System Box
+                </button>
+                <button onClick={() => insertArchPreset("micro-lane")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Layout size={14} className="text-slate-400" /> Microservice Lane
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Icon Library */}
+          <AppButton
+            variant="chip"
+            size="sm"
+            onClick={() => setIsIconPickerOpen(true)}
+            icon={<Shapes size={13} className="text-emerald-400" />}
+            className="px-2.5"
+            title="Browse 2100+ AWS/Azure/CNCF/Developer SVG icons"
+          >
+            Icons
           </AppButton>
 
           {/* Wireframe Presets Dropdown */}
@@ -615,6 +1009,7 @@ export default function ExcalidrawInner({
               active={isPresetsOpen}
               onClick={() => {
                 setIsPresetsOpen((p) => !p);
+                setIsArchPresetsOpen(false);
                 setIsExportOpen(false);
               }}
               icon={<Layout size={13} className="text-blue-400" />}
@@ -669,6 +1064,7 @@ export default function ExcalidrawInner({
               onClick={() => {
                 setIsExportOpen((p) => !p);
                 setIsPresetsOpen(false);
+                setIsArchPresetsOpen(false);
               }}
               icon={<DownloadSimple size={13} />}
               className="px-2.5"
@@ -778,12 +1174,22 @@ export default function ExcalidrawInner({
         />
       </div>
 
-      {/* Mermaid Import Dialog */}
+      {/* Diagram Import Dialog (Mermaid + PlantUML) */}
       <MermaidImportDialog
         open={isMermaidOpen}
         onClose={() => setIsMermaidOpen(false)}
-        onImport={handleMermaidImport}
+        onImport={async (code, replace) => {
+          if (isPlantUmlText(code)) {
+            await handlePlantUmlImport(code, replace);
+          } else {
+            await handleMermaidImport(code, replace);
+          }
+        }}
+        isPlantUmlLoading={isPlantUmlLoading}
       />
+
+      {/* Icon Library Picker */}
+      <IconPicker open={isIconPickerOpen} onOpenChange={setIsIconPickerOpen} onSelect={insertIconShape} />
 
       {/* Clear Canvas Confirmation Dialog */}
       <ConfirmDialog

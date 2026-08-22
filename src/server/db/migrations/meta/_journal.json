@@ -36,6 +36,13 @@
       "when": 1787193879706,
       "tag": "0004_green_titanium_man",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787200000000,
+      "tag": "0005_handoff_fields",
+      "breakpoints": true
     }
   ]
 }

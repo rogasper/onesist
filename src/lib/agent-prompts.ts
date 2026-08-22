@@ -10,7 +10,7 @@ export function buildGeneratePrompt(fsdFile: string, agentName: string, rootOver
 
   const moduleName = fsdFile.replace(/^input\/fsd\/fsd_/, "").replace(/\.md$/, "");
 
-  return `You are a Senior System Analyst. Use the fsd-analyzer skill.
+  return `You are a Senior System Analyst. Use the fsd-analyzer skill — read references/task_format.md and references/frontend_task_format.md for the canonical task template (12-row summary table + Context + Given-When-Then AC + Flow Logic + agentic handoff fields).
 
 Project root: ${root}
 Running via: ${agentName}
@@ -46,10 +46,9 @@ Write to: \`output/erd/erd_${moduleName}.dbml\`
 Format: DBML syntax (use \`\`\`dbml ... \`\`\` blocks in markdown)
 Include all new tables and relationships from the FSD.
 
-### 3. Task Cards
+### 3. Task Cards — agentic handoff ready
 Write to: \`output/task/task_${moduleName}.md\`
-Format: Task cards with code, title, story points, assignee, flow logic, SQL, JSON
-Break down into sub-tasks (BE, FE, DB, Integration).
+Format: Follow references/task_format.md EXACTLY. 12-row summary table MUST include Files Scope, Spec Ref, ERD Ref, RTM Ref (conceptual paths are valid even without a repo — do not skip if repo is missing; use src/modules/{domain}/* style). Each task: Context (3-5 lines for agent injection) → Deskripsi (ID) → Goals → Scope → Out of scope → Acceptance Criteria as Given-When-Then checklist [ ] (testable) → Flow Logic (numbered, complete) → SQL base contoh (sql fence) → Request/Response (json fences, valid) → Notes → QC Checklist. Break down into sub-tasks (BE, FE, DB, Integration). Every task needs SP, Depends On, Blocks, Critical Path, Risk.
 
 ### 4. Sequence Diagrams
 Write to: \`output/spec/spec_${moduleName}.md\` (embed Mermaid)
@@ -58,9 +57,10 @@ Use \`\`\`mermaid ... \`\`\` blocks for flow diagrams.
 ## Rules
 - Reference existing MASTER files for context but do NOT modify them
 - Write ONLY the generated artifacts
-- Use Indonesian for descriptions, English for technical terms
+- Use Indonesian for Deskripsi/Goals/Scope/AC (Given-When-Then tetap ID), English for prompt-facing fields (Files Scope, Spec Ref), code, SQL, JSON
 - Each file should be complete and ready for developer use
 - The dashboard app at http://localhost:4321 is watching these directories
+- Task output will be post-processed into tasks.json + prompts/{code}.prompt.md (English) for external agent execution — keep fields parseable
 `;
 }
 

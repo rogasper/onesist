@@ -33,6 +33,14 @@ export interface Task {
   sourcePath: string | null;
   phase: string | null;
   archived: boolean;
+  blocksJson: string | null;
+  critical: boolean;
+  risk: string | null;
+  filesScopeJson: string | null;
+  specRef: string | null;
+  erdRef: string | null;
+  rtmRef: string | null;
+  acceptanceCriteriaJson: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -100,6 +100,15 @@ export const tasks = sqliteTable("tasks", {
   sourcePath: text("source_path"),
   phase: text("phase"),
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  // Agentic handoff fields
+  blocksJson: text("blocks_json"),
+  critical: integer("critical", { mode: "boolean" }).notNull().default(false),
+  risk: text("risk"),
+  filesScopeJson: text("files_scope_json"),
+  specRef: text("spec_ref"),
+  erdRef: text("erd_ref"),
+  rtmRef: text("rtm_ref"),
+  acceptanceCriteriaJson: text("acceptance_criteria_json"),
   createdAt: text("created_at").default("datetime('now')"),
   updatedAt: text("updated_at").default("datetime('now')"),
 });
