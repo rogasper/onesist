@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.26 — Fix desktop PlantUML: bundled converter (no node_modules)
+
+### Fix — Desktop macOS
+- **`ERR_MODULE_NOT_FOUND @grethel-labs/excaliplant`** at `app_data/server/server/scripts/plantuml-convert.mjs` — the Tauri sidecar copies the *source* converter to appData where there is no `node_modules`, so Node cannot resolve the excaliplant package. Now `scripts/post-build.mjs` bundles the converter into a **single self-contained `plantuml-convert.js`** (`bun build ... --target node --minify`, 1.69MB embedding excaliplant + elkjs) which runs standalone anywhere. `src/server/routes/canvas.ts` prioritizes `plantuml-convert.js` (bundled) over `plantuml-convert.mjs` (source, dev). Verified standalone at `/tmp` without node_modules.
+
 ## v0.1.25 — Fix desktop PlantUML & icons (Tauri)
 
 ### Fix — Desktop macOS

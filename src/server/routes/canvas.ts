@@ -21,36 +21,41 @@ router.post("canvas/plantuml", async ({ body }) => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const { fileURLToPath } = await import("node:url");
-    // Resolve script path robustly for both dev (cwd=project root) and desktop (cwd="/" + SA_CLIENT_DIR)
-    const candidates: string[] = [];
+    // Resolve script path robustly for both dev (cwd=project root) and desktop (cwd="/" + SA_CLIENT_DIR).
+    // Prefer the self-contained bundled .js (no node_modules needed); fall back to source .mjs (dev).
+    const names = ["plantuml-convert.js", "plantuml-convert.mjs"];
+    const bases: string[] = [];
     // 1. Relative to this file (src/server/routes/canvas.ts -> ../../.. = project root)
     try {
       const thisDir = path.dirname(fileURLToPath(import.meta.url));
-      candidates.push(path.resolve(thisDir, "../../../scripts/plantuml-convert.mjs"));
-      candidates.push(path.resolve(thisDir, "../../scripts/plantuml-convert.mjs"));
+      bases.push(path.resolve(thisDir, "../../../scripts"));
+      bases.push(path.resolve(thisDir, "../../scripts"));
     } catch {}
     // 2. Relative to SA_CLIENT_DIR (desktop: app_data/server/client -> app_data/server)
     if (process.env.SA_CLIENT_DIR) {
-      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../scripts/plantuml-convert.mjs"));
-      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../server/scripts/plantuml-convert.mjs"));
-      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../server/assets/scripts/plantuml-convert.mjs"));
-      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../../scripts/plantuml-convert.mjs"));
+      bases.push(path.resolve(process.env.SA_CLIENT_DIR, "../scripts"));
+      bases.push(path.resolve(process.env.SA_CLIENT_DIR, "../server/scripts"));
+      bases.push(path.resolve(process.env.SA_CLIENT_DIR, "../server/assets/scripts"));
+      bases.push(path.resolve(process.env.SA_CLIENT_DIR, "../../scripts"));
     }
     // 3. CWD-based (dev)
-    candidates.push(path.resolve(process.cwd(), "scripts/plantuml-convert.mjs"));
-    candidates.push(path.resolve(process.cwd(), "dist/server/scripts/plantuml-convert.mjs"));
+    bases.push(path.resolve(process.cwd(), "scripts"));
+    bases.push(path.resolve(process.cwd(), "dist/server/scripts"));
     // 4. Dist assets (post-build copies it there)
     try {
       const thisDir2 = path.dirname(fileURLToPath(import.meta.url));
-      candidates.push(path.resolve(thisDir2, "../assets/scripts/plantuml-convert.mjs"));
+      bases.push(path.resolve(thisDir2, "../assets/scripts"));
     } catch {}
     let scriptPath: string | null = null;
-    for (const cand of candidates) {
-      if (fs.existsSync(cand)) { scriptPath = cand; break; }
+    outer: for (const base of bases) {
+      for (const name of names) {
+        const cand = path.join(base, name);
+        if (fs.existsSync(cand)) { scriptPath = cand; break outer; }
+      }
     }
     if (!scriptPath) {
       // Fallback: try CWD one more time (error message will show tried paths)
-      scriptPath = candidates[0] ?? path.resolve(process.cwd(), "scripts/plantuml-convert.mjs");
+      scriptPath = path.join(bases[0] ?? path.resolve(process.cwd(), "scripts"), "plantuml-convert.mjs");
     }
     // Try Node via shell to ensure fnm PATH is resolved (Bun's env may not have fnm)
     const nodeCandidates = ["node", "/opt/homebrew/bin/node", "/usr/local/bin/node", "/Users/user/.local/share/fnm/node-versions/v24.18.0/installation/bin/node"];

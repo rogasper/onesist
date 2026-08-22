@@ -4,7 +4,8 @@
 //  3. Write desktop-entry.ts — re-exports the TanStack server handler for the
 //     compiled Bun executable (`bun build --compile` needs a TS/JS entry).
 import path from "node:path";
-import { rmSync, cpSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
+import { rmSync, cpSync, mkdirSync, existsSync, writeFileSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 
@@ -27,6 +28,32 @@ syncCopy(
   path.join(root, "vendor", "skills"),
   path.join(root, "dist", "server", "vendor-skills")
 );
+// Bundle the PlantUML converter into a SINGLE self-contained Node file so the
+// Tauri sidecar can run it without node_modules (@grethel-labs/excaliplant).
+// post-build runs under `bun`, so Bun.build is available.
+const plantPath = path.join(root, "scripts", "plantuml-convert.mjs");
+const plantOut = path.join(root, "dist", "server", "scripts", "plantuml-convert.js");
+try {
+  // Use the bun CLI (proven vs the Bun.build API — the API's absolute `outfile`
+  // doesn't reliably write the file). CLI bundles all deps so the Tauri sidecar
+  // needs no node_modules at the script location.
+  mkdirSync(path.dirname(plantOut), { recursive: true });
+  const bunExe = typeof Bun !== "undefined" ? process.execPath : "bun";
+  const res = spawnSync(
+    bunExe,
+    ["build", plantPath, "--target", "node", "--outfile", plantOut, "--minify"],
+    { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+  );
+  if (res.status === 0 && existsSync(plantOut) && statSync(plantOut).size > 1000) {
+    console.log(`[post-build] bundled plantuml-convert -> ${plantOut} (${(statSync(plantOut).size / 1024 / 1024).toFixed(2)}MB)`);
+  } else {
+    console.warn(`[post-build] plantuml bundling failed (${res.status}) ${res.stderr?.slice(0, 400)}; copying source as fallback`);
+    syncCopy(plantPath, plantOut);
+  }
+} catch (e) {
+  console.warn("[post-build] plantuml bundling failed, copying source as fallback", e);
+  syncCopy(plantPath, plantOut);
+}
 syncCopy(
   path.join(root, "scripts", "plantuml-convert.mjs"),
   path.join(root, "dist", "server", "scripts", "plantuml-convert.mjs")
