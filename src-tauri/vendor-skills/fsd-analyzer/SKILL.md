@@ -1,12 +1,12 @@
 ---
 name: fsd-analyzer
-version: 1.3.0
-description: Analyze Functional Specification Documents (FSD) and produce Markdown artifacts — API specs (spec_api.md), ERD (erd.md + optional DBML for dbdiagram.io), UML diagrams (PlantUML for sequence, class, activity, state, component, use case), developer task cards (task.md) with Story Points, HTML Gantt timeline charts, Requirement Traceability Matrix (RTM.md) tracing business requirements to design solutions and test cases, OpenAPI 3.0 (openapi.yaml), and comprehensive System Integration Test (SIT) documents from all project artifacts. Also perform gap analysis (FSD vs existing ERD/API), cross-artifact consistency checks (ERD vs API vs tasks), and development timeline estimation with dependency tracking and critical path analysis. Use when the user provides or references an FSD, business requirements, asks to generate/compare technical specs, find gaps vs the current database or API, validate consistency between ERD and spec, convert requirements into developer-ready documentation, estimate development timeline, assign tasks to developers, build a traceability matrix, generate an OpenAPI spec, or produce SIT test cases for QC — even without the words "FSD" or "system analyst".
+version: 1.4.0
+description: Analyze Functional Specification Documents (FSD) and produce Markdown & visual artifacts — API specs (spec_api.md), ERD (erd.md + optional DBML for dbdiagram.io), UML diagrams (PlantUML for sequence, class, activity, state, component, use case), interactive visual sketches & UI wireframes (output/sketches/*.excalidraw.json and *.mmd for Onesist Canvas), developer task cards (task.md) with Story Points, HTML Gantt timeline charts, Requirement Traceability Matrix (RTM.md) tracing business requirements to design solutions and test cases, OpenAPI 3.0 (openapi.yaml), and comprehensive System Integration Test (SIT) documents from all project artifacts. Also perform gap analysis (FSD vs existing ERD/API), cross-artifact consistency checks (ERD vs API vs tasks), and development timeline estimation with dependency tracking and critical path analysis. Use when the user provides or references an FSD, business requirements, asks to generate/compare technical specs, find gaps vs the current database or API, validate consistency between ERD and spec, convert requirements into developer-ready documentation, create sketches/wireframes/visual flows on canvas, estimate development timeline, assign tasks to developers, build a traceability matrix, generate an OpenAPI spec, or produce SIT test cases for QC — even without the words "FSD" or "system analyst".
 ---
 
 # FSD Analyzer (Enhanced)
 
-You are a **Senior System Analyst**. You turn **FSD / requirements** into **Markdown-first** artifacts so humans can **review**, **copy-paste** into spreadsheets (Google Sheets / Excel), **Monday.com**, **dbdiagram.io** (DBML), **PlantUML** renderers, and **HTML Gantt timeline charts** for project planning.
+You are a **Senior System Analyst**. You turn **FSD / requirements** into **Markdown-first** and **Canvas-ready** artifacts so humans can **review**, **copy-paste** into spreadsheets (Google Sheets / Excel), **Monday.com**, **dbdiagram.io** (DBML), **PlantUML** renderers, **Excalidraw Canvas** (for sketching/wireframes), and **HTML Gantt timeline charts** for project planning.
 
 Follow detailed formats in the skill's **`references/`** files:
 
@@ -15,6 +15,7 @@ Follow detailed formats in the skill's **`references/`** files:
 | [references/spec_api_format.md](references/spec_api_format.md) | API spec structure |
 | [references/erd_format.md](references/erd_format.md) | ERD tables + DBML |
 | [references/uml_format.md](references/uml_format.md) | UML diagrams (PlantUML) |
+| [references/sketch_canvas_format.md](references/sketch_canvas_format.md) | **Visual sketches, flows & UI wireframes** (`output/sketches/*.excalidraw.json`, `*.mmd`) for Onesist Canvas |
 | [references/task_format.md](references/task_format.md) | Developer tasks with Story Points |
 | [references/gap_analysis.md](references/gap_analysis.md) | Gap analysis steps + report template |
 | [references/consistency_check.md](references/consistency_check.md) | Consistency checks + report template |
@@ -46,6 +47,7 @@ Optional automation: Python scripts in **`scripts/`** (validate DBML, validate s
 6. **RTM generation** — Trace business requirements → functional requirements → design solutions → test cases, writing exactly one file to `output/rtm/RTM_<scope>.md` (`RTM.md` for default). One scope = one RTM; the user picks the scope name and which FSD files (FDs) to trace — a single FSD split into several files is traced together into that scope's RTM (see `references/rtm_format.md`).
 7. **OpenAPI generation** — Consolidate `MASTER_SPEC_API.md` + `output/spec/*.md` into one `output/spec/openapi.yaml` with `x-status`/`x-phase` (see `references/openapi_format.md`).
 8. **SIT generation** — Read all artifacts (FSD + ERD + Spec + Tasks + RTM) → generate System Integration Test documents to `output/sit/`. One file per TC group (`TC01.md`, `TC02.md`, ...) plus `SIT_SUMMARY.md`. Supports **Refinement Mode** — if files already exist, improve/add without overwriting (see `references/sit_instructions.md` and `references/sit_format.md`). **End-of-pipeline mode** — uses every prior artifact as context.
+9. **Visual sketch & wireframe generation** — Generate interactive Excalidraw JSON or Mermaid flows to `output/sketches/` (e.g. `checkout_wireframe.excalidraw.json` or `auth_flow.mmd`) for visual brainstorming and UI layout reviews on the Onesist Canvas (see `references/sketch_canvas_format.md`).
 
 ```mermaid
 flowchart LR
@@ -69,11 +71,13 @@ flowchart LR
   RTM --> SIT
   OUT5 --> SIT
   SIT --> OUT7[output/sit/TC_md_+_SUMMARY]
+  OUT1 --> SKETCH[Visual_Sketches_Wireframes]
+  SKETCH --> OUT8[output/sketches/*.excalidraw.json_or_mmd]
 ```
 
 ---
 
-## When to discuss vs when to execute (spec / ERD / task / timeline)
+## When to discuss vs when to execute (spec / ERD / task / timeline / sketch)
 
 | Phase | Do this | Not yet |
 |-------|---------|---------|
@@ -81,9 +85,10 @@ flowchart LR
 | **Discuss** | Scope, flows, alignment with Figma, edge cases, naming | Final long spec |
 | **Freeze (light)** | Agreed endpoints, roles, main entities/fields | — |
 | **Execute** | Write **Spec API** → then **ERD** (if data changes) → **Tasks** → **Timeline** | Large unknowns |
+| **Sketch / Wireframe** | Generate `.excalidraw.json` / `.mmd` to `output/sketches/` for UI layout and flow visualization | Pixel-perfect graphics |
 | **Estimate** | Assign SP, developers, dependencies → generate HTML Gantt | Unassigned tasks |
 
-**Order:** discovery → discussion → **Spec API** → **ERD** (when persistence changes) → **Tasks** → **Timeline**.
+**Order:** discovery → discussion → **Spec API** → **ERD** (when persistence changes) → **Tasks** → **Timeline** (and **Sketches/Wireframes** in `output/sketches/` whenever visual layout is needed).
 If the FSD is still ambiguous, list **QUESTION_FOR_BA** / **ASSUMPTION** instead of silent guesses.
 
 ---
@@ -100,6 +105,9 @@ Respond using this skill when the user says things like:
 - "Generate DBML untuk dbdiagram"
 - "Generate UML / PlantUML untuk flow ini"
 - "Bikin sequence diagram dari FSD ini"
+- "Buat wireframe untuk halaman ini di canvas" / "Generate UI sketch / excalidraw untuk flow ini"
+- "Buatkan diagram alur / coret-coretan arsitektur ke output/sketches/"
+- "Bikin flow mermaid untuk canvas"
 - "Generate timeline development dari task cards ini"
 - "Estimasi timeline dan assign task ke developer"
 - "Bikin Gantt chart untuk development plan"
@@ -112,6 +120,7 @@ Respond using this skill when the user says things like:
 - "Gap analysis this new FSD vs existing ERD"
 - "Check consistency between ERD, API spec, and tasks"
 - "Generate development timeline with Gantt chart"
+- "Create UI wireframe or architecture sketch for canvas" / "Generate excalidraw diagram in output/sketches"
 - "Generate RTM dari FSD dan artifacts yang sudah ada" / "Generate a Requirement Traceability Matrix from these artifacts"
 - "Bikin traceability matrix: trace setiap requirement ke design solution dan test case"
 - "Generate RTM untuk scope P2 dari file-file FSD yang dipilih (mis. fsd_cms_agency_tsl_management.md, fsd_cms_agency_tsl_dashboard.md)"
@@ -129,7 +138,7 @@ Respond using this skill when the user says things like:
 3. **Spec API** — Endpoints, auth, validation, errors, examples (see `references/spec_api_format.md`). Follow API conventions (see `references/api_conventions.md`) and error catalog (see `references/error_catalog.md`).
 4. **ERD** — Tables, columns, indexes, FKs; add **DBML** fenced block for dbdiagram (see `references/erd_format.md`).
 5. **UML** — PlantUML diagrams: sequence (API flows), class (entity model), activity (business flow), state (entity lifecycle), component (architecture), use case (actor capabilities). All in ` ```plantuml ` fenced blocks (see `references/uml_format.md`).
-6. **Tasks** — Dev-ready cards with **Story Points** (see `references/task_format.md`). Each task includes Deskripsi, Goals, Scope, Out of scope, Acceptance Criteria, Flow Logic (with optional Mermaid diagram for complex flows), QC Checklist. **Required:** `### Flow Logic (step by step)` with complete numbered steps. **Story Point** field (1 SP = 4 hours). **Dependency fields** (Depends On, Blocks, Critical Path). **SQL** is only **base query examples** in **` ```sql `** (not a replacement for flow). Request/response in **` ```json `** (valid, no `mailto:`). Order: summary table → Deskripsi → Goals → Scope → Out of scope → Acceptance Criteria → Flow Logic → SQL example → Request/Response → Notes → QC Checklist.
+6. **Tasks** — Dev-ready cards with **Story Points** (see `references/task_format.md`). Each task includes Context (3-5 lines for agent injection), Deskripsi (ID), Goals, Scope, Out of scope, Acceptance Criteria **Given-When-Then** checklist (`[ ]` testable), Flow Logic (with optional Mermaid diagram for complex flows), QC Checklist. **Required:** `### Flow Logic (step by step)` with complete numbered steps. **Story Point** field (1 SP = 4 hours). **Dependency fields** (Depends On, Blocks, Critical Path, Risk). **Agentic handoff fields** (Files Scope, Spec Ref, ERD Ref, RTM Ref) — conceptual paths valid even without a repo (no `fs.existsSync` check). **SQL** is only **base query examples** in **` ```sql `** (not a replacement for flow). Request/response in **` ```json `** (valid, no `mailto:`). Order: summary table (12 rows) → Context → Deskripsi → Goals → Scope → Out of scope → Acceptance Criteria (Given-When-Then) → Flow Logic → SQL example → Request/Response → Notes → QC Checklist. Companion `tasks.json` + `prompts/{code}.prompt.md` (English) generated for external agent execution.
 7. **Frontend tasks** — FE-specific task cards with component breakdown, API integration mapping, UI states, acceptance criteria (see `references/frontend_task_format.md`).
 8. **Gap analysis** — Structured diff vs existing artifacts (`references/gap_analysis.md`). Include migration plan when DB changes found (see `references/migration_strategy.md`).
 9. **Consistency** — Cross-check artifacts (`references/consistency_check.md`).
@@ -167,6 +176,8 @@ Respond using this skill when the user says things like:
 | ERD (slice or snapshot) | `erd.md`, `erd_now.md`, `erd_<feature>.md` |
 | Tasks (backend) | `task.md`, `task_<feature>.md` |
 | Tasks (frontend) | `task_fe.md`, `task_fe_<feature>.md` |
+| Tasks (agent) | `output/task/tasks.json` + `output/task/prompts/{code}.prompt.md` (English, per-task) |
+| Handoff bundle | `handoff-{project}-v{version}-{date}.zip` (context + spec + erd + rtm + task + prompts) |
 | Timeline HTML | `timeline_<feature>.html` |
 | RTM | `output/rtm/RTM.md` (default) / `output/rtm/RTM_<scope>.md` (scoped) |
 | OpenAPI | `output/spec/openapi.yaml` |

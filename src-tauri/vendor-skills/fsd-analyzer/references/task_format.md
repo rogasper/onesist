@@ -37,7 +37,7 @@ Gunakan **fenced code blocks** dengan bahasa eksplisit supaya satu klik copy:
 
 ## Ringkasan task (tabel)
 
-Tetap boleh pakai tabel ringkas di awal setiap task:
+Tetap boleh pakai tabel ringkas di awal setiap task — **tambahan 4 row terakhir WAJIB untuk agentic handoff** (planner → executor):
 
 | Field | Detail |
 |-------|--------|
@@ -52,25 +52,32 @@ Tetap boleh pakai tabel ringkas di awal setiap task:
 | Blocks | Task ID(s) atau "—" |
 | Critical Path | Yes / No |
 | Risk Level | Low / Medium / High |
+| Files Scope | Conceptual path(s) — `src/modules/{domain}/*`, `prisma/schema.prisma#trn_xxx` atau `src/pages/...` (valid walau repo belum ada) |
+| Spec Ref | `output/spec/spec_{module}.md#NO:{n} METHOD path` |
+| ERD Ref | `output/erd/erd_{module}.dbml#table_name` atau `MASTER_ERD.md#table` |
+| RTM Ref | `FR-xxx → DS-xxx` (dari RTM) |
+
+> **Tanpa repo tetap aman:** `Files Scope` adalah hint konseptual untuk agent eksternal — tidak divalidasi `fs.existsSync`. Contoh `src/modules/loan/*` tetap valid walau project belum punya codebase. Agent akan `mkdir -p` sesuai hint.
 
 Lalu isi detail dengan heading + code blocks (bukan `Request Body |` satu baris).
 
 ## Struktur disarankan per task
 
-Urutan isi tiap task:
+Urutan isi tiap task (urut = urut di `tasks.json` + `prompts/{code}.prompt.md`):
 
-1. Heading `## Task N: …` + tabel ringkas (Service, Method, Status, Purpose, SP, Duration, Developer, Depends On, Blocks, Critical Path, Risk).
-2. `### Deskripsi` — satu paragraf menjelaskan apa yang dilakukan task ini.
-3. `### Goals` — tujuan bisnis/teknis yang ingin dicapai (bullet list).
-4. `### Scope` — apa saja yang termasuk dalam task ini (bullet list).
-5. `### Out of scope` — apa yang tidak termasuk (bullet list).
-6. `### Acceptance Criteria` — checklist spesifik untuk task ini (bullet list).
-7. `### Flow Logic (step by step)` — langkah bernomor **lengkap** (implementasi mengikuti ini). Boleh ditambahkan Mermaid diagram (` ```mermaid `) jika flow kompleks.
-8. `### SQL — base query contoh` — blok `sql` (ilustrasi; opsional jika task murni FE).
-9. `### Request` — blok `json` (jika API).
-10. `### Response (200)` — blok `json`; tambahkan `### Response (4xx)` jika perlu.
-11. `### Notes` — bullet.
-12. `### QC Checklist` — tabel skenario test spesifik untuk task ini.
+1. Heading `## Task N: …` + tabel ringkas (Service, Method, Status, Purpose, SP, Duration, Developer, Depends On, Blocks, Critical Path, Risk, **Files Scope, Spec Ref, ERD Ref, RTM Ref**).
+2. `### Context` — 3-5 baris ringkas: kenapa task ini ada, hubungannya dengan FSD section mana (untuk agent prompt injection).
+3. `### Deskripsi` — satu paragraf menjelaskan apa yang dilakukan task ini (Indonesia).
+4. `### Goals` — tujuan bisnis/teknis yang ingin dicapai (bullet list).
+5. `### Scope` — apa saja yang termasuk dalam task ini (bullet list).
+6. `### Out of scope` — apa yang tidak termasuk (bullet list).
+7. `### Acceptance Criteria` — **checklist Given-When-Then** testable (wajib `[ ]`): `Given <kondisi> When <aksi> Then <hasil + status code>` . Agent akan assert tiap baris.
+8. `### Flow Logic (step by step)` — langkah bernomor **lengkap** (implementasi mengikuti ini). Boleh ditambahkan Mermaid diagram (` ```mermaid `) jika flow kompleks.
+9. `### SQL — base query contoh` — blok `sql` (ilustrasi; opsional jika task murni FE).
+10. `### Request` — blok `json` (jika API).
+11. `### Response (200)` — blok `json`; tambahkan `### Response (4xx)` jika perlu.
+12. `### Notes` — bullet (auth, idempotency, edge).
+13. `### QC Checklist` — tabel skenario test spesifik untuk task ini.
 
 (Lihat contoh lengkap di `output/task/task_fsd_role_tsl.md`.)
 
@@ -234,11 +241,40 @@ Bagian yang wajib ada di setiap sub-task:
 | Toast wording tidak disebut → NEED ADJUSTMENT | `## Output` → Toast & feedback messages |
 | Teks toast tidak eksak → NEED ADJUSTMENT | `## Output` → Toast & feedback messages |
 
+## Handoff bundle (untuk Onesist planner → agent executor)
+
+Zip: `handoff-{project}-v{version}-{date}.zip`
+
+```
+handoff/
+├─ manifest.json          # {project, version, date, files:[{path,hash}], totalSP, criticalPath[]}
+├─ README.md              # Cara pakai: baca MASTER_*, tasks.json, topo-sort dependsOn, per task paste prompts/{code}.prompt.md
+├─ context/MASTER_ERD.md, MASTER_SPEC_API.md, project_context.md
+├─ spec/openapi.yaml + spec_*.md
+├─ erd/*.dbml + *.md
+├─ rtm/RTM_*.md
+├─ task/task_*.md + tasks.json
+└─ prompts/{code}.prompt.md  # English, 200-400 baris per task
+```
+
+`prompts/{code}.prompt.md` template (English):
+
+```markdown
+# Role: Senior {BE/FE/DB} Developer — Task {code}
+## Context: {Context 3-5 baris + Spec snippet 30 baris + ERD snippet}
+## Task: {title}
+## Files to modify: {Files Scope}
+## Steps: {Flow Logic numbered}
+## Contracts: Request {json} / Response {json} / SQL {sql}
+## Done when: all Acceptance Criteria Given-When-Then pass + tests green
+## Constraints: do not touch {Out of scope}
+```
+
 ## Template minimal
 
 **Judul:** `## Task: {short title}`
 
-**Isi:** tabel ringkas → **Deskripsi** → **Goals** → **Scope** → **Out of scope** → **Acceptance Criteria** → **Flow Logic** step-by-step (+Mermaid jika kompleks) → **SQL base contoh** di `sql` → **Request** / **Response** di `json` → **Notes** → **QC Checklist**.
+**Isi:** tabel ringkas (12 row inc. Files Scope/Spec Ref/ERD Ref/RTM Ref) → **Context** → **Deskripsi** → **Goals** → **Scope** → **Out of scope** → **Acceptance Criteria (Given-When-Then)** → **Flow Logic** step-by-step (+Mermaid jika kompleks) → **SQL base contoh** di `sql` → **Request** / **Response** di `json` → **Notes** → **QC Checklist**.
 
 ## Dependency example
 

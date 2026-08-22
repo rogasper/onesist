@@ -18,8 +18,40 @@ router.post("canvas/plantuml", async ({ body }) => {
   // Use Node subprocess to avoid Bun's elkjs Worker incompatibility (Bun's Worker fails to load elk-worker.min.js)
   try {
     const { spawn } = await import("node:child_process");
+    const fs = await import("node:fs");
     const path = await import("node:path");
-    const scriptPath = path.resolve(process.cwd(), "scripts/plantuml-convert.mjs");
+    const { fileURLToPath } = await import("node:url");
+    // Resolve script path robustly for both dev (cwd=project root) and desktop (cwd="/" + SA_CLIENT_DIR)
+    const candidates: string[] = [];
+    // 1. Relative to this file (src/server/routes/canvas.ts -> ../../.. = project root)
+    try {
+      const thisDir = path.dirname(fileURLToPath(import.meta.url));
+      candidates.push(path.resolve(thisDir, "../../../scripts/plantuml-convert.mjs"));
+      candidates.push(path.resolve(thisDir, "../../scripts/plantuml-convert.mjs"));
+    } catch {}
+    // 2. Relative to SA_CLIENT_DIR (desktop: app_data/server/client -> app_data/server)
+    if (process.env.SA_CLIENT_DIR) {
+      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../scripts/plantuml-convert.mjs"));
+      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../server/scripts/plantuml-convert.mjs"));
+      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../server/assets/scripts/plantuml-convert.mjs"));
+      candidates.push(path.resolve(process.env.SA_CLIENT_DIR, "../../scripts/plantuml-convert.mjs"));
+    }
+    // 3. CWD-based (dev)
+    candidates.push(path.resolve(process.cwd(), "scripts/plantuml-convert.mjs"));
+    candidates.push(path.resolve(process.cwd(), "dist/server/scripts/plantuml-convert.mjs"));
+    // 4. Dist assets (post-build copies it there)
+    try {
+      const thisDir2 = path.dirname(fileURLToPath(import.meta.url));
+      candidates.push(path.resolve(thisDir2, "../assets/scripts/plantuml-convert.mjs"));
+    } catch {}
+    let scriptPath: string | null = null;
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) { scriptPath = cand; break; }
+    }
+    if (!scriptPath) {
+      // Fallback: try CWD one more time (error message will show tried paths)
+      scriptPath = candidates[0] ?? path.resolve(process.cwd(), "scripts/plantuml-convert.mjs");
+    }
     // Try Node via shell to ensure fnm PATH is resolved (Bun's env may not have fnm)
     const nodeCandidates = ["node", "/opt/homebrew/bin/node", "/usr/local/bin/node", "/Users/user/.local/share/fnm/node-versions/v24.18.0/installation/bin/node"];
     let nodeExe = "node";

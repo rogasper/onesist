@@ -135,7 +135,7 @@ const startHandler = createStartHandler({ handler: defaultStreamHandler });
 const clientDir =
   process.env.SA_CLIENT_DIR || path.resolve(import.meta.dirname, "..", "client");
 
-const ASSET_PREFIXES = ["/assets/", "/images/", "/favicon", "/logo", "/manifest"];
+const ASSET_PREFIXES = ["/assets/", "/images/", "/icons/", "/favicon", "/logo", "/manifest"];
 
 async function serveStatic(request: Request): Promise<Response | null> {
   const url = new URL(request.url);

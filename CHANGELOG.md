@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.25 — Fix desktop PlantUML & icons (Tauri)
+
+### Fix — Desktop macOS
+- **PlantUML `MODULE_NOT_FOUND /scripts/plantuml-convert.mjs`** (`src/server/routes/canvas.ts:22`) — `process.cwd()` di Tauri adalah `/` (macOS GUI), jadi `path.resolve(cwd, "scripts/...")` → `/scripts/...` tidak ada. Sekarang resolve via `import.meta.url` (`src/server/routes/canvas.ts` → `../../../scripts`), `SA_CLIENT_DIR` (`app_data/server/client` → `../server/scripts`), dan `dist/server/scripts` (post-build). `scripts/post-build.mjs:32` copy `plantuml-convert.mjs` ke `dist/server/scripts` + `dist/server/assets/scripts` agar ikut `web-dist` dan sidecar.
+- **Icons tidak muncul di desktop** (`src/server.ts:138`) — `ASSET_PREFIXES` hanya `["/assets/","/images/"]` sehingga `/icons/manifest.json` & `/icons/...svg` jatuh ke SSR (HTML). Tambah `"/icons/"` → `serveStatic` serve dari `SA_CLIENT_DIR` (`app_data/server/client/icons` via `prepare-resources` copy `dist/client/icons`).
+
 ## v0.1.24 — Canvas HLD: dual-engine Mermaid+PlantUML, tech icons, Icon Library
 
 ### Canvas — Sketch & Wireframe → HLD Architecture

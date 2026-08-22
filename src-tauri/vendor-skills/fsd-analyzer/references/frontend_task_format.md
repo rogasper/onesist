@@ -18,7 +18,7 @@ Template for **frontend-specific** developer task cards. Use alongside `referenc
 
 ## Task Card Structure
 
-### Summary Table
+### Summary Table (agentic handoff — tambah 4 row terakhir)
 
 ```markdown
 ## Task FE-{n}: {Page/Feature Name}
@@ -31,6 +31,13 @@ Template for **frontend-specific** developer task cards. Use alongside `referenc
 | Priority | High / Medium / Low |
 | Story Point | {1/2/3/5/8} (1 SP = 4 hours) |
 | Depends On | Task IDs (BE endpoints must be ready) |
+| Blocks | Task IDs or "—" |
+| Critical Path | Yes / No |
+| Risk Level | Low / Medium / High |
+| Files Scope | `src/pages/{route}/*`, `src/components/{feature}/*` (conceptual, valid tanpa repo) |
+| Spec Ref | `output/spec/spec_{module}.md#NO:{n}` |
+| ERD Ref | `output/erd/erd_{module}.dbml#table` |
+| RTM Ref | `FR-xxx → DS-xxx` |
 | Status | New / In Progress / Ready for QA |
 ```
 

@@ -27,6 +27,14 @@ syncCopy(
   path.join(root, "vendor", "skills"),
   path.join(root, "dist", "server", "vendor-skills")
 );
+syncCopy(
+  path.join(root, "scripts", "plantuml-convert.mjs"),
+  path.join(root, "dist", "server", "scripts", "plantuml-convert.mjs")
+);
+syncCopy(
+  path.join(root, "scripts", "plantuml-convert.mjs"),
+  path.join(root, "dist", "server", "assets", "scripts", "plantuml-convert.mjs")
+);
 
 writeFileSync(
   path.join(root, "desktop-entry.ts"),
