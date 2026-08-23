@@ -12,7 +12,10 @@ import {
   X,
   DownloadSimple,
   CaretDown,
+  CopySimple,
+  Warning,
 } from "@phosphor-icons/react";
+import { Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { usePageVisible } from "~/lib/use-file-data";
 import { TaskList, type TaskViewMode, type TaskGroup } from "~/components/tasks/TaskList";
@@ -59,15 +62,47 @@ function TasksPage() {
   const [viewMode, setViewMode] = useState<TaskViewMode>("list");
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [missingDialog, setMissingDialog] = useState<{ missing: string[]; prompt: string } | null>(null);
+  const [copied, setCopied] = useState(false);
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null;
 
-  const handleExport = useCallback(async (format: string) => {
+  const handleCopyPrompt = useCallback(async (prompt: string) => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }, []);
+
+  const handleExport = useCallback(async (format: string, force = false) => {
     setExporting(format);
     setExportMenuOpen(false);
     try {
-      const url = `/api/projects/${id}/handoff?format=${format}`;
+      const url = `/api/projects/${id}/handoff?format=${format}${force ? "&force=true" : ""}`;
       if (format === "zip") {
-        window.location.href = url;
+        // Fetch first to detect missing context (400) before triggering download
+        const res = await fetch(url, { cache: "no-store" });
+        if (res.status === 400) {
+          const data = await res.json().catch(() => ({}));
+          if (data.missing) {
+            setMissingDialog({ missing: data.missing as string[], prompt: (data.prompt as string) || "" });
+            setExporting(null);
+            return;
+          }
+        }
+        if (!res.ok) throw new Error("export failed");
+        const blob = await res.blob();
+        const cd = res.headers.get("Content-Disposition") || "";
+        const filenameMatch = cd.match(/filename="([^"]+)"/);
+        const filename = filenameMatch ? filenameMatch[1] : `handoff-${id}.zip`;
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(href);
       } else {
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error("export failed");
@@ -674,6 +709,57 @@ function TasksPage() {
             />
           )}
         </div>
+      )}
+
+      {/* Missing context dialog — strict handoff with single combined prompt */}
+      {missingDialog && (
+        <DialogRoot open onOpenChange={(open: boolean) => { if (!open) setMissingDialog(null); }}>
+          <Dialog>
+            <div className="p-5 max-w-lg">
+              <DialogTitle className="flex items-center gap-2">
+                <Warning size={16} className="text-amber-500" />
+                Context belum lengkap — {missingDialog.missing.length} file hilang
+              </DialogTitle>
+              <DialogDescription className="mt-2">
+                Handoff Zip butuh <code className="font-mono text-[11px]">context/MASTER_ERD.md</code>, <code className="font-mono text-[11px]">context/MASTER_SPEC_API.md</code>, <code className="font-mono text-[11px]">context/project_context.md</code>. File berikut tidak ada di <code className="font-mono text-[11px]">root/output/docs</code>:
+              </DialogDescription>
+              <div className="space-y-3 py-3">
+                <ul className="list-disc list-inside text-xs text-kumo-default space-y-1">
+                  {missingDialog.missing.map((m) => (
+                    <li key={m} className="font-mono text-[11px]">{m}</li>
+                  ))}
+                </ul>
+                <div className="rounded-lg border border-kumo-line bg-kumo-base/40 p-2.5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-semibold text-kumo-default">Prompt gabungan — buat semua yang hilang</span>
+                    <button
+                      onClick={() => void handleCopyPrompt(missingDialog.prompt)}
+                      className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors ${copied ? "border-green-500/40 text-green-400 bg-green-500/10" : "border-kumo-line text-kumo-subtle hover:text-kumo-default"}`}
+                    >
+                      <CopySimple size={11} className={copied ? "text-green-400" : ""} />
+                      <span>{copied ? "Copied" : "Copy Prompt"}</span>
+                    </button>
+                  </div>
+                  <pre className="text-[10px] leading-relaxed text-kumo-subtle whitespace-pre-wrap max-h-40 overflow-y-auto font-mono bg-kumo-elevated/60 p-2 rounded border border-kumo-line/40">
+                    {missingDialog.prompt.slice(0, 2000)}
+                  </pre>
+                  <div className="text-[9px] text-kumo-subtle mt-1.5">Paste prompt ini ke agent (terminal) → agent akan buat semua file yang hilang di root → Export lagi.</div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <Button variant="ghost" size="sm" onClick={() => setMissingDialog(null)}>Batal</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => { const d = missingDialog; setMissingDialog(null); void handleExport("zip", true); }}
+                  className="bg-amber-500/20 border border-amber-500/40 text-amber-400 hover:bg-amber-500/30"
+                >
+                  Export dengan placeholder
+                </Button>
+              </div>
+            </div>
+          </Dialog>
+        </DialogRoot>
       )}
     </div>
   );

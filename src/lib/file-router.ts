@@ -161,6 +161,58 @@ export function readFile(rootPath: string, relPath: string): string | null {
   return null;
 }
 
+export function findMasterFile(rootPath: string, fileName: string): string | null {
+  const candidates = [
+    fileName,
+    path.join("output", fileName),
+    path.join("docs", fileName),
+    path.join("output", "erd", fileName),
+    path.join("output", "spec", fileName),
+  ];
+  for (const rel of candidates) {
+    const full = path.join(rootPath, rel);
+    if (fs.existsSync(full)) {
+      try { return fs.readFileSync(full, "utf-8"); } catch { /* ignore */ }
+    }
+  }
+  // Shallow scan depth 2 for case-insensitive match
+  try {
+    const search: (dir: string, depth: number) => string | null = (dir: string, depth: number): string | null => {
+      if (depth > 2 || !fs.existsSync(dir)) return null;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.toLowerCase() === fileName.toLowerCase()) {
+          try { return fs.readFileSync(path.join(dir, entry.name), "utf-8"); } catch { return null; }
+        }
+        if (entry.isDirectory() && !entry.name.startsWith(".") && !IGNORED_DIRS.has(entry.name)) {
+          const found: string | null = search(path.join(dir, entry.name), depth + 1);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const found = search(rootPath, 0);
+    if (found) return found;
+  } catch {}
+  return null;
+}
+
+export function buildCombinedMissingPrompt(missing: string[], rootPath: string, proj: any): string {
+  const name = proj?.name || "project";
+  const version = proj?.docVersion || "1.0.0";
+  const sections: string[] = [];
+  if (missing.includes("MASTER_ERD.md")) {
+    sections.push(`1. Jika MASTER_ERD.md hilang: baca semua \`output/erd/*.dbml\` + \`output/erd/*.md\` di \`${rootPath}\` → gabung jadi satu MASTER_ERD.md di root (format references/erd_format.md + references/master_artifacts.md, DBML + markdown tables, normalized, FK/index).`);
+  }
+  if (missing.includes("MASTER_SPEC_API.md")) {
+    sections.push(`2. Jika MASTER_SPEC_API.md hilang: baca \`output/spec/*.md\` + MASTER_ERD.md (yang baru dibuat/existing) di \`${rootPath}\` → gabung jadi MASTER_SPEC_API.md di root (format references/spec_api_format.md, REST-ish, pagination/auth/error catalog references/api_conventions.md + error_catalog.md).`);
+  }
+  if (missing.includes("project_context.md")) {
+    sections.push(`3. Jika project_context.md hilang: buat dari template references/project_context_template.md dengan metadata project="${name}", root="${rootPath}", version="${version}", description="${(proj?.description || "").slice(0, 120)}". Isi tech stack, naming, env. Tulis ke project_context.md di root.`);
+  }
+  const body = sections.join("\n\n");
+  return `Kamu adalah Senior System Analyst. Gunakan skill fsd-analyzer.\nProject root: ${rootPath}\nFile yang hilang: ${missing.join(", ")} (tidak ada di root/output/docs)\n\nTugas: buat ${missing.length} file di root sekaligus:\n\n${body}\n\nTulis hanya file yang hilang, jangan ubah file lain. Gunakan Indonesian untuk deskripsi, English untuk technical terms.`;
+}
+
 export function getProjectRoot(): string {
   return process.env.SA_ROOT
     ? path.resolve(process.env.SA_ROOT)

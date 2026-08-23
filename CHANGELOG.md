@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.28 — Fix handoff: strict context + single combined prompt
+
+### Fix — Handoff (planner → executor)
+- **Strict `context/`** (`src/server/routes/projects/handoff.ts:278` + `src/lib/file-router.ts:133`) — `GET /handoff?format=zip` sekarang validasi `MASTER_ERD.md` / `MASTER_SPEC_API.md` / `project_context.md` via `findMasterFile` (cek `root`, `output/`, `docs/` + shallow scan depth 2). Jika hilang dan `force!=true`, return `400 {missing, prompt}` dan UI block export.
+- **Satu prompt gabungan** (`buildCombinedMissingPrompt`) — untuk semua file hilang sekaligus (baca `output/erd/*.dbml`, `output/spec/*.md`, `project_context_template.md`), Indonesian deskripsi, English tech. Copy 1-klik di dialog, paste ke agent → agent buat semua file di root → Export lagi tanpa `force`.
+- **Export dengan placeholder** — jika SA pilih `force=true`, zip tetap dibuat dengan `context/` placeholder + `manifest.warnings` + `README` note, jadi zip selalu ada `context/` (real atau placeholder).
+- **UI Tasks Export** (`src/routes/projects.$id.tasks.tsx:342`) — dialog `kumo Dialog` tampilkan `missing` list + preview prompt + `[Copy Prompt]` (guard `copied`) + `Batal` / `Export dengan placeholder`.
+
 ## v0.1.27 — Fix terminal: pure-terminal Shift+Enter / Ctrl+Enter, block select, paste
 
 ### Fix — Terminal (pure interaction, no UI buttons)
