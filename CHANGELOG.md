@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.27 — Fix terminal: pure-terminal Shift+Enter / Ctrl+Enter, block select, paste
+
+### Fix — Terminal (pure interaction, no UI buttons)
+- **`Shift+Enter` / `Ctrl+Enter` / `Cmd+Enter` → newline** (`src/components/agent/AgentTerminal.tsx:339`) — sebelumnya `Shift+Enter` kirim `\r` identik dengan `Enter` (submit). Sekarang `attachCustomKeyEventHandler` + fallback `keydown` capture di container (guard `shiftEnterBoundRef`) deteksi `Enter` dengan `shift/ctrl/meta/alt` via `e.key`/`e.code`/`keyCode` dan kirim `"\n"` ke PTY; `Enter` polos tetap `"\r"`. Enable kitty `\\x1b[?2017h` untuk TUI kitty-aware (`opencode`/`claude`/`codex`). Verified `Ctrl+Enter` newline, `Shift+Enter` kini juga newline (sebelumnya hanya `Ctrl+Enter` yang ke-detect).
+- **`Block tulisan` (drag select) bisa** — tambah handler `Ctrl+C`/`Cmd+C` + `term.hasSelection()` → `return false` (biarkan browser copy) vs tanpa selection → `0x03` SIGINT. Sebelumnya `Ctrl+C` selalu `SIGINT`, selection tidak ke-copy.
+- **`Paste` `Ctrl+V`/`Cmd+V` tanpa button** — `attachCustomKeyEventHandler` `return false` untuk `Ctrl/Cmd+V` + `paste` listener di `container` (`pasteBoundRef`) baca `e.clipboardData` / `navigator.clipboard.readText()` (Tauri) lalu `ws.send({type:"input"})`. `Ctrl+Shift+V` / right-click tetap via xterm default.
+
 ## v0.1.26 — Fix desktop PlantUML: bundled converter (no node_modules)
 
 ### Fix — Desktop macOS

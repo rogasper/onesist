@@ -60,6 +60,8 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const manualEndRef = useRef(false);
   const lastSpawnTimeRef = useRef(0);
   const wheelBoundRef = useRef(false);
+  const pasteBoundRef = useRef(false);
+  const shiftEnterBoundRef = useRef(false);
   const visibleRef = useRef(visible);
   useEffect(() => { visibleRef.current = visible; }, [visible]);
   // Live mirror of `connected` for the unmount cleanup (closure state there
@@ -331,8 +333,68 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
       } catch {}
     }
 
+    // Pure-terminal interaction: no UI buttons — all handling lives inside xterm
+    // 1) Ctrl+C vs copy: if selection exists, let browser copy (Win Ctrl+C / Mac Cmd+C)
+    // 2) Ctrl+V / Cmd+V → let browser paste (handled by paste listener below)
+    // 3) Shift+Enter / Ctrl+Enter → newline (\n) vs Enter → submit (\r) — kitty handles \x1b[13;2u/5u, fallback sends \n
+    term.attachCustomKeyEventHandler((e) => {
+      const key = e.key.toLowerCase();
+      const isCopy = (e.ctrlKey || e.metaKey) && key === "c" && e.type === "keydown";
+      if (isCopy && term.hasSelection()) return false;
+      const isPaste = (e.ctrlKey || e.metaKey) && key === "v" && e.type === "keydown";
+      if (isPaste) return false;
+      // Shift+Enter / Ctrl+Enter / Cmd+Enter → newline (\n) vs Enter → submit (\r)
+      // Must cover Win (Ctrl) and Mac (Meta/Cmd) and Shift. Use both key and code for robustness.
+      // Also handle NumpadEnter and keyCode 13 for IME/virtual keyboards.
+      const isEnter = (e.key === "Enter" || (e as any).code === "Enter" || (e as any).code === "NumpadEnter" || (e as any).keyCode === 13) && e.type === "keydown";
+      if (isEnter && (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)) {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          // Pure \n works for both kitty and legacy TUIs (opencode/claude treat \n as newline)
+          wsRef.current.send(JSON.stringify({ type: "input", id: sessionIdRef.current, data: "\n" }));
+        }
+        return false;
+      }
+      return true;
+    });
+
     term.open(containerRef.current);
     register(sessionIdRef.current, term, fit, term.element ?? containerRef.current);
+
+    // Enable kitty keyboard protocol so Shift+Enter / Ctrl+Enter send distinct CSI (\x1b[13;2u, \x1b[13;5u)
+    // instead of identical \r. TUIs that support kitty (opencode, claude, codex) will use it; fallback above covers legacy.
+    try { term.write("\x1b[?2017h"); } catch {}
+
+    // Paste inside terminal — no button, pure Ctrl+V / Cmd+V / Ctrl+Shift+V (guarded, add once)
+    if (!pasteBoundRef.current) {
+      pasteBoundRef.current = true;
+      const handlePaste = async (e: ClipboardEvent) => {
+        e.preventDefault();
+        let text = e.clipboardData?.getData("text") ?? "";
+        if (!text) {
+          try { text = await navigator.clipboard.readText(); } catch {}
+        }
+        if (text && wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "input", id: sessionIdRef.current, data: text }));
+        }
+      };
+      containerRef.current.addEventListener("paste", handlePaste as any);
+    }
+
+    // Fallback capture for Shift+Enter / Ctrl+Enter on the container itself (xterm's textarea may not fire custom handler for Shift)
+    if (!shiftEnterBoundRef.current) {
+      shiftEnterBoundRef.current = true;
+      const handleContainerKeyDown = (e: KeyboardEvent) => {
+        const isEnter = (e.key === "Enter" || (e as any).code === "Enter" || (e as any).code === "NumpadEnter" || (e as any).keyCode === 13);
+        if (isEnter && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: "input", id: sessionIdRef.current, data: "\n" }));
+          }
+        }
+      };
+      containerRef.current.addEventListener("keydown", handleContainerKeyDown as any, true);
+    }
 
     // Terminal.app-style fallback: while a fullscreen TUI (alt buffer) is
     // active and the program has NOT enabled mouse tracking, translate wheel
