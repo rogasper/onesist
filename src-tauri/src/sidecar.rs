@@ -53,6 +53,10 @@ impl SidecarState {
         }
     }
 
+    pub fn get_port(&self) -> Option<u16> {
+        self.config.lock().ok().and_then(|g| g.as_ref().map(|c| c.port))
+    }
+
     fn emit(&self, phase: SidecarPhase, port: u16) {
         let restarts = self.restarts.lock().map(|g| *g).unwrap_or(0);
         let status = SidecarStatus {

@@ -29,6 +29,45 @@ async fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, Str
     rx.recv().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn open_project_window(
+    app: tauri::AppHandle,
+    path: Option<String>,
+) -> Result<String, String> {
+    const MAX_WINDOWS: usize = 5;
+    let count = app.webview_windows().len();
+    if count >= MAX_WINDOWS {
+        return Err(format!("Limit {} window tercapai", MAX_WINDOWS));
+    }
+    let port = app
+        .try_state::<sidecar::SidecarState>()
+        .and_then(|s| s.get_port())
+        .unwrap_or(4321);
+    let target = path.unwrap_or_else(|| "/".to_string());
+    if !target.starts_with('/') {
+        return Err("path harus mulai dengan /".into());
+    }
+    let url = format!("http://127.0.0.1:{}{}", port, target);
+    let label = format!("win-{}", uuid::Uuid::new_v4().simple());
+    let window = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse().map_err(|e| e.to_string())?))
+        .title("Onesist")
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(800.0, 600.0)
+        .build()
+        .map_err(|e| e.to_string())?;
+    // Only main window uses close-to-tray; other windows close normally
+    let label_clone = label.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { .. } = event {
+            // Allow win-* to close; main is handled separately in tray.rs
+            if label_clone == "main" {
+                // handled by tray.rs
+            }
+        }
+    });
+    Ok(label)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -38,7 +77,7 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .invoke_handler(tauri::generate_handler![pick_folder])
+    .invoke_handler(tauri::generate_handler![pick_folder, open_project_window])
     .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
       if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
@@ -233,11 +272,12 @@ fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         ],
     )?;
 
+    let new_window = MenuItem::with_id(app, "new-window", "New Window", true, Some("CmdOrCtrl+N"))?;
     let window_menu = Submenu::with_items(
         app,
         "Window",
         true,
-        &[&PredefinedMenuItem::minimize(app, None)?],
+        &[&new_window, &PredefinedMenuItem::minimize(app, None)?],
     )?;
 
     let menu = Menu::with_items(
@@ -269,6 +309,21 @@ fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
                 .title("About Onesist")
                 .kind(tauri_plugin_dialog::MessageDialogKind::Info)
                 .show(|_| {});
+        }
+        "new-window" => {
+            const MAX_WINDOWS: usize = 5;
+            if app.webview_windows().len() >= MAX_WINDOWS {
+                let _ = app.dialog().message(format!("Limit {} window tercapai", MAX_WINDOWS)).title("Onesist").kind(tauri_plugin_dialog::MessageDialogKind::Info).show(|_| {});
+                return;
+            }
+            let port = app.try_state::<sidecar::SidecarState>().and_then(|s| s.get_port()).unwrap_or(4321);
+            let url = format!("http://127.0.0.1:{}/", port);
+            let label = format!("win-{}", uuid::Uuid::new_v4().simple());
+            let _ = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(url.parse().unwrap()))
+                .title("Onesist")
+                .inner_size(1440.0, 900.0)
+                .min_inner_size(800.0, 600.0)
+                .build();
         }
         _ => {}
     });

@@ -152,7 +152,7 @@ function RootComponent() {
             <SidebarPersistence />
             <Sidebar>
               <AppSidebarHeader />
-              <Sidebar.Content>
+              <Sidebar.Content className="overflow-y-auto scrollbar-thin">
                 <Sidebar.Group>
                   <Sidebar.GroupLabel>Navigation</Sidebar.GroupLabel>
                   <Sidebar.Menu>

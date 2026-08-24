@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.29 — Feat: multiple window (share port, limit 5, dashboard) + taller cards + sidebar overflow
+
+### Feat — Desktop & Dashboard
+- **Multiple window** (`src-tauri/src/lib.rs:18`, `src/lib/window.ts`) — `open_project_window` command `WebviewWindowBuilder` share 1× sidecar (port 4321/4331), limit 5 window (`win-{uuid}`), default `Dashboard` (`/`). `Window → New Window (Cmd+N)` menu, `right-click / Ctrl+Click` project card → new window, `main` close-to-tray, `win-*` close langsung. `single_instance` tidak block window kedua, `tray` hanya untuk `main`.
+- **Sidebar overflow** (`src/routes/__root.tsx:151`) — `Sidebar.Content` `overflow-y-auto scrollbar-thin`, tanpa search (sesuai request).
+- **Dashboard revamp** (`src/routes/index.tsx`) — grid `h-[260px]` taller card (header + meta `rootPath`/`company`/`description` + stats `createdAt`/`ID` + preview placeholder + footer `Open` / `New Window` / `Delete`), pagination 12/page (`PER_PAGE=12`, `page` state, `Prev/Next` + `Badge`), `Ctrl/Cmd+Click` / `right-click` → new window.
+
 ## v0.1.28 — Fix handoff: strict context + single combined prompt
 
 ### Fix — Handoff (planner → executor)
