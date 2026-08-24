@@ -49,7 +49,7 @@ fn open_project_window(
     }
     let url = format!("http://127.0.0.1:{}{}", port, target);
     let label = format!("win-{}", uuid::Uuid::new_v4().simple());
-    let window = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse().map_err(|e| e.to_string())?))
+    let window = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?))
         .title("Onesist")
         .inner_size(1440.0, 900.0)
         .min_inner_size(800.0, 600.0)

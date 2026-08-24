@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.30 — Fix build: url crate + type annotation for multi-window
+
+### Fix — Build
+- **E0282 type annotations needed** (`src-tauri/src/lib.rs:52` `url.parse().map_err(|e| e.to_string())`) — `String::parse` butuh `::<url::Url>` turbofish, tambah `url = "2"` dep di `src-tauri/Cargo.toml`. Verified `cargo check` pass (sebelumnya fail di `v0.1.29`).
+
 ## v0.1.29 — Feat: multiple window (share port, limit 5, dashboard) + taller cards + sidebar overflow
 
 ### Feat — Desktop & Dashboard
