@@ -84,7 +84,7 @@ Setiap Expected Result HARUS mencakup 3 aspek validation:
   2. Saat user pilih filter dan klik cari, data tabel akan menampilkan informasi sesuai filter
   
   Data Validation:
-  1. Data dari query: SELECT * FROM ehs_xxx WHERE ...
+  1. Data dari query: SELECT * FROM example_table WHERE ...
   2. Format tanggal: DD-MM-YYYY
 ```
 

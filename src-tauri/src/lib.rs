@@ -116,9 +116,9 @@ pub fn run() {
 
       // First-open splash (pure CSS, centered logo + ONESIST + by rogasper.com) — show until sidecar healthy, then close
       // Marker file in app_data so it only shows on very first launch
-      let is_first_run = false;
-      let splash_marker: Option<std::path::PathBuf> = None;
-      let splash_window: Option<tauri::WebviewWindow> = None;
+      let mut is_first_run = false;
+      let mut splash_marker: Option<std::path::PathBuf> = None;
+      let mut splash_window: Option<tauri::WebviewWindow> = None;
       if let Ok(app_data) = app.path().app_data_dir() {
         let marker = app_data.join(".first_run_done");
         splash_marker = Some(marker.clone());

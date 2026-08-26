@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.33 — Chore: sanitasi + LICENSE + fix splash mut
+
+### Chore — Sanitization
+- **Hapus `docs/SIT - EHS FIF.xlsx`** (3M) — `git rm --cached` + `.gitignore` `docs/SIT - EHS FIF.xlsx`, file tetap ada lokal ter-ignore, tidak ikut commit lagi. History lama `cd83c51` masih ada — jika perlu purge total kabari.
+- **Placeholder `PT Maju Bersama` → `Example Corp`** (`src/routes/projects.$id.docs.tsx:24`) — hilangkan pattern `PT` agar tidak ke-flag.
+- **`ehs_xxx` → `example_table`** (`vendor/skills/fsd-analyzer/references/sit_instructions.md:87` + `src-tauri/vendor-skills/...`) — generic, bukan client.
+
+### Fix — Build
+- **E0384 `cannot assign twice to immutable`** (`src-tauri/src/lib.rs:119` `is_first_run`/`splash_marker`/`splash_window`) — tambah `mut`. `cargo check` pass.
+
+### Feat — Legal
+- **LICENSE MIT** (`LICENSE`) — `Copyright (c) 2026 rogasper.com`, sebelumnya tidak ada file LICENSE di root (package.json `license: MIT` saja).
+
 ## v0.1.32 — Fix build + RTM delete
 
 ### Fix — Build

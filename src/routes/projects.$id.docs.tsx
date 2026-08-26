@@ -21,7 +21,7 @@ const INPUT_CLS =
   "w-full bg-kumo-elevated/60 border border-kumo-line rounded px-2.5 py-1.5 text-sm text-kumo-default placeholder:text-kumo-subtle focus:border-kumo-brand focus:outline-none";
 
 const META_FIELDS: { key: keyof DocMeta; label: string; placeholder?: string }[] = [
-  { key: "customerName", label: "Customer Name", placeholder: "e.g. PT Maju Bersama" },
+  { key: "customerName", label: "Customer Name", placeholder: "e.g. Example Corp" },
   { key: "projectName", label: "Project Name" },
   { key: "projectId", label: "Project ID" },
   { key: "version", label: "Version", placeholder: "1.0.0" },
