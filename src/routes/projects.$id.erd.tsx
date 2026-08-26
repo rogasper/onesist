@@ -21,8 +21,22 @@ export const Route = createFileRoute("/projects/$id/erd")({
 
 function ErdPage() {
   const { id } = Route.useParams();
-  const { files, loading: filesLoading } = useFileList("output/erd", id);
+  const { files, loading: filesLoading, refresh: refreshFiles } = useFileList("output/erd", id);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  // Silent auto-refresh for new project on Windows: files may appear shortly after agent writes
+  // (file-watcher race + Windows path normalize). If empty after load, retry up to 3 times.
+  useEffect(() => {
+    if (!filesLoading && files.length === 0) {
+      let attempts = 0;
+      const timer = setInterval(() => {
+        attempts += 1;
+        if (attempts > 3) { clearInterval(timer); return; }
+        void refreshFiles();
+      }, 900);
+      return () => clearInterval(timer);
+    }
+  }, [filesLoading, files.length, refreshFiles]);
   const [fileSearch, setFileSearch] = useState("");
   const { content: dbmlText, refresh: refreshContent } = useFileContent(selectedFile, id);
   const [localText, setLocalText] = useState("");
@@ -67,10 +81,13 @@ function ErdPage() {
     } catch {}
   }, [localText]);
 
-  // Live file watch
+  // Live file watch — silent auto-import for new project (Windows): any new erd file refreshes list + content
   useFileWatch("erd", (path) => {
-    if (path === selectedFile) refreshContent();
+    void refreshFiles();
+    if (path === selectedFile) void refreshContent();
   });
+  // Also watch master files at root (MASTER_ERD.md) which type is "master" not "erd"
+  useFileWatch("master", () => { void refreshFiles(); });
 
   const handleDbmlChange = useCallback((newDbml: string) => setLocalText(newDbml), []);
   const handleTableUpdate = useCallback(

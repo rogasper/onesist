@@ -114,6 +114,37 @@ pub fn run() {
       #[cfg(target_os = "macos")]
       quit_observer::install();
 
+      // First-open splash (pure CSS, centered logo + ONESIST + by rogasper.com) — show until sidecar healthy, then close
+      // Marker file in app_data so it only shows on very first launch
+      let is_first_run = false;
+      let splash_marker: Option<std::path::PathBuf> = None;
+      let splash_window: Option<tauri::WebviewWindow> = None;
+      if let Ok(app_data) = app.path().app_data_dir() {
+        let marker = app_data.join(".first_run_done");
+        splash_marker = Some(marker.clone());
+        if !marker.exists() {
+          is_first_run = true;
+          // Create splash before sidecar so user sees animation during wait_healthy (sampai selesai)
+          if let Ok(win) = tauri::WebviewWindowBuilder::new(
+            app,
+            "splash",
+            WebviewUrl::App("client/splash.html".into()),
+          )
+          .title("Onesist")
+          .inner_size(480.0, 320.0)
+          .min_inner_size(480.0, 320.0)
+          .max_inner_size(480.0, 320.0)
+          .decorations(false)
+          .transparent(true)
+          .center()
+          .resizable(false)
+          .visible(true)
+          .build() {
+            splash_window = Some(win);
+          }
+        }
+      }
+
       // Start the sidecar and wait for the web server to become healthy.
       let sc = sidecar::SidecarState::new(app.handle().clone());
       let status = sc.start()?;
@@ -149,6 +180,19 @@ pub fn run() {
         );
         let _ = window.show();
         let _ = window.set_focus();
+        // Close splash after main is ready (sampai selesai) and mark first run done
+        if let Some(splash) = splash_window {
+          let _ = splash.close();
+        }
+        if is_first_run {
+          if let Some(marker) = splash_marker {
+            let _ = std::fs::write(marker, "1");
+          }
+        }
+      } else if let Some(splash) = splash_window {
+        // Sidecar failed — keep splash briefly then close to avoid stuck screen
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        let _ = splash.close();
       }
 
       tray::setup_close_to_tray(app.handle());

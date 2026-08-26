@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.31 — Feat: first-open splash + ERD silent auto-import
+
+### Feat — Desktop
+- **Splash first-open pure CSS** (`public/splash.html` + `src-tauri/src/lib.rs:122`) — centered `logo 72 + ONESIST + by rogasper.com` + `dot bounce` + `progress bar`, `decorations:false` `transparent:true` `center` `480×320`. Hanya tampil di first open (marker `app_data/.first_run_done`), `sampai selesai` (`wait_healthy` selesai baru `splash.close()` + `main.show()` + tulis marker). Next open skip.
+- **ERD new project silent** (`src/routes/projects.$id.erd.tsx:22`) — `useFileList` `output/erd` + `refresh` retry 3× 900ms jika `files.length===0` (Windows path race), `useFileWatch("erd")` + `useFileWatch("master")` auto `refreshFiles()` + `refreshContent()` saat `erd.dbml`/`MASTER_ERD.md` baru muncul (tanpa banner, silent).
+
 ## v0.1.30 — Fix build: url crate + type annotation for multi-window
 
 ### Fix — Build
