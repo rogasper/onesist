@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.35 — Fix splash not showing
+
+### Fix — Desktop
+- **Splash first-open tidak muncul** (`src-tauri/src/lib.rs:119` `mut` + `always_on_top` + `client/splash.html` path + `app_data` dir create) — `E0384` mut sudah fix di `v0.1.33` tapi `transparent` dihapus, `center` tetap, tambah `always_on_top(true)` + `create_dir_all` + log `eprintln!` untuk debug. Splash hanya first open (`app_data/.first_run_done` marker, `sampai selesai` `wait_healthy`), next open skip.
+
 ## v0.1.34 — CI: avoid macos-14 runner queue
 
 ### CI — Release

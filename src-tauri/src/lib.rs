@@ -115,17 +115,20 @@ pub fn run() {
       quit_observer::install();
 
       // First-open splash (pure CSS, centered logo + ONESIST + by rogasper.com) — show until sidecar healthy, then close
-      // Marker file in app_data so it only shows on very first launch
+      // Marker file in app_data so it only shows on very first launch (sampai selesai wait_healthy)
       let mut is_first_run = false;
       let mut splash_marker: Option<std::path::PathBuf> = None;
       let mut splash_window: Option<tauri::WebviewWindow> = None;
       if let Ok(app_data) = app.path().app_data_dir() {
+        let _ = std::fs::create_dir_all(&app_data);
         let marker = app_data.join(".first_run_done");
         splash_marker = Some(marker.clone());
+        // Show splash if marker doesn't exist (first open) — for debugging, also log
         if !marker.exists() {
           is_first_run = true;
+          eprintln!("[splash] first run detected, showing splash");
           // Create splash before sidecar so user sees animation during wait_healthy (sampai selesai)
-          if let Ok(win) = tauri::WebviewWindowBuilder::new(
+          match tauri::WebviewWindowBuilder::new(
             app,
             "splash",
             WebviewUrl::App("client/splash.html".into()),
@@ -138,10 +141,19 @@ pub fn run() {
           .center()
           .resizable(false)
           .visible(true)
+          .always_on_top(true)
           .build() {
-            splash_window = Some(win);
+            Ok(win) => {
+              eprintln!("[splash] window created");
+              splash_window = Some(win);
+            }
+            Err(e) => eprintln!("[splash] failed to create window: {}", e),
           }
+        } else {
+          eprintln!("[splash] not first run, skipping splash");
         }
+      } else {
+        eprintln!("[splash] could not get app_data_dir");
       }
 
       // Start the sidecar and wait for the web server to become healthy.
