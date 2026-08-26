@@ -15,3 +15,5 @@ plan
 .tanstack
 # ZCode CLI workspace state
 .zcode/
+# SIT confidential — jangan commit Excel
+docs/SIT - EHS FIF.xlsx
