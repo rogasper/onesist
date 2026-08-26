@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import { Plus, X, PencilSimple, LinkSimple, MagnifyingGlass } from "@phosphor-icons/react";
+import { Plus, X, PencilSimple, LinkSimple, MagnifyingGlass, Trash } from "@phosphor-icons/react";
 import type {
   BusinessRequirement,
   DesignSolution,
@@ -81,15 +81,24 @@ export function RtmMatrix({ data, callbacks }: RtmMatrixProps) {
                     >
                       {group.br ? (
                         <div className="group">
-                          <button
-                            onClick={() => callbacks.onEdit("br", group.br!)}
-                            className="flex items-start gap-1 text-left font-medium text-kumo-default hover:text-kumo-brand transition-colors"
-                            title="Edit"
-                          >
-                            <span className="font-mono text-[11px] text-kumo-brand shrink-0 mt-0.5">{group.br.code}</span>
-                            <span className="text-xs">{group.br.title}</span>
-                            <PencilSimple size={10} className="opacity-0 group-hover:opacity-60 shrink-0 mt-0.5" />
-                          </button>
+                          <div className="flex items-start gap-1">
+                            <button
+                              onClick={() => callbacks.onEdit("br", group.br!)}
+                              className="flex items-start gap-1 text-left font-medium text-kumo-default hover:text-kumo-brand transition-colors flex-1 min-w-0"
+                              title="Edit"
+                            >
+                              <span className="font-mono text-[11px] text-kumo-brand shrink-0 mt-0.5">{group.br.code}</span>
+                              <span className="text-xs truncate">{group.br.title}</span>
+                              <PencilSimple size={10} className="opacity-0 group-hover:opacity-60 shrink-0 mt-0.5" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); callbacks.onDelete("br", group.br!); }}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-kumo-subtle hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0"
+                              title="Delete"
+                            >
+                              <Trash size={10} />
+                            </button>
+                          </div>
                           <span className="mt-1 text-[10.5px] text-kumo-subtle whitespace-pre-wrap break-words leading-relaxed">{group.br.description}</span>
                           {coverage.length > 0 && (
                             <div className="mt-1.5 flex items-center gap-1">
@@ -128,15 +137,24 @@ export function RtmMatrix({ data, callbacks }: RtmMatrixProps) {
                       {brCell}
                       <td className="px-3 py-2 border-b border-kumo-line/60 align-top">
                         <div className="group">
-                          <button
-                            onClick={() => callbacks.onEdit("fr", fr)}
-                            className="flex items-start gap-1 text-left text-kumo-default hover:text-kumo-brand transition-colors"
-                            title="Edit"
-                          >
-                            <span className="font-mono text-[11px] text-kumo-brand shrink-0 mt-0.5">{fr.code}</span>
-                            <span className="text-xs">{fr.title}</span>
-                            <PencilSimple size={10} className="opacity-0 group-hover:opacity-60 shrink-0 mt-0.5" />
-                          </button>
+                          <div className="flex items-start gap-1">
+                            <button
+                              onClick={() => callbacks.onEdit("fr", fr)}
+                              className="flex items-start gap-1 text-left text-kumo-default hover:text-kumo-brand transition-colors flex-1 min-w-0"
+                              title="Edit"
+                            >
+                              <span className="font-mono text-[11px] text-kumo-brand shrink-0 mt-0.5">{fr.code}</span>
+                              <span className="text-xs truncate">{fr.title}</span>
+                              <PencilSimple size={10} className="opacity-0 group-hover:opacity-60 shrink-0 mt-0.5" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); callbacks.onDelete("fr", fr); }}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded text-kumo-subtle hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0"
+                              title="Delete"
+                            >
+                              <Trash size={10} />
+                            </button>
+                          </div>
                           <span className="mt-1 text-[10.5px] text-kumo-subtle whitespace-pre-wrap break-words leading-relaxed">{fr.description}</span>
                         </div>
                       </td>
@@ -270,10 +288,17 @@ function LinkCell({
               </button>
               <button
                 onClick={(e) => toggleLink(e, entity)}
-                className="opacity-0 group-hover/card:opacity-100 text-kumo-subtle hover:text-red-400 transition-all shrink-0"
+                className="opacity-0 group-hover/card:opacity-100 text-kumo-subtle hover:text-amber-400 transition-all shrink-0"
                 title={`Unlink ${(entity as any).code}`}
               >
                 <X size={10} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); callbacks.onDelete(kind as EntityKind, entity); }}
+                className="opacity-0 group-hover/card:opacity-100 text-kumo-subtle hover:text-red-400 transition-all shrink-0"
+                title={`Delete ${(entity as any).code}`}
+              >
+                <Trash size={10} />
               </button>
             </div>
 

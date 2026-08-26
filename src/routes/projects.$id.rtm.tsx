@@ -473,6 +473,7 @@ function RtmPage() {
         brs={data?.brs ?? []}
         onClose={() => setDialog(null)}
         onSave={saveEntity}
+        onDelete={(kind, entity) => { setDialog(null); setDeleteTarget({ kind, entity }); }}
         saving={saving}
       />
 

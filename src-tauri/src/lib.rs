@@ -135,7 +135,6 @@ pub fn run() {
           .min_inner_size(480.0, 320.0)
           .max_inner_size(480.0, 320.0)
           .decorations(false)
-          .transparent(true)
           .center()
           .resizable(false)
           .visible(true)

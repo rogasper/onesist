@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
+import { Trash } from "@phosphor-icons/react";
 import type { BusinessRequirement } from "~/shared/types";
 import type { EntityKind, RtmEntity } from "./types";
 
@@ -23,10 +24,11 @@ interface EntityDialogProps {
   brs: BusinessRequirement[];
   onClose: () => void;
   onSave: (values: Record<string, unknown>) => void;
+  onDelete?: (kind: EntityKind, entity: RtmEntity) => void;
   saving?: boolean;
 }
 
-export function EntityDialog({ open, kind, initial, brs, onClose, onSave, saving }: EntityDialogProps) {
+export function EntityDialog({ open, kind, initial, brs, onClose, onSave, onDelete, saving }: EntityDialogProps) {
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -116,11 +118,26 @@ export function EntityDialog({ open, kind, initial, brs, onClose, onSave, saving
               </>
             )}
           </div>
-          <div className="flex justify-end gap-2 mt-6">
-            <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-            <Button variant="primary" size="sm" onClick={submit} disabled={saving || !title.trim()}>
-              {saving ? "Saving…" : initial ? "Save" : "Create"}
-            </Button>
+          <div className="flex justify-between gap-2 mt-6">
+            <div>
+              {initial && onDelete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(kind, initial)}
+                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                >
+                  <Trash size={13} className="mr-1" />
+                  Delete
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+              <Button variant="primary" size="sm" onClick={submit} disabled={saving || !title.trim()}>
+                {saving ? "Saving…" : initial ? "Save" : "Create"}
+              </Button>
+            </div>
           </div>
         </div>
       </Dialog>

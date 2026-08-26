@@ -1,9 +1,17 @@
 # Changelog
 
+## v0.1.32 — Fix build + RTM delete
+
+### Fix — Build
+- **E0599 `transparent` not found** (`src-tauri/src/lib.rs:138` `WebviewWindowBuilder::transparent`) — Tauri 2.11 `WebviewWindowBuilder` tidak ada method `transparent` (hanya `decorations`/`center`), hapus `.transparent(true)` (splash tetap opaque `#0a0a0a`). Verified `cargo check` pass (sebelumnya fail di `v0.1.31`).
+
+### Feat — RTM
+- **Delete RTM** (`src/components/rtm/RtmMatrix.tsx:91` + `EntityDialog.tsx:26`) — sebelumnya hanya `Edit`/`Create`. Sekarang `Trash` di cell `BR`/`FR` + card `Design`/`Test` (disamping `X` unlink) + tombol `Delete` di dialog `Edit`. `DELETE /api/projects/:id/rtm/:kind/:itemId` sudah ada (cascade `rtmLinks` / `brId=null`), tinggal expose UI. `bun run typecheck` pass.
+
 ## v0.1.31 — Feat: first-open splash + ERD silent auto-import
 
 ### Feat — Desktop
-- **Splash first-open pure CSS** (`public/splash.html` + `src-tauri/src/lib.rs:122`) — centered `logo 72 + ONESIST + by rogasper.com` + `dot bounce` + `progress bar`, `decorations:false` `transparent:true` `center` `480×320`. Hanya tampil di first open (marker `app_data/.first_run_done`), `sampai selesai` (`wait_healthy` selesai baru `splash.close()` + `main.show()` + tulis marker). Next open skip.
+- **Splash first-open pure CSS** (`public/splash.html` + `src-tauri/src/lib.rs:122`) — centered `logo 72 + ONESIST + by rogasper.com` + `dot bounce` + `progress bar`, `decorations:false` `center` `480×320` (tanpa `transparent` agar build pass). Hanya tampil di first open (marker `app_data/.first_run_done`), `sampai selesai` (`wait_healthy` selesai baru `splash.close()` + `main.show()` + tulis marker). Next open skip.
 - **ERD new project silent** (`src/routes/projects.$id.erd.tsx:22`) — `useFileList` `output/erd` + `refresh` retry 3× 900ms jika `files.length===0` (Windows path race), `useFileWatch("erd")` + `useFileWatch("master")` auto `refreshFiles()` + `refreshContent()` saat `erd.dbml`/`MASTER_ERD.md` baru muncul (tanpa banner, silent).
 
 ## v0.1.30 — Fix build: url crate + type annotation for multi-window
