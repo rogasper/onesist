@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.34 — CI: avoid macos-14 runner queue
+
+### CI — Release
+- **max-parallel 1** (`.github/workflows/release.yml:13`) — `macos-14` free tier cuma 1 concurrent runner. Matrix sebelumnya butuh 2× `macos-14` paralel → `Waiting for a hosted runner...` lama. Sekarang sequential.
+
 ## v0.1.33 — Chore: sanitasi + LICENSE + fix splash mut
 
 ### Chore — Sanitization
