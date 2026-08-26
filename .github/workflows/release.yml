@@ -12,6 +12,7 @@ jobs:
   build:
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           # macOS arm64 (Apple Silicon)
