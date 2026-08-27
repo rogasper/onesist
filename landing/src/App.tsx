@@ -327,25 +327,54 @@ function Changelog() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("https://api.github.com/repos/rogasper/onesist/releases?per_page=5", { headers: { Accept: "application/vnd.github.v3+json" } })
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((data: any[]) => {
-        if (cancelled || !Array.isArray(data) || data.length === 0) return;
+    // Use raw CHANGELOG.md — no rate limit (vs GitHub API 60/h). jsDelivr/CDN caches but still live on push.
+    const urls = [
+      "https://raw.githubusercontent.com/rogasper/onesist/main/CHANGELOG.md",
+      "https://cdn.jsdelivr.net/gh/rogasper/onesist@main/CHANGELOG.md",
+    ];
+    const fetchChangelog = async () => {
+      for (const url of urls) {
+        try {
+          const r = await fetch(url, { cache: "no-store" });
+          if (!r.ok) continue;
+          const txt = await r.text();
+          if (cancelled || !txt) continue;
+          // Parse: ## v0.1.38 — Title  (then first bullet)
+          const re = /^##\s+(v[\d.]+)\s*[—\-]\s*(.+)$/gm;
+          const matches = [...txt.matchAll(re)];
+          if (matches.length === 0) continue;
+          const parsed = matches.slice(0, 3).map((m) => {
+            const v = m[1].trim();
+            const t = m[2].trim();
+            const start = (m.index ?? 0) + m[0].length;
+            const next = matches.find((x) => (x.index ?? 0) > start);
+            const block = txt.slice(start, next?.index ?? start + 800);
+            const bullet = block.split("\n").find((l) => /^\s*-\s+/.test(l))?.replace(/^\s*-\s+/, "").trim().slice(0, 140) || "See CHANGELOG";
+            return { v, t, d: bullet };
+          });
+          if (parsed.length) {
+            setEntries(parsed);
+            setLive(true);
+            return;
+          }
+        } catch {}
+      }
+      // Final fallback: try GitHub Releases API (rate-limited, last resort)
+      try {
+        const r = await fetch("https://api.github.com/repos/rogasper/onesist/releases?per_page=3", { headers: { Accept: "application/vnd.github.v3+json" } });
+        if (!r.ok) return;
+        const data: any[] = await r.json();
+        if (cancelled || !Array.isArray(data) || !data.length) return;
         const parsed = data.slice(0, 3).map((rel: any) => {
           const tag: string = rel.tag_name || rel.name || "";
           const title: string = (rel.name || tag).replace(/^v[\d.]+\s*[—\-]\s*/, "") || tag;
-          const firstBullet: string =
-            (rel.body || "").split("\n").find((l: string) => l.trim().startsWith("-"))?.replace(/^\s*-\s*/, "").slice(0, 120) ||
-            (rel.body || "").split("\n").find((l: string) => l.trim().length > 10)?.slice(0, 120) ||
-            "See release notes";
-          return { v: tag.startsWith("v") ? tag : `v${tag}`, t: title, d: firstBullet };
+          const bullet = (rel.body || "").split("\n").find((l: string) => l.trim().startsWith("-"))?.replace(/^\s*-\s*/, "").slice(0, 120) || "See release notes";
+          return { v: tag.startsWith("v") ? tag : `v${tag}`, t: title, d: bullet };
         });
-        if (parsed.length) {
-          setEntries(parsed);
-          setLive(true);
-        }
-      })
-      .catch(() => {})
+        if (parsed.length) { setEntries(parsed); setLive(true); }
+      } catch {}
+    };
+    fetchChangelog();
     return () => { cancelled = true; };
   }, []);
 
@@ -366,7 +395,7 @@ function Changelog() {
           </a>
         ))}
       </div>
-      <div className="mt-3 text-xs text-zinc-400">Live from GitHub Releases — auto-updates on every tag push (no rebuild needed). Fallback shown if API rate-limited.</div>
+      <div className="mt-3 text-xs text-zinc-400">Live from CHANGELOG.md (raw.githubusercontent, no rate limit) — updates on push to main. Falls back to Releases API if needed.</div>
     </section>
   );
 }
