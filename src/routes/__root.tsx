@@ -36,7 +36,7 @@ function AppSidebarHeader() {
   return (
     <Sidebar.Header>
       <div className={`flex items-center py-2.5 ${isCollapsed ? 'justify-center' : 'px-3 gap-2'}`}>
-        <span className="rounded bg-kumo-info px-1.5 py-0.5 text-xs font-bold text-white shrink-0">OS</span>
+        <img src="/logo-icon.png" alt="Onesist" className="h-6 w-6 object-contain shrink-0" />
         {!isCollapsed && <span className="text-sm font-semibold text-kumo-default truncate flex-1 min-w-0">ONESIST</span>}
         {isDesktop && !isCollapsed && (
           <button

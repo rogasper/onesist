@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.38 — Brand: real logo for Tauri + splash + web
+
+### Feat — Brand
+- **Logo `logo.png` (glossy blue glass) → `public/logo.png` + `logo-icon.png` + `logo-square.png` (1024)** — `src-tauri/icons` regenerated via `tauri icon` (all sizes, icon.png 512, icns/ico), `src/routes/__root.tsx:38` sidebar header `OS` badge → `<img src="/logo-icon.png">`, `public/splash.html:26` white rounded `logo-wrap` with `img src="logo-icon.png"` (relative, 72→padding 6, transparent fallback), `dist/client/logo*.png` verified 860k/710k/516k.
+- **Bump `0.1.36 → 0.1.38`** for icon change.
+
 ## v0.1.36 — Fix splash logo broken on Windows
 
 ### Fix — Desktop
