@@ -119,6 +119,7 @@ pub fn run() {
       let mut is_first_run = false;
       let mut splash_marker: Option<std::path::PathBuf> = None;
       let mut splash_window: Option<tauri::WebviewWindow> = None;
+      let splash_start = std::time::Instant::now();
       if let Ok(app_data) = app.path().app_data_dir() {
         let _ = std::fs::create_dir_all(&app_data);
         let marker = app_data.join(".first_run_done");
