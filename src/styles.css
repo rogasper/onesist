@@ -12,6 +12,20 @@
   --font-mono: "Geist Mono Variable", "SF Mono", ui-monospace, "Cascadia Code", monospace;
 }
 
+/* Landing parity — light mode tokens aligned to landing palette (#fcfcfa / #6d7cff).
+   Dark mode keeps Kumo defaults via light-dark(). */
+html:not([data-mode="dark"]) {
+  --color-kumo-brand: #6d7cff;
+  --color-kumo-brand-hover: #5a6af0;
+  --color-kumo-info: #6d7cff;
+  --color-kumo-recessed: #fcfcfa;
+  --color-kumo-elevated: #ffffff;
+  --color-kumo-base: #ffffff;
+  --color-kumo-tint: #f5f6ff;
+  --color-kumo-line: #e4e4e7;
+  --color-kumo-hairline: #e4e4e7;
+}
+
 /* Base polish: tabular figures for data, balance for headings, sensible
    focus + press feedback app-wide. */
 @layer base {
@@ -196,6 +210,35 @@ div[data-kumo-component="Sidebar"] {
   background-color: color-mix(in srgb, var(--color-kumo-base, #0d0d0d) 40%, transparent) !important;
   backdrop-filter: blur(24px) saturate(150%) !important;
   border-right: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 50%, transparent) !important;
+}
+
+/* Landing parity — light glass (white translucent) to match landing/src/styles.css */
+html:not([data-mode="dark"]) .glass {
+  background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.62)) !important;
+  backdrop-filter: blur(16px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.15) !important;
+  border: 1px solid rgba(255,255,255,0.9) !important;
+  box-shadow: 0 8px 32px rgba(16,24,40,0.08), 0 1px 3px rgba(16,24,40,0.06), inset 0 1px 0 rgba(255,255,255,0.9) !important;
+}
+html:not([data-mode="dark"]) .glass-strong {
+  background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.72)) !important;
+  backdrop-filter: blur(20px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.2) !important;
+  border: 1px solid rgba(255,255,255,0.95) !important;
+  box-shadow: 0 12px 40px rgba(16,24,40,0.10), 0 1px 3px rgba(16,24,40,0.06), inset 0 1px 0 rgba(255,255,255,1) !important;
+}
+html:not([data-mode="dark"]) .glass-subtle {
+  background: rgba(255,255,255,0.62) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255,255,255,0.7) !important;
+  box-shadow: 0 4px 12px rgba(16,24,40,0.06) !important;
+}
+html:not([data-mode="dark"]) .glass-panel,
+html:not([data-mode="dark"]) .glass-container {
+  background-color: #ffffff !important;
+  border: 1px solid #e4e4e7 !important;
+  box-shadow: 0 4px 12px rgba(16,24,40,0.06) !important;
 }
 
 /* =========================================

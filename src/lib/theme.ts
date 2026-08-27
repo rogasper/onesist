@@ -10,10 +10,10 @@ export type AppTheme = "dark" | "light";
 
 const THEME_KEY = "onesist:theme";
 
-/** Window background per theme (RGBA 0-255). */
+/** Window background per theme (RGBA 0-255) — light matches landing #fcfcfa. */
 const WINDOW_BG: Record<AppTheme, [number, number, number, number]> = {
   dark: [13, 13, 13, 255], // #0d0d0d
-  light: [255, 255, 255, 255], // #ffffff
+  light: [252, 252, 250, 255], // #fcfcfa — landing parity
 };
 
 export function getStoredTheme(): AppTheme {
@@ -21,7 +21,7 @@ export function getStoredTheme(): AppTheme {
     const v = window.localStorage.getItem(THEME_KEY);
     if (v === "light" || v === "dark") return v;
   } catch {}
-  return "dark";
+  return "light";
 }
 
 /** Apply theme: DOM attribute + Tauri window background (desktop only). */
