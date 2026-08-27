@@ -124,63 +124,74 @@ function Hero() {
   );
 }
 
+const DOCS_URL = "https://github.com/rogasper/onesist/tree/main/docs";
+
 function Features() {
   const items = [
-    { k: "FSD Analyzer", d: "Parse FSD, gap analysis vs MASTER_ERD / MASTER_SPEC, generate per-page artifacts with folder-per-page.", t: "input/fsd → output/*" },
-    { k: "ERD + DBML", d: "Tables, relations, indexes with DBML for dbdiagram.io. Graphviz layout, drift detection.", t: "output/erd/<module>/" },
-    { k: "Spec + OpenAPI", d: "Endpoint tables, auth, pagination. Consolidate into openapi.yaml with x-status / x-phase.", t: "output/spec/openapi.yaml" },
-    { k: "Agentic Tasks", d: "12-row summary + Context + Given-When-Then AC. tasks.json + prompts for external agents.", t: "output/task/<module>/" },
+    { k: "FSD Analyzer", d: "Rich MDXEditor, completeness checklist, PDF/DOCX → Markdown. The entry point.", t: "input/fsd" },
+    { k: "ERD Studio", d: "ReactFlow + Dagre, DBML live. Visual table editor with SQL export.", t: "output/erd" },
+    { k: "API Specs", d: "Module-grouped endpoint cards, search & OpenAPI consolidation.", t: "output/spec" },
   ];
   return (
-    <section id="features" className="mx-auto max-w-[1160px] px-6 py-12">
-      <div className="flex items-end justify-between gap-4">
-        <h2 className="text-xl font-semibold text-kumo-strong">Everything to plan — nothing to execute</h2>
-        <a href={GH_REPO} target="_blank" rel="noreferrer" className="text-xs text-kumo-subtle hover:text-kumo-strong">Docs →</a>
+    <section id="features" className="mx-auto max-w-[1160px] px-6 py-16">
+      <div className="max-w-[640px]">
+        <div className="text-xs font-mono tracking-wide text-kumo-brand">Features</div>
+        <h2 className="mt-2 text-[28px] font-semibold leading-tight text-kumo-strong">Everything to plan — nothing to execute</h2>
+        <p className="mt-3 text-sm leading-6 text-kumo-subtle">A focused workspace for System Analysts. No code gen, no deployment — just clear artifacts that agents and devs can trust. Full guide → <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-kumo-brand hover:underline">docs/</a></p>
       </div>
-      <div className="mt-6 grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="mt-10 grid md:grid-cols-3 gap-6">
         {items.map((it) => (
-          <div key={it.k} className="glass specular relative rounded-[20px] p-5">
-            <div className="text-sm font-semibold text-kumo-strong">{it.k}</div>
-            <div className="mt-2 text-sm leading-5 text-kumo-subtle">{it.d}</div>
-            <div className="mt-4 inline-flex text-[11px] font-mono px-2 py-1 rounded-full bg-kumo-contrast text-kumo-base">{it.t}</div>
+          <div key={it.k} className="glass specular relative rounded-[24px] p-7">
+            <div className="text-[15px] font-semibold text-kumo-strong">{it.k}</div>
+            <div className="mt-3 text-sm leading-6 text-kumo-subtle">{it.d}</div>
+            <div className="mt-6 inline-flex text-xs font-mono px-2.5 py-1 rounded-full bg-kumo-contrast text-kumo-base">{it.t}</div>
           </div>
         ))}
       </div>
-      <div className="mt-4 grid md:grid-cols-3 gap-4">
-        <div className="glass-subtle rounded-2xl p-4 flex items-center justify-between"><span className="text-sm text-kumo-default">RTM</span><span className="text-xs font-mono text-kumo-subtle">BR → FR → DS → TC</span></div>
-        <div className="glass-subtle rounded-2xl p-4 flex items-center justify-between"><span className="text-sm text-kumo-default">SIT</span><span className="text-xs font-mono text-kumo-subtle">Chrome / Safari / iOS / Android</span></div>
-        <div className="glass-subtle rounded-2xl p-4 flex items-center justify-between"><span className="text-sm text-kumo-default">Timeline</span><span className="text-xs font-mono text-kumo-subtle">Gantt • Critical path</span></div>
+      <div className="mt-6 flex flex-wrap gap-2.5 text-xs">
+        <a href={DOCS_URL} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-full bg-kumo-base border border-kumo-line text-kumo-subtle hover:text-kumo-strong">Tasks & Phases — 77 SP · Jira/Monday export →</a>
+        <a href={DOCS_URL} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-full bg-kumo-base border border-kumo-line text-kumo-subtle hover:text-kumo-strong">RTM · BR → FR → DS → TC →</a>
+        <a href={DOCS_URL} target="_blank" rel="noreferrer" className="px-3 py-1.5 rounded-full bg-kumo-base border border-kumo-line text-kumo-subtle hover:text-kumo-strong">SIT & Timeline →</a>
       </div>
     </section>
   );
 }
 
 function HowItWorks() {
-  const steps = [
-    { n: "01", t: "Upload FSD", d: "Drop markdown → input/fsd. Live watcher + SSE updates.", ex: "input/fsd/fsd_checkout.md", code: "## Flow\n1. User adds to cart\n2. Checkout → POST /api/orders" },
-    { n: "02", t: "Generate", d: "Run fsd-analyzer (claude/codex/agy). Writes per-page:", ex: "output/spec/checkout/spec.md", code: "POST /api/orders\n- Body: { items: [...] }\n- Resp: { orderId }" },
-    { n: "03", t: "Review", d: "MDX + Mermaid + DBML. Edit in place.", ex: "output/erd/checkout/erd.dbml", code: "Table orders {\n  id pk\n  total decimal\n}" },
-    { n: "04", t: "Handoff", d: "One click export → handoff zip for agents.", ex: "handoff-proj-v1.2.zip", code: "context/ + spec/ + erd/ + tasks.json\n+ prompts/CHK-01.prompt.md" },
-  ];
   return (
-    <section id="how" className="mx-auto max-w-[1160px] px-6 py-8">
-      <h2 className="text-xl font-semibold text-kumo-strong">How it works — with outputs</h2>
-      <p className="text-sm text-kumo-subtle mt-1">Each step produces a verifiable artifact. No black box.</p>
-      <div className="mt-6 grid md:grid-cols-4 gap-4">
-        {steps.map((s) => (
-          <div key={s.n} className="relative rounded-2xl border border-kumo-line bg-kumo-base p-5 overflow-hidden hover:shadow-md transition-shadow">
-            <div className="absolute -right-4 -top-4 text-[64px] font-bold text-kumo-fill select-none">{s.n}</div>
-            <div className="text-xs font-mono text-kumo-brand">{s.n}</div>
-            <div className="mt-1 text-sm font-semibold text-kumo-strong">{s.t}</div>
-            <div className="mt-2 text-sm leading-5 text-kumo-subtle">{s.d}</div>
-            <div className="mt-4 rounded-xl border border-kumo-line bg-kumo-elevated overflow-hidden">
-              <div className="px-3 py-1.5 text-[11px] font-mono text-kumo-subtle border-b border-kumo-line bg-kumo-base flex items-center justify-between">
-                <span>{s.ex}</span><span className="w-2 h-2 rounded-full bg-emerald-500" />
-              </div>
-              <pre className="p-3 text-[11px] leading-4 font-mono text-kumo-default whitespace-pre-wrap">{s.code}</pre>
-            </div>
-          </div>
-        ))}
+    <section id="how" className="mx-auto max-w-[1160px] px-6 py-16 border-t border-kumo-line/60">
+      <div className="max-w-[640px]">
+        <div className="text-xs font-mono tracking-wide text-kumo-brand">How it works</div>
+        <h2 className="mt-2 text-[28px] font-semibold leading-tight text-kumo-strong">FSD in, handoff out</h2>
+        <p className="mt-3 text-sm leading-6 text-kumo-subtle">From <code className="px-1 py-0.5 rounded bg-kumo-elevated border border-kumo-line text-kumo-default text-xs">input/fsd/</code> through AI agents to <code className="px-1 py-0.5 rounded bg-kumo-elevated border border-kumo-line text-kumo-default text-xs">output/*</code>. You review, agents execute. See the <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-kumo-brand hover:underline">docs for the full workflow</a>.</p>
+      </div>
+
+      <div className="mt-10 grid md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-4 items-start">
+        <div className="rounded-[24px] border border-kumo-line bg-kumo-base p-7">
+          <div className="w-9 h-9 rounded-xl bg-kumo-brand/10 border border-kumo-brand/15 flex items-center justify-center text-sm">📄</div>
+          <div className="mt-4 text-sm font-semibold text-kumo-strong">1 — Drop FSD</div>
+          <div className="mt-2 text-sm leading-6 text-kumo-subtle">Place PDF/DOCX/MD in <span className="font-mono text-kumo-default text-xs">input/fsd/</span> (or convert via markitdown). Live file watcher picks it up.</div>
+          <div className="mt-4 text-xs font-mono text-kumo-subtle">output → input/fsd/ · input/figma/</div>
+        </div>
+        <div className="hidden md:flex items-center justify-center pt-12 text-kumo-line text-xl">→</div>
+        <div className="rounded-[24px] border border-kumo-line bg-kumo-base p-7">
+          <div className="w-9 h-9 rounded-xl bg-kumo-brand/10 border border-kumo-brand/15 flex items-center justify-center text-sm">🤖</div>
+          <div className="mt-4 text-sm font-semibold text-kumo-strong">2 — AI generates</div>
+          <div className="mt-2 text-sm leading-6 text-kumo-subtle">Delegate to <span className="text-kumo-strong">OpenCode / Claude / Codex / Antigravity</span> via the embedded terminal. Writes to <span className="font-mono text-kumo-default text-xs">output/spec · output/erd · output/task · output/sit</span>.</div>
+          <div className="mt-4 text-xs font-mono text-kumo-subtle">agents auto-detected on PATH</div>
+        </div>
+        <div className="hidden md:flex items-center justify-center pt-12 text-kumo-line text-xl">→</div>
+        <div className="rounded-[24px] border border-kumo-line bg-kumo-base p-7">
+          <div className="w-9 h-9 rounded-xl bg-kumo-brand/10 border border-kumo-brand/15 flex items-center justify-center text-sm">💻</div>
+          <div className="mt-4 text-sm font-semibold text-kumo-strong">3 — Review & handoff</div>
+          <div className="mt-2 text-sm leading-6 text-kumo-subtle">Open the dashboard — ERD canvas, API cards, Tasks with prompts. Export <span className="font-mono text-kumo-default text-xs">handoff-*.zip</span> (tasks.json + prompts). One task = one agent iteration.</div>
+          <div className="mt-4 text-xs font-mono text-kumo-subtle">output/sketches · docs · timeline.html</div>
+        </div>
+      </div>
+
+      <div className="mt-8 rounded-2xl border border-kumo-line bg-kumo-elevated/50 p-4 flex flex-col md:flex-row gap-3 md:items-center justify-between">
+        <span className="text-sm text-kumo-subtle">Need the full project layout and prompt library?</span>
+        <a href={DOCS_URL} target="_blank" rel="noreferrer" onClick={() => track("how-docs")} className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-kumo-contrast text-kumo-base text-sm font-medium hover:opacity-90">Open docs/ →</a>
       </div>
     </section>
   );
@@ -190,11 +201,9 @@ function Carousel() {
   const [idx, setIdx] = useState(0);
   const timerRef = useRef<number | null>(null);
   const slides = [
-    { title: "Projects — Dashboard", desc: "Open / import / multi-root. 12/page, taller cards.", color: "from-kumo-elevated to-kumo-base", label: "Dashboard", file: "dashboard.png" },
-    { title: "ERD Canvas", desc: "XYFlow + Dagre layout. DBML live, table editor.", color: "from-kumo-elevated to-kumo-base", label: "ERD", file: "erd.png" },
-    { title: "Spec + OpenAPI", desc: "Endpoint cards, search, Swagger. Consolidate openapi.yaml.", color: "from-kumo-elevated to-kumo-base", label: "Spec", file: "spec.png" },
-    { title: "Tasks — Agentic Handoff", desc: "Context + Given-When-Then + prompts. Export zip.", color: "from-kumo-elevated to-kumo-base", label: "Tasks", file: "tasks.png" },
-    { title: "RTM & SIT", desc: "Trace BR→TC. SIT browser matrix (5 platforms).", color: "from-kumo-elevated to-kumo-base", label: "RTM/SIT", file: "tasks.png" },
+    { title: "Projects — Dashboard", desc: "Manage repos, auto-install skills. The landing for every project.", color: "from-kumo-elevated to-kumo-base", label: "Dashboard", file: "dashboard.png" },
+    { title: "ERD Studio", desc: "Interactive canvas — Drag, edit tables, export DBML.", color: "from-kumo-elevated to-kumo-base", label: "ERD", file: "erd.png" },
+    { title: "API Specs", desc: "Module cards with search & payloads.", color: "from-kumo-elevated to-kumo-base", label: "Spec", file: "spec.png" },
   ];
 
   useEffect(() => {
@@ -211,10 +220,14 @@ function Carousel() {
   };
 
   return (
-    <section id="screens" className="mx-auto max-w-[1160px] px-6 py-8">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-kumo-strong">Screens — real outputs</h3>
-        <span className="text-xs text-kumo-subtle">Auto-play • hover to pause</span>
+    <section id="screens" className="mx-auto max-w-[1160px] px-6 py-16 border-t border-kumo-line/60">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <div className="text-xs font-mono tracking-wide text-kumo-brand">Screens</div>
+          <h3 className="mt-2 text-[22px] font-semibold text-kumo-strong">Real outputs, not mockups</h3>
+          <p className="text-sm text-kumo-subtle">Captured via Playwright from the running dashboard.</p>
+        </div>
+        <span className="hidden md:inline text-xs text-kumo-subtle">Auto-play • hover to pause</span>
       </div>
       <div className="relative mt-6 overflow-hidden rounded-[24px] border border-kumo-line bg-kumo-base shadow-sm"
            onMouseEnter={() => timerRef.current && window.clearInterval(timerRef.current)}
@@ -302,20 +315,21 @@ function Changelog() {
     { v: "v0.1.36", t: "Fix splash logo broken on Windows", d: "Remove broken /icons/icon.png, pure OS badge fallback." },
     { v: "v0.1.35", t: "Fix splash not showing", d: "First-open splash with always_on_top + marker .first_run_done." },
     { v: "v0.1.34", t: "CI: avoid macos-14 queue", d: "max-parallel 1 for free tier." },
-    { v: "v0.1.33", t: "Sanitization + LICENSE MIT", d: "Remove confidential xlsx, placeholder Example Corp." },
-    { v: "v0.1.32", t: "RTM delete + build fix", d: "Delete RTM cells + fix transparent build." },
   ];
   return (
-    <section id="changelog" className="mx-auto max-w-[1160px] px-6 py-8">
-      <div className="flex items-end justify-between">
-        <h3 className="text-lg font-semibold text-kumo-strong">Changelog</h3>
-        <a href={`${GH_REPO}/blob/main/CHANGELOG.md`} target="_blank" rel="noreferrer" onClick={() => track("changelog-full")} className="text-xs text-kumo-subtle hover:text-kumo-strong">View full changelog →</a>
+    <section id="changelog" className="mx-auto max-w-[1160px] px-6 py-16 border-t border-kumo-line/60">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <div className="text-xs font-mono tracking-wide text-kumo-brand">Changelog</div>
+          <h3 className="mt-2 text-[22px] font-semibold text-kumo-strong">Latest</h3>
+        </div>
+        <a href={`${GH_REPO}/blob/main/CHANGELOG.md`} target="_blank" rel="noreferrer" onClick={() => track("changelog-full")} className="text-xs text-kumo-subtle hover:text-kumo-strong border border-kumo-line rounded-full px-3 py-1.5 bg-kumo-base">View full changelog →</a>
       </div>
-      <div className="mt-4 grid gap-3">
+      <div className="mt-8 grid gap-3 max-w-[760px]">
         {entries.map((e) => (
-          <div key={e.v} className="flex gap-4 rounded-2xl border border-kumo-line bg-kumo-base p-4 hover:shadow-sm transition">
-            <span className="shrink-0 text-xs font-mono px-2 py-1 rounded-full bg-kumo-contrast text-kumo-base h-fit">{e.v}</span>
-            <div><div className="text-sm font-medium text-kumo-strong">{e.t}</div><div className="text-sm text-kumo-subtle">{e.d}</div></div>
+          <div key={e.v} className="flex gap-4 rounded-2xl border border-kumo-line bg-kumo-base p-5">
+            <span className="shrink-0 text-xs font-mono px-2.5 py-1 rounded-full bg-kumo-contrast text-kumo-base h-fit">{e.v}</span>
+            <div><div className="text-sm font-medium text-kumo-strong">{e.t}</div><div className="text-sm text-kumo-subtle mt-1">{e.d}</div></div>
           </div>
         ))}
       </div>
