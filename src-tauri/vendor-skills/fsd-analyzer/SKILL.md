@@ -172,22 +172,23 @@ Respond using this skill when the user says things like:
 | Artifact | Typical filename |
 |----------|------------------|
 | **Master (recommended for rolling context)** | **`MASTER_ERD.md`**, **`MASTER_SPEC_API.md`** |
-| API spec (slice or snapshot) | `spec_api.md`, `spec_api_<feature>.md` |
-| ERD (slice or snapshot) | `erd.md`, `erd_now.md`, `erd_<feature>.md` |
-| Tasks (backend) | `task.md`, `task_<feature>.md` |
-| Tasks (frontend) | `task_fe.md`, `task_fe_<feature>.md` |
+| API spec (per halaman/module) | `output/spec/<module>/spec.md` (buat folder `output/spec/<module>/` dulu, `mkdir -p`) |
+| ERD (per halaman) | `output/erd/<module>/erd.dbml` + `output/erd/<module>/erd.md` (folder per halaman) |
+| Tasks (backend, per halaman) | `output/task/<module>/task.md` (folder per halaman) |
+| Tasks (frontend) | `output/task/<module>/task_fe.md` (folder per halaman) |
 | Tasks (agent) | `output/task/tasks.json` + `output/task/prompts/{code}.prompt.md` (English, per-task) |
 | Handoff bundle | `handoff-{project}-v{version}-{date}.zip` (context + spec + erd + rtm + task + prompts) |
-| Timeline HTML | `timeline_<feature>.html` |
+| Timeline HTML | `output/timeline/<feature>/timeline.html` (folder per halaman) |
 | RTM | `output/rtm/RTM.md` (default) / `output/rtm/RTM_<scope>.md` (scoped) |
 | OpenAPI | `output/spec/openapi.yaml` |
-| **SIT** — per-TC file | `output/sit/TC01.md`, `TC02.md`, ..., `TC{nn}.md` |
+| **SIT** — per-TC file | `output/sit/<module>/TC01.md`, `TC02.md`, ..., `TC{nn}.md` (folder per halaman jika per module) |
 | **SIT** — summary | `output/sit/SIT_SUMMARY.md` |
 | Project context | `project_context.md` |
 
 **Markdown first:** deliver in chat and/or Write tool — user may **copy-paste** to Sheets or Monday without committing files.
 **HTML timeline:** self-contained file, open directly in browser for visual Gantt chart.
 **SIT:** one markdown file per TC group (module/domain), plus one summary; export to Excel (XLSX) is the QC guide.
+**Folder per halaman (WAJIB):** Setiap halaman/module **wajib** buat folder terpisah (`mkdir -p output/<type>/<module>/`) sebelum tulis file. Tanpa folder, file tidak terbaca di dashboard (scan recursive tapi UI grouping butuh folder). Contoh: `output/spec/auth/spec.md`, `output/erd/auth/erd.dbml`, `output/task/auth/task.md`.
 
 ---
 

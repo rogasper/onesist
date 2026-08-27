@@ -34,32 +34,33 @@ ${masterSpec.slice(0, 2000)}
 
 ## Task
 
-Analyze the FSD above and generate the following artifacts by writing them to the output/ directory:
+Analyze the FSD above and generate the following artifacts by writing them to the output/ directory. **PENTING: Untuk setiap halaman/module, buat folder terpisah (mkdir -p) agar terbaca — jangan tulis flat file tanpa folder.**
 
 ### 1. API Spec
-Write to: \`output/spec/spec_${moduleName}.md\`
+Write to: \`output/spec/${moduleName}/spec.md\` (buat folder \`output/spec/${moduleName}/\` dulu dengan mkdir -p)
 Format: Markdown with endpoint tables (Method, Path, Purpose, Body, Response)
-Include all new endpoints from the FSD.
+Include all new endpoints from the FSD. Jika folder sudah ada, tulis/overwrite file di dalamnya.
 
 ### 2. ERD
-Write to: \`output/erd/erd_${moduleName}.dbml\`
-Format: DBML syntax (use \`\`\`dbml ... \`\`\` blocks in markdown)
-Include all new tables and relationships from the FSD.
+Write to: \`output/erd/${moduleName}/erd.dbml\` dan juga \`output/erd/${moduleName}/erd.md\` (buat folder \`output/erd/${moduleName}/\` dulu)
+Format: DBML syntax (use \`\`\`dbml ... \`\`\` blocks in markdown) + markdown tables
+Include all new tables and relationships from the FSD. Pastikan folder per halaman dibuat.
 
 ### 3. Task Cards — agentic handoff ready
-Write to: \`output/task/task_${moduleName}.md\`
+Write to: \`output/task/${moduleName}/task.md\` (buat folder \`output/task/${moduleName}/\` dulu)
 Format: Follow references/task_format.md EXACTLY. 12-row summary table MUST include Files Scope, Spec Ref, ERD Ref, RTM Ref (conceptual paths are valid even without a repo — do not skip if repo is missing; use src/modules/{domain}/* style). Each task: Context (3-5 lines for agent injection) → Deskripsi (ID) → Goals → Scope → Out of scope → Acceptance Criteria as Given-When-Then checklist [ ] (testable) → Flow Logic (numbered, complete) → SQL base contoh (sql fence) → Request/Response (json fences, valid) → Notes → QC Checklist. Break down into sub-tasks (BE, FE, DB, Integration). Every task needs SP, Depends On, Blocks, Critical Path, Risk.
 
 ### 4. Sequence Diagrams
-Write to: \`output/spec/spec_${moduleName}.md\` (embed Mermaid)
+Write to: \`output/spec/${moduleName}/spec.md\` (embed Mermaid di file yang sama)
 Use \`\`\`mermaid ... \`\`\` blocks for flow diagrams.
 
 ## Rules
+- **WAJIB buat folder per halaman/module dengan mkdir -p sebelum tulis file** — contoh: \`mkdir -p output/spec/${moduleName} && output/erd/${moduleName} && output/task/${moduleName}\`. Tanpa folder, file tidak terbaca di dashboard.
 - Reference existing MASTER files for context but do NOT modify them
-- Write ONLY the generated artifacts
+- Write ONLY the generated artifacts (di dalam folder masing-masing)
 - Use Indonesian for Deskripsi/Goals/Scope/AC (Given-When-Then tetap ID), English for prompt-facing fields (Files Scope, Spec Ref), code, SQL, JSON
 - Each file should be complete and ready for developer use
-- The dashboard app at http://localhost:4321 is watching these directories
+- The dashboard app at http://localhost:4321 is watching these directories (recursive, support folder per halaman)
 - Task output will be post-processed into tasks.json + prompts/{code}.prompt.md (English) for external agent execution — keep fields parseable
 `;
 }
@@ -69,6 +70,7 @@ export function buildGapPrompt(fsdFile: string, agentName: string, rootOverride?
   const masterErd = readFile(root, "MASTER_ERD.md") || "(not found)";
   const masterSpec = readFile(root, "MASTER_SPEC_API.md") || "(not found)";
 
+  const gapModule = fsdFile.replace(/^input\/fsd\//, "").replace(/\.md$/, "");
   return `You are a Senior System Analyst performing a GAP analysis. Use the fsd-analyzer skill.
 
 Running via: ${agentName}
@@ -77,7 +79,7 @@ Compare the FSD at \`${fsdFile}\` against:
 - MASTER_ERD.md (current schema)
 - MASTER_SPEC_API.md (current API)
 
-Write a gap report to: \`output/reports/gap_${Date.now()}.md\`
+Write a gap report to: \`output/reports/${gapModule}/gap.md\` — **WAJIB mkdir -p output/reports/${gapModule}/ dulu** (folder per halaman). Jika single GAP global, gunakan \`output/reports/default/gap.md\`.
 
 Identify:
 1. Missing tables/columns vs current schema
@@ -202,6 +204,7 @@ BACA SEMUA file di output/sit/ terlebih dahulu sebelum melakukan perubahan.
     }
   } catch {}
 
+  const sitModule = path.basename(root) || "default";
   return `Kamu adalah Senior QA Lead menyusun System Integration Test (SIT) yang komprehensif.
 
 Project root: ${root}
@@ -214,14 +217,15 @@ Running via: ${agentName}
 3. **Baca SIT format**: \`references/sit_format.md\` dari skill fsd-analyzer.
 4. **Baca SEMUA artifacts**:
    - \`input/fsd/*.md\` — FSD documents
-   - \`output/spec/*.md\` — API specifications
-   - \`output/erd/*.dbml\` + \`output/erd/*.md\` — ERD
-   - \`output/task/*.md\` — Task cards
+   - \`output/spec/**/*.md\` — API specifications (recursive, folder per halaman)
+   - \`output/erd/**/*.dbml\` + \`output/erd/**/*.md\` — ERD
+   - \`output/task/**/*.md\` — Task cards
    - \`output/rtm/*.md\` — Tracing matrix (jika ada)
    - \`MASTER_ERD.md\` + \`MASTER_SPEC_API.md\` — Konteks project-wide (jika ada)
-5. **Generate SIT test cases** ke \`output/sit/\`:
-   - \`output/sit/TC01.md\`, \`TC02.md\`, ..., \`TC{nn}.md\` — satu file per TC group
-   - \`output/sit/SIT_SUMMARY.md\` — Ringkasan keseluruhan
+5. **Generate SIT test cases** — **WAJIB folder per halaman/module (mkdir -p)**:
+    - Buat folder dulu: \`mkdir -p output/sit/${sitModule}/\` lalu tulis \`output/sit/${sitModule}/TC01.md\`, \`TC02.md\`, ..., \`TC{nn}.md\` — satu file per TC group (recursive scan support folder per halaman)
+    - Jika multi-module, buat per module: \`output/sit/<module>/TC01.md\`; jika single, gunakan \`output/sit/${sitModule}/\` atau \`output/sit/default/\` — jangan tulis flat di \`output/sit/\` tanpa folder
+    - \`output/sit/SIT_SUMMARY.md\` — Ringkasan keseluruhan (di root output/sit)
 ${existingContext}
 
 ## Rules Singkat
@@ -320,6 +324,7 @@ export function buildTdPrompt(agentName: string, rootOverride?: string): string 
     } catch {}
   }
 
+  const tdModule = path.basename(root) || "default";
   return `You are a Senior System Analyst consolidating all project artifacts into a Technical Document.
 
 Running via: ${agentName}
@@ -330,7 +335,8 @@ ${artifacts.join("\n\n")}
 
 ## Task
 
-Generate a consolidated Technical Document (TD) and write to \`output/td/td_${Date.now()}.md\`.
+Generate a consolidated Technical Document (TD) — **WAJIB folder per halaman (mkdir -p)**:
+Tulis ke \`output/td/${tdModule}/td.md\` atau \`output/td/<module>/td.md\` (buat folder dulu dengan \`mkdir -p output/td/${tdModule}\`). Jangan tulis flat \`output/td/td_xxx.md\` tanpa folder.
 
 The TD should include:
 1. Cover page — project name, date, version
