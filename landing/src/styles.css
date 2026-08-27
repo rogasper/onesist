@@ -1,45 +1,75 @@
+@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "@cloudflare/kumo/styles/tailwind";
 @import "tailwindcss";
 
 @theme {
-  --color-kumo-recessed: #fcfcfa;
-  --color-kumo-brand: #6d7cff;
-  --color-kumo-info: #6d7cff;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "SF Mono", ui-monospace, monospace;
 }
 
-* { font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif; }
+@layer base {
+  html { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
+  h1,h2,h3,h4,h5,h6 { text-wrap: balance; }
+  :focus-visible { outline: 2px solid var(--color-kumo-brand); outline-offset: 2px; }
+}
 
 html { scroll-behavior: smooth; }
 
+/* ——— Kumo-aligned glass primitives (copied from src/styles.css) ——— */
+.glass-surface {
+  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 55%, transparent);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 70%, transparent);
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--color-kumo-default, #ffffff) 7%, transparent);
+}
+:root {
+  --liquid-base: var(--color-kumo-brand, #2563eb);
+  --liquid-grad-start: color-mix(in oklch, var(--liquid-base), white 15%);
+  --liquid-grad-end: var(--liquid-base);
+  --liquid-lip: color-mix(in oklch, var(--liquid-base), white 45%);
+  --liquid-ring: color-mix(in oklch, var(--liquid-base), black 15%);
+}
+.liquid-wash {
+  background-image: linear-gradient(to bottom, var(--liquid-grad-start), var(--liquid-grad-end));
+  color: #ffffff !important;
+  box-shadow: inset 0 1px 0 0 var(--liquid-lip), 0 0 0 1px var(--liquid-ring), 0 6px 20px -8px color-mix(in oklch, var(--liquid-base) 45%, transparent);
+}
+.glass-panel, .glass-container {
+  background-color: color-mix(in srgb, var(--color-kumo-elevated, #161616) 100%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line, #2a2a2a) 70%, transparent) !important;
+  box-shadow: none !important;
+}
 .glass {
-  background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.62));
-  backdrop-filter: blur(16px) saturate(1.15);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  border: 1px solid rgba(255,255,255,0.9);
-  box-shadow: 0 8px 32px rgba(16,24,40,0.08), 0 1px 3px rgba(16,24,40,0.06), inset 0 1px 0 rgba(255,255,255,0.9);
+  background-color: color-mix(in srgb, var(--color-kumo-elevated) 72%, transparent);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line) 70%, transparent);
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--color-kumo-default) 7%, transparent), 0 8px 24px -12px color-mix(in srgb, var(--color-kumo-contrast) 12%, transparent);
 }
-
 .glass-strong {
-  background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.72));
-  backdrop-filter: blur(20px) saturate(1.2);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  border: 1px solid rgba(255,255,255,0.95);
-  box-shadow: 0 12px 40px rgba(16,24,40,0.10), 0 1px 3px rgba(16,24,40,0.06), inset 0 1px 0 rgba(255,255,255,1);
+  background-color: color-mix(in srgb, var(--color-kumo-elevated) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line) 80%, transparent);
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--color-kumo-default) 9%, transparent), 0 12px 40px -16px color-mix(in srgb, var(--color-kumo-contrast) 14%, transparent);
 }
-
 .glass-subtle {
-  background: rgba(255,255,255,0.62);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255,255,255,0.7);
-  box-shadow: 0 4px 12px rgba(16,24,40,0.06);
+  background-color: color-mix(in srgb, var(--color-kumo-elevated) 60%, transparent);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  border: 1px solid color-mix(in srgb, var(--color-kumo-line) 55%, transparent);
 }
-
 .specular::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(600px circle at 18% 0%, rgba(255,255,255,0.9), transparent 42%);
+  background: radial-gradient(600px circle at 18% 0%, color-mix(in srgb, var(--color-kumo-default) 10%, transparent), transparent 42%);
   pointer-events: none;
 }
 
@@ -56,12 +86,7 @@ html { scroll-behavior: smooth; }
 .shimmer::after {
   content:"";
   position:absolute; inset:0;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-kumo-default) 12%, transparent), transparent);
   transform: translateX(-100%);
   animation: shimmer 2.8s ease-in-out infinite;
-}
-
-@keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
 }
