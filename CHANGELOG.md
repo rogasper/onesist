@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.36 — Fix splash logo broken on Windows
+
+### Fix — Desktop
+- **Logo splash rusak `src not found` di Windows** (`public/splash.html:124` `src="/icons/icon.png"` → hapus `img`, pakai `logo-fallback OS` saja) — `dist/client/splash.html` load via `tauri://localhost/client/splash.html`, absolute `/icons/...` jadi `dist/icons/...` tidak ada (file di `dist/client/icons/...`), `onerror` tidak ke-trigger di WebView2. Sekarang pure `OS` badge tanpa external image, no broken src.
+
 ## v0.1.35 — Fix splash not showing
 
 ### Fix — Desktop
