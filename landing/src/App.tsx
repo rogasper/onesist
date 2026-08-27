@@ -13,8 +13,8 @@ function Nav() {
   return (
     <nav className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/70 backdrop-blur-xl">
       <div className="mx-auto max-w-[1160px] px-6 h-[56px] flex items-center justify-between">
-        <a href="#" className="flex items-center gap-2">
-          <span className="rounded bg-[#6d7cff] px-1.5 py-0.5 text-xs font-bold text-white">OS</span>
+        <a href="#" className="flex items-center gap-2.5">
+          <img src="/logo-icon.png" alt="Onesist" className="h-7 w-7 object-contain" />
           <span className="text-sm font-semibold tracking-wide text-zinc-900">ONESIST</span>
           <span className="hidden sm:inline text-xs text-zinc-400 ml-1">Planner, not executor</span>
         </a>
