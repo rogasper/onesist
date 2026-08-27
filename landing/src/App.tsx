@@ -317,28 +317,56 @@ function Download() {
 }
 
 function Changelog() {
-  const entries = [
+  const fallback = [
+    { v: "v0.1.38", t: "Brand: real logo for Tauri + splash", d: "Glossy blue logo → icons, splash & sidebar header." },
     { v: "v0.1.36", t: "Fix splash logo broken on Windows", d: "Remove broken /icons/icon.png, pure OS badge fallback." },
     { v: "v0.1.35", t: "Fix splash not showing", d: "First-open splash with always_on_top + marker .first_run_done." },
-    { v: "v0.1.34", t: "CI: avoid macos-14 queue", d: "max-parallel 1 for free tier." },
   ];
+  const [entries, setEntries] = useState(fallback);
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("https://api.github.com/repos/rogasper/onesist/releases?per_page=5", { headers: { Accept: "application/vnd.github.v3+json" } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((data: any[]) => {
+        if (cancelled || !Array.isArray(data) || data.length === 0) return;
+        const parsed = data.slice(0, 3).map((rel: any) => {
+          const tag: string = rel.tag_name || rel.name || "";
+          const title: string = (rel.name || tag).replace(/^v[\d.]+\s*[—\-]\s*/, "") || tag;
+          const firstBullet: string =
+            (rel.body || "").split("\n").find((l: string) => l.trim().startsWith("-"))?.replace(/^\s*-\s*/, "").slice(0, 120) ||
+            (rel.body || "").split("\n").find((l: string) => l.trim().length > 10)?.slice(0, 120) ||
+            "See release notes";
+          return { v: tag.startsWith("v") ? tag : `v${tag}`, t: title, d: firstBullet };
+        });
+        if (parsed.length) {
+          setEntries(parsed);
+          setLive(true);
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <section id="changelog" className="mx-auto max-w-[1160px] px-6 py-16 border-t border-zinc-200/60">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <div className="text-xs font-mono tracking-wide text-[#6d7cff]">Changelog</div>
+          <div className="text-xs font-mono tracking-wide text-[#6d7cff]">Changelog {live && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">live</span>}</div>
           <h3 className="mt-2 text-[22px] font-semibold text-zinc-900">Latest</h3>
         </div>
         <a href={`${GH_REPO}/blob/main/CHANGELOG.md`} target="_blank" rel="noreferrer" onClick={() => track("changelog-full")} className="text-xs text-zinc-400 hover:text-zinc-900 border border-zinc-200 rounded-full px-3 py-1.5 bg-white">View full changelog →</a>
       </div>
       <div className="mt-8 grid gap-3 max-w-[760px]">
         {entries.map((e) => (
-          <div key={e.v} className="flex gap-4 rounded-2xl border border-zinc-200 bg-white p-5">
+          <a key={e.v} href={`${GH_RELEASES}/tag/${e.v}`} target="_blank" rel="noreferrer" className="flex gap-4 rounded-2xl border border-zinc-200 bg-white p-5 hover:border-zinc-300 hover:shadow-sm transition">
             <span className="shrink-0 text-xs font-mono px-2.5 py-1 rounded-full bg-zinc-900 text-white h-fit">{e.v}</span>
-            <div><div className="text-sm font-medium text-zinc-900">{e.t}</div><div className="text-sm text-zinc-500 mt-1">{e.d}</div></div>
-          </div>
+            <div><div className="text-sm font-medium text-zinc-900">{e.t}</div><div className="text-sm text-zinc-500 mt-1 line-clamp-2">{e.d}</div></div>
+          </a>
         ))}
       </div>
+      <div className="mt-3 text-xs text-zinc-400">Live from GitHub Releases — auto-updates on every tag push (no rebuild needed). Fallback shown if API rate-limited.</div>
     </section>
   );
 }
