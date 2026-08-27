@@ -9,9 +9,6 @@
     "preview": "vite preview --port 4322"
   },
   "dependencies": {
-    "@cloudflare/kumo": "^2.8.0",
-    "@fontsource-variable/geist": "^5.3.0",
-    "@fontsource-variable/geist-mono": "^5.3.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
