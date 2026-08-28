@@ -17,3 +17,4 @@ plan
 .zcode/
 # SIT confidential — jangan commit Excel
 docs/SIT - EHS FIF.xlsx
+.playwright-mcp/

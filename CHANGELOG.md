@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.39 — Theme: light parity with landing
+
+### Feat — Theme
+- **Light mode sync `landing (#fcfcfa / #6d7cff)`** (`src/styles.css:10` `html:not([data-mode=dark])` overrides `--color-kumo-brand #6d7cff`, `recessed #fcfcfa`, `elevated/base #fff` + `glass` white translucent gradients matching `landing/src/styles.css`, `src/lib/theme.ts:24` default `dark → light` + `WINDOW_BG light #fcfcfa` for Tauri)
+- **Bump `0.1.38 → 0.1.39`**.
+
 ## v0.1.38 — Brand: real logo for Tauri + splash + web
 
 ### Feat — Brand
