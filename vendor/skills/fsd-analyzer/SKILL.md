@@ -1,7 +1,7 @@
 ---
 name: fsd-analyzer
-version: 1.4.0
-description: Analyze Functional Specification Documents (FSD) and produce Markdown & visual artifacts — API specs (spec_api.md), ERD (erd.md + optional DBML for dbdiagram.io), UML diagrams (PlantUML for sequence, class, activity, state, component, use case), interactive visual sketches & UI wireframes (output/sketches/*.excalidraw.json and *.mmd for Onesist Canvas), developer task cards (task.md) with Story Points, HTML Gantt timeline charts, Requirement Traceability Matrix (RTM.md) tracing business requirements to design solutions and test cases, OpenAPI 3.0 (openapi.yaml), and comprehensive System Integration Test (SIT) documents from all project artifacts. Also perform gap analysis (FSD vs existing ERD/API), cross-artifact consistency checks (ERD vs API vs tasks), and development timeline estimation with dependency tracking and critical path analysis. Use when the user provides or references an FSD, business requirements, asks to generate/compare technical specs, find gaps vs the current database or API, validate consistency between ERD and spec, convert requirements into developer-ready documentation, create sketches/wireframes/visual flows on canvas, estimate development timeline, assign tasks to developers, build a traceability matrix, generate an OpenAPI spec, or produce SIT test cases for QC — even without the words "FSD" or "system analyst".
+version: 1.5.0
+description: Analyze Functional Specification Documents (FSD) and produce Markdown & visual artifacts — API specs (spec_api.md), ERD (erd.md + optional DBML for dbdiagram.io), UML diagrams (PlantUML for sequence, class, activity, state, component, use case), interactive visual sketches & UI wireframes (output/sketches/*.excalidraw.json and *.mmd for Onesist Canvas), developer task cards (task.md) with Story Points, HTML Gantt timeline charts, Requirement Traceability Matrix (RTM.md) tracing business requirements to design solutions and test cases, OpenAPI 3.0 (openapi.yaml), and comprehensive System Integration Test (SIT) documents from all project artifacts, plus Oracle-standard SQL base examples (query-writer) for Spec & Task. Also perform gap analysis (FSD vs existing ERD/API), cross-artifact consistency checks (ERD vs API vs tasks), and development timeline estimation with dependency tracking and critical path analysis. Use when the user provides or references an FSD, business requirements, asks to generate/compare technical specs, find gaps vs the current database or API, validate consistency between ERD and spec, convert requirements into developer-ready documentation, create sketches/wireframes/visual flows on canvas, estimate development timeline, assign tasks to developers, build a traceability matrix, generate an OpenAPI spec, produce SIT test cases for QC, or asks to create/fix SQL (query-writer) — even without the words "FSD" or "system analyst".
 ---
 
 # FSD Analyzer (Enhanced)
@@ -32,6 +32,8 @@ Follow detailed formats in the skill's **`references/`** files:
 | [references/openapi_format.md](references/openapi_format.md) | **OpenAPI 3.0** — consolidate specs into `output/spec/openapi.yaml` with `x-status` / `x-phase` |
 | [references/sit_format.md](references/sit_format.md) | **SIT** — System Integration Test markdown format (per-TC file + SUMMARY, browser matrix) |
 | [references/sit_instructions.md](references/sit_instructions.md) | **SIT generation** — detailed rules, 3-aspect validation, grouping strategy, refinement mode |
+| [references/query_writer.md](references/query_writer.md) | **Query Writer** — Oracle standard for Spec & Task SQL base examples |
+| [references/query_rules.md](references/query_rules.md) | **Query Rules** — Oracle dialect, clause order, 8-step checklist (mirror of `rules/query_rules.md`) |
 
 Optional automation: Python scripts in **`scripts/`** (validate DBML, validate spec shape, extract entities from FSD, compare FSD hints vs ERD).
 
@@ -48,6 +50,7 @@ Optional automation: Python scripts in **`scripts/`** (validate DBML, validate s
 7. **OpenAPI generation** — Consolidate `MASTER_SPEC_API.md` + `output/spec/*.md` into one `output/spec/openapi.yaml` with `x-status`/`x-phase` (see `references/openapi_format.md`).
 8. **SIT generation** — Read all artifacts (FSD + ERD + Spec + Tasks + RTM) → generate System Integration Test documents to `output/sit/`. One file per TC group (`TC01.md`, `TC02.md`, ...) plus `SIT_SUMMARY.md`. Supports **Refinement Mode** — if files already exist, improve/add without overwriting (see `references/sit_instructions.md` and `references/sit_format.md`). **End-of-pipeline mode** — uses every prior artifact as context.
 9. **Visual sketch & wireframe generation** — Generate interactive Excalidraw JSON or Mermaid flows to `output/sketches/` (e.g. `checkout_wireframe.excalidraw.json` or `auth_flow.mmd`) for visual brainstorming and UI layout reviews on the Onesist Canvas (see `references/sketch_canvas_format.md`).
+10. **Query writer (Oracle)** — Generate/fix standard Oracle SQL for Spec Flow Logic & Task SQL base examples following `references/query_writer.md` + `references/query_rules.md` (FROM→JOIN→WHERE→GROUP BY→HAVING→SELECT→ORDER BY→FETCH, 8-step checklist).
 
 ```mermaid
 flowchart LR
@@ -128,6 +131,7 @@ Respond using this skill when the user says things like:
 - "Generate SIT test cases dari semua artifacts" / "Buat test case system integration"
 - "Create SIT / System Integration Test for this project" / "Make SIT QC guide from FSD+ERD+Spec+Tasks+RTM"
 - "Improve the existing SIT in output/sit/" / "Refinement SIT"
+- "buatkan query" / "buatkan standar query" / "buat query SQL" / "tulis query oracle" / "standar penulisan query" / "query untuk dashboard"
 
 ---
 
@@ -147,6 +151,7 @@ Respond using this skill when the user says things like:
 12. **RTM** — Build a Requirement Traceability Matrix tracing **business requirements → functional requirements → design solutions → test cases** (`references/rtm_format.md`). One scope = one RTM; scope name + selected FSD files come from the prompt → one file `output/rtm/RTM_<scope>.md`. Write exactly one file; leave design/test cells empty where a requirement has no coverage yet — that gap is the deliverable's point.
 13. **OpenAPI** — Generate one valid `output/spec/openapi.yaml` merging all endpoint specs with `x-status`/`x-phase` markers (`references/openapi_format.md`).
 14. **SIT** — Generate comprehensive System Integration Test documents from **all artifacts** (FSD + ERD + Spec + Tasks + RTM). Every feature gets 3+ test steps (1 positive + 2 negative) with 3-aspect Expected Results (UI/Business/Data validation) and a 5-platform browser matrix (Chrome/Safari/Firefox/iOS/Android). Supports **Refinement Mode** when `output/sit/` files already exist — improve missing coverage without overwriting good tests (`references/sit_instructions.md` + `references/sit_format.md`).
+15. **Query (Oracle)** — Standard query writing for CRM/Databank Dashboard (see `references/query_writer.md` + `rules/query_rules.md`): think FROM→JOIN→WHERE→GROUP BY→HAVING→SELECT→ORDER BY→FETCH, emit Oracle `FETCH FIRST / OFFSET FETCH NEXT`, explicit columns (no `*`), tanggal range `>= / <` (UTC→WIB), `mst_/trn_/tmp_`, 8-step checklist.
 
 ---
 
@@ -183,6 +188,7 @@ Respond using this skill when the user says things like:
 | OpenAPI | `output/spec/openapi.yaml` |
 | **SIT** — per-TC file | `output/sit/TC01.md`, `TC02.md`, ..., `TC{nn}.md` |
 | **SIT** — summary | `output/sit/SIT_SUMMARY.md` |
+| **Query base** | ````sql```` in Spec Flow Logic & Task SQL base (Oracle, `FETCH FIRST / OFFSET`) |
 | Project context | `project_context.md` |
 
 **Markdown first:** deliver in chat and/or Write tool — user may **copy-paste** to Sheets or Monday without committing files.
@@ -211,6 +217,7 @@ Respond using this skill when the user says things like:
 - [ ] RTM written to `output/rtm/RTM.md` / `RTM_<scope>.md` only; every FR references a BR; sequential IDs restart per scope; empty cells mark uncovered requirements
 - [ ] OpenAPI (`output/spec/openapi.yaml`) valid 3.0 YAML; every endpoint has summary/description/tags + `x-status`/`x-phase` where derivable
 - [ ] SIT covers all artifacts (FSD + ERD + Spec + Tasks + RTM); every feature has ≥3 test steps (1 positive + 2 negative); every Expected Result has 3 aspects (UI/Business/Data); browser matrix has 5 platforms; Refinement Mode preserves existing good tests
+- [ ] Query (Oracle) in Spec/Task uses `FROM→JOIN→WHERE→GROUP BY→HAVING→SELECT→ORDER BY→FETCH` order, `FETCH FIRST / OFFSET FETCH NEXT` (not `LIMIT`), no `SELECT *`, tanggal range `>= / <`, `mst_/trn_/tmp_`, 8-step checklist passed
 
 ---
 
