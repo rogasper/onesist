@@ -195,9 +195,12 @@ function Carousel() {
   const [idx, setIdx] = useState(0);
   const timerRef = useRef<number | null>(null);
   const slides = [
-    { title: "Projects — Dashboard", desc: "Manage repos, auto-install skills.", color: "from-[#6d7cff]/10 to-[#a78bfa]/10", label: "Dashboard", file: "dashboard.png" },
-    { title: "ERD Studio", desc: "Interactive canvas — Dagre layout, DBML live.", color: "from-emerald-50 to-teal-50", label: "ERD", file: "erd.png" },
-    { title: "API Specs", desc: "Module cards with search & payloads.", color: "from-amber-50 to-orange-50", label: "Spec", file: "spec.png" },
+    { title: "Projects — Dashboard", desc: "Manage multiple repos, auto-install skills.", color: "from-[#6d7cff]/10 to-[#a78bfa]/10", label: "Dashboard", file: "dashboard.png" },
+    { title: "FSD Analyzer + Agent CLI", desc: "MDX editor + streaming terminal — opencode / Claude / Codex / Agy.", color: "from-violet-50 to-indigo-50", label: "FSD", file: "agent-cli.png" },
+    { title: "ERD Studio", desc: "Interactive canvas — ReactFlow + Dagre, DBML live.", color: "from-emerald-50 to-teal-50", label: "ERD", file: "erd.png" },
+    { title: "API Specs", desc: "Module cards with search, payloads & state machines.", color: "from-amber-50 to-orange-50", label: "Spec", file: "spec.png" },
+    { title: "Tasks — List & Detail", desc: "21 tasks · 77 SP · flow logic, SQL & agent prompts.", color: "from-sky-50 to-blue-50", label: "Tasks", file: "tasks.png" },
+    { title: "Timeline & Gantt", desc: "Developer utilization + Sprint Gantt, critical path.", color: "from-slate-50 to-zinc-50", label: "Timeline", file: "timeline.png" },
   ];
 
   useEffect(() => {
@@ -232,32 +235,35 @@ function Carousel() {
            }}>
         <div className="flex transition-transform duration-700 ease-out" style={{ transform: `translateX(-${idx * 100}%)` }}>
           {slides.map((s) => (
-            <div key={s.label} className="min-w-full p-6 md:p-8">
-              <div className={`rounded-2xl bg-gradient-to-br ${s.color} border border-zinc-100 p-6 md:p-8`}>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono px-2 py-1 rounded-full bg-white border border-zinc-200 text-zinc-600">{s.label}</span>
-                  <span className="text-xs text-zinc-400">Playwright screenshot placeholder — will be replaced with real capture</span>
+            <div key={s.label} className="min-w-full p-4 md:p-6">
+              <div className={`rounded-2xl bg-gradient-to-br ${s.color} border border-zinc-100 p-4 md:p-6 shadow-sm`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white border border-zinc-200 text-zinc-700 shadow-sm">{s.label}</span>
+                  <span className="hidden sm:inline text-xs text-zinc-500">{s.desc}</span>
                 </div>
-                <div className="mt-4 text-lg font-semibold text-zinc-900">{s.title}</div>
-                <div className="text-sm text-zinc-500">{s.desc}</div>
-                <div className="mt-6 rounded-xl overflow-hidden border border-zinc-200 bg-white shadow-sm">
-                  <img
-                    src={`/screenshots/${(s as any).file}`}
-                    alt={s.title}
-                    className="w-full h-[360px] object-cover object-top"
-                    loading="lazy"
-                    onError={(e) => {
-                      const el = e.currentTarget;
-                      el.style.display = "none";
-                      const ph = el.nextElementSibling as HTMLElement | null;
-                      if (ph) ph.style.display = "flex";
-                    }}
-                  />
-                  <div className="hidden h-[360px] items-center justify-center bg-zinc-50 text-sm text-zinc-400">
-                    Screenshot pending — run Playwright capture
+                <div className="mt-3 md:mt-4 text-[15px] md:text-[17px] font-semibold leading-tight text-zinc-900">{s.title}</div>
+                <div className="sm:hidden mt-1 text-xs leading-5 text-zinc-500">{s.desc}</div>
+                <div className="mt-5 rounded-[16px] overflow-hidden border border-zinc-200/70 bg-white/80 backdrop-blur shadow-sm p-1.5 md:p-2">
+                  <div className="rounded-[10px] overflow-hidden border border-zinc-200/60 bg-white">
+                    <img
+                      src={`/screenshots/${(s as any).file}`}
+                      alt={s.title}
+                      className="w-full h-auto block"
+                      loading="lazy"
+                      decoding="async"
+                      onError={(e) => {
+                        const el = e.currentTarget;
+                        el.style.display = "none";
+                        const ph = el.nextElementSibling as HTMLElement | null;
+                        if (ph) ph.style.display = "flex";
+                      }}
+                    />
+                    <div className="hidden h-[320px] items-center justify-center bg-zinc-50 text-sm text-zinc-400">
+                      Screenshot pending — run Playwright capture
+                    </div>
                   </div>
                 </div>
-                <div className="mt-4 flex gap-2 text-[11px] font-mono text-zinc-400">
+                <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-mono text-zinc-400">
                   <span className="px-2 py-1 rounded-full bg-white border border-zinc-200">output/{s.label.toLowerCase()}/…</span>
                   <span className="px-2 py-1 rounded-full bg-white border border-zinc-200">live file watcher</span>
                 </div>
