@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.40 — Skills: query-writer (Oracle) for Spec & Task
+
+### Feat — Skills
+- **query-writer v1.0.0 (Oracle CRM Dashboard)** (`vendor/skills/query-writer/SKILL.md` + `rules/query_rules.md` 8-section: FROM→JOIN→WHERE→GROUP BY→HAVING→SELECT→ORDER BY→FETCH, per-clause rules, 8-step checklist, `FETCH FIRST / OFFSET FETCH NEXT`, `mst_/trn_/tmp_`, no `SELECT *`, tanggal range `>= / <` WIB)
+- **fsd-analyzer v1.4.0 → 1.5.0** — integrate query-writer: `references/query_writer.md` + `references/query_rules.md`, description/modes/trigger phrases/core responsibilities/output/quality gates updated; Spec Flow Logic & Task SQL base now enforce Oracle standard
+- **Sync** → `/Users/user/Documents/Work/fsd-analyzer` (SKILL.md + 2 refs, no new folder) + `src-tauri/vendor-skills/fsd-analyzer`
+- **Bump `0.1.39 → 0.1.40`**.
+
 ## v0.1.39 — Theme: light parity with landing
 
 ### Feat — Theme
