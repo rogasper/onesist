@@ -20,7 +20,7 @@ flowchart TD
 
 ## Step 1 — Generate Technical Documentation
 
-The template lives at `templates/technical-documentation.md` (project root). Its structure: Cover → Approvals → Introduction (Purpose, Background, Objectives, References, Version History) → Project Scope (In/Out) → Effort Estimation → System Overview (mermaid diagram) → Requirement Detail (per FD: FE spec + BE spec + endpoints) → ERD Appendix (mermaid diagram) → Data Specification.
+The template lives at `templates/technical-documentation.md` (project root). Its structure: Cover → Approvals → Introduction → References → Project Scope (In/Out) → Effort Estimation → System Overview (mermaid **or** ```diagram-svg/```svg premium) → Requirement Detail (per FD: FE spec + BE spec + endpoints) → ERD Appendix (mermaid **or** ```diagram-svg/```svg) → Data Specification. Fence ```diagram-svg {"type":"pipeline"}``` / ```svg <svg>…``` is recommended for client-facing SRS (vector preview, sharp DOCX raster via `src/lib/diagram-svg.ts` + `src/lib/docx-export.ts`); mermaid for internal sketches.
 
 ```
 You are a Senior System Analyst. Use the fsd-analyzer skill.
@@ -50,8 +50,7 @@ Follow the template at templates/technical-documentation.md:
   - One sub-section per endpoint: ##### METHOD /path + a 2-column table
     (Field | Value) with Type, Status, Description, Endpoint, Method,
     Request, Response, Table Related (+ Note/Validation/Logic when needed)
-- System Overview & ERD Appendix: replace the placeholder mermaid blocks with
-  real diagrams (business flowchart + erDiagram from the final tables).
+- System Overview & ERD Appendix: replace placeholder mermaid blocks with real diagrams. For client SRS, **use ```diagram-svg {"type":"pipeline"}``` (FSD→Delivery) or raw ```svg``` premium** — vector preview in `MarkdownViewer` (`src/components/diagram/DiagramSvgBlock.tsx`) and sharp PNG raster on DOCX export. Alternative: business flowchart + erDiagram mermaid for internal use.
 - Effort Estimation: derive from the story points in output/task, per module/
   phase, expressed in person-days/weeks.
 
@@ -74,7 +73,7 @@ Review in the **Docs** tab (preview) and/or read the file directly. Check:
 1. **Metadata & cover** — project name, customer, version, date correct.
 2. **Section completeness** — every template section is filled (irrelevant ones marked N/A, not removed).
 3. **Requirement Detail** — each FD appears separately with FE + BE spec + endpoints consistent with the API Spec.
-4. **Diagrams** — System Overview (flowchart) and ERD Appendix (erDiagram) are valid and accurate.
+4. **Diagrams** — System Overview (flowchart) and ERD Appendix (erDiagram) are valid and accurate. For client SRS, verify ```diagram-svg/```svg renders as vector and DOCX is sharp (don't use mermaid HTML labels for client entrega).
 5. **Effort Estimation** — consistent with the story points / timeline in the tasks.
 
 ### Revisions
@@ -95,7 +94,7 @@ Regenerate until:
 The result is a plain Markdown file. Distribution options:
 
 - **Open & copy** from the Docs tab (or any editor) into Confluence/Google Docs.
-- **DOCX export** — available in the UI (export button), but **experimental**; alternative: use a markdown→docx converter (e.g. Pandoc: `pandoc output/td/td_x.md -o td.docx`) if the button doesn't work.
+- **DOCX export** — the **Export DOCX** button in the Docs tab now handles `mermaid` **and** ```diagram-svg/```svg premium (canvas raster → PNG via `src/routes/projects.$id.docs.tsx` + `src/lib/diagram-svg.ts` → `src/lib/docx-export.ts`). Alternative: Pandoc `pandoc output/td/td_x.md -o td.docx` (but native DOCX is sharper for vector diagrams).
 
 ---
 
@@ -105,9 +104,9 @@ The result is a plain Markdown file. Distribution options:
 - [ ] Metadata complete (customer, project, version, author)
 - [ ] `output/td/td_<timestamp>.md` created following the template
 - [ ] All sections filled; placeholders replaced
-- [ ] Mermaid diagrams valid (System Overview + ERD Appendix)
+- [ ] Diagrams valid (mermaid for internal, ```diagram-svg/```svg premium for clients — verify vector preview & DOCX)
 - [ ] Effort Estimation consistent with the tasks
-- [ ] TD reviewed & final
+- [ ] TD reviewed & final (see [08 — Prompt Library](08-prompt-library.md) P9 + P12 for premium diagrams)
 
 ---
 

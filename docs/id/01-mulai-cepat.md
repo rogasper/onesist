@@ -12,7 +12,7 @@ Panduan ringkas untuk mulai menggunakan Onesist dengan pendekatan agent-CLI.
 4. Isi **Project Name** dan pilih **Default Agent CLI** (opencode disarankan).
 5. Klik **Open Project**. Aplikasi akan:
    - membuat project di database,
-   - mengecek / menginstal skill **`fsd-analyzer`** dan **`markitdown`** ke `.agents/skills/`,
+   - mengecek / menginstal skill **`fsd-analyzer`**, **`markitdown`**, **`diagram-svg`**, dan **`query-writer`** ke `.agents/skills/`,
    - membawa Anda ke halaman project.
 
 > Jika ada banner merah "Project skills failed to install" — klik **Retry install**. Tanpa skill ini, agent tidak bisa menghasilkan artefak SA.
@@ -21,7 +21,7 @@ Panduan ringkas untuk mulai menggunakan Onesist dengan pendekatan agent-CLI.
 flowchart LR
   A[Projects page] -->|Open Project| B[Pilih folder root]
   B -->|isi nama + agent| C[Open Project]
-  C -->|auto-install skills| D[.agents/skills/ fsd-analyzer + markitdown]
+  C -->|auto-install skills| D[.agents/skills/ 4 skills: fsd-analyzer + markitdown + diagram-svg + query-writer]
   D --> E[Lanjut ke tab FSD / Terminal]
 ```
 
@@ -46,10 +46,10 @@ Dan tombol **Terminal** di kanan atas header → membuka panel terminal agent CL
 
 Di terminal embedded (atau `opencode run`), prompt ideal berisi:
 
-1. **Peran & skill** — `Kamu adalah Senior System Analyst. Gunakan skill fsd-analyzer.`
+1. **Peran & skill** — `Kamu adalah Senior System Analyst. Gunakan skill fsd-analyzer / markitdown / diagram-svg / query-writer.`
 2. **File yang terlibat** — sebutkan path lengkap relatif project root, mis. `input/fsd/sources/fdd_001.pdf`.
-3. **Tindakan** — apa yang harus dilakukan (convert, split, generate, review, merge).
-4. **Output yang jelas** — path file tujuan + format (DBML, Markdown, YAML, HTML).
+3. **Tindakan** — apa yang harus dilakukan (convert, split, generate, review, merge, buat diagram).
+4. **Output yang jelas** — path file tujuan + format (DBML, Markdown, YAML, HTML, atau fence ```diagram-svg/```svg).
 5. **Batasan** — file yang **jangan** diubah (mis. `JANGAN ubah MASTER_ERD.md`).
 
 Contoh prompt convert:
@@ -87,10 +87,11 @@ sequenceDiagram
 ## 5. Checklist Awal Sebelum Bekerja
 
 - [ ] Agent CLI (opencode) terdeteksi saat membuka project
-- [ ] Skill `fsd-analyzer` dan `markitdown` terinstal di `.agents/skills/`
+- [ ] Skill `fsd-analyzer`, `markitdown`, `diagram-svg`, dan `query-writer` terinstal di `.agents/skills/`
 - [ ] Project root sudah berisi folder `input/fsd/sources/` (tempat PDF/asal ditaruh)
 - [ ] (Disarankan) `MASTER_ERD.md` dan `MASTER_SPEC_API.md` dibuat jika sudah ada baseline
 - [ ] Terminal embedded bisa dibuka dan sesi agent berjalan
+- [ ] (Opsional) Coba fence ```diagram-svg {"type":"pipeline"}``` di markdown mana pun — preview harus render vector SVG dan export DOCX harus rasterize
 
 ---
 

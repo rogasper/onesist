@@ -23,7 +23,7 @@ Onesist is a dashboard for **System Analysts** working with functional requireme
 The workflow in this documentation **does not rely on UI action buttons**. All transformations are done by **giving commands (prompts) to the agent CLI** — usually **OpenCode** — which:
 
 - runs **inside the project folder** (cwd = project root),
-- uses installed skills: **`fsd-analyzer`** (produces SA artifacts) and **`markitdown`** (converts documents to Markdown),
+- uses installed skills: **`fsd-analyzer`** (SA artifacts), **`markitdown`** (document conversion), **`diagram-svg`** (premium markdown-native diagrams), and **`query-writer`** (Oracle SQL standard),
 - reads/writes files in `input/`, `output/`, and `MASTER_*` directly.
 
 Why this approach:
@@ -42,7 +42,7 @@ The **Terminal** button (in the project header) opens a panel with an interactiv
 flowchart LR
   UI[Dashboard terminal panel] -->|WebSocket| WS[Terminal Server]
   WS -->|PTY spawn| CLI[Agent CLI: opencode / claude / codex]
-  CLI -->|cwd = project root| SK[Skills: fsd-analyzer, markitdown]
+  CLI -->|cwd = project root| SK[Skills: fsd-analyzer, markitdown, diagram-svg, query-writer]
   SK -->|read/write files| FS[input/ output/ MASTER_*]
   FS -->|file watcher + SSE| UI2[Dashboard tabs auto-refresh]
 ```
@@ -74,7 +74,7 @@ General form per agent:
 ## 5. Prerequisites
 
 - **Agent CLI installed** on the system (opencode recommended) — detected automatically when opening a project (the project tab warns if skills failed to install).
-- **Project skills installed** into `.agents/skills/` (fsd-analyzer, markitdown) — auto-installed when a project is first opened.
+- **Project skills installed** into `.agents/skills/` (fsd-analyzer, markitdown, diagram-svg, query-writer) — auto-installed when a project is first opened. `diagram-svg` & `query-writer` stay separate for modular versioning — fsd-analyzer delegates to them for Flow Logic / diagrams.
 - **Project folder** containing (or about to contain) `input/fsd/`, `output/`, and optionally `MASTER_ERD.md` / `MASTER_SPEC_API.md`.
 
 ---

@@ -23,6 +23,9 @@ export interface DocxExportInput {
   contentMd: string;
   /** PNG data URLs (data:image/png;base64,...) keyed by the mermaid marker index. */
   diagramPngs: string[];
+  /** PNG data URLs for diagram-svg / raw svg blocks (rasterized from SVG). */
+  diagramSvgPngs?: string[];
+  rawSvgPngs?: string[];
   meta: DocMeta;
 }
 
@@ -31,7 +34,9 @@ type Block =
   | { type: "paragraph"; text: string }
   | { type: "table"; rows: string[][] }
   | { type: "list"; ordered: boolean; items: string[] }
-  | { type: "mermaid"; code?: string; index?: number };
+  | { type: "mermaid"; code?: string; index?: number }
+  | { type: "diagramSvg"; code?: string; index?: number }
+  | { type: "rawSvg"; code?: string; index?: number };
 
 type Align = (typeof AlignmentType)[keyof typeof AlignmentType];
 type Heading = (typeof HeadingLevel)[keyof typeof HeadingLevel];
@@ -58,7 +63,7 @@ function parseBlocks(part: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    // mermaid marker inserted by the frontend renderer
+    // diagram markers inserted by the frontend renderer (mermaid + diagram-svg/raw-svg)
     const marker = line.match(/^\s*<!--\s*MERMAID:(\d+)\s*-->\s*$/i);
     if (marker) {
       flushParagraph(paraBuf);
@@ -66,8 +71,22 @@ function parseBlocks(part: string): Block[] {
       i++;
       continue;
     }
+    const svgMarker = line.match(/^\s*<!--\s*DIAGRAM_SVG:(\d+)\s*-->\s*$/i);
+    if (svgMarker) {
+      flushParagraph(paraBuf);
+      blocks.push({ type: "diagramSvg", index: Number(svgMarker[1]) });
+      i++;
+      continue;
+    }
+    const rawSvgMarker = line.match(/^\s*<!--\s*RAW_SVG:(\d+)\s*-->\s*$/i);
+    if (rawSvgMarker) {
+      flushParagraph(paraBuf);
+      blocks.push({ type: "rawSvg", index: Number(rawSvgMarker[1]) });
+      i++;
+      continue;
+    }
 
-    // code fence (mermaid or plain)
+    // code fence (mermaid / diagram-svg / svg or plain)
     if (/^```/.test(line.trim())) {
       flushParagraph(paraBuf);
       const lang = line.trim().slice(3).trim().toLowerCase();
@@ -80,6 +99,10 @@ function parseBlocks(part: string): Block[] {
       i++; // skip closing fence
       if (lang === "mermaid") {
         blocks.push({ type: "mermaid", code: code.join("\n") });
+      } else if (lang === "diagram-svg" || lang === "diagram_svg") {
+        blocks.push({ type: "diagramSvg", code: code.join("\n") });
+      } else if (lang === "svg") {
+        blocks.push({ type: "rawSvg", code: code.join("\n") });
       } else if (code.join("\n").trim()) {
         blocks.push({ type: "paragraph", text: code.join("\n") });
       }
@@ -260,40 +283,56 @@ function dataUrlToPng(dataUrl: string): Buffer | null {
   }
 }
 
+function pngBufferToParagraph(buf: Buffer): Paragraph {
+  const size = pngSize(buf);
+  const maxW = 650; // ≈ A4 content width @96dpi (6.7")
+  const maxH = 900; // ≈ A4 content height
+  let w = size?.w ?? 600;
+  let h = size?.h ?? 400;
+  let scale = Math.min(1, maxW / w);
+  if (h * scale > maxH) scale = maxH / h;
+  w = Math.round(w * scale);
+  h = Math.round(h * scale);
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 120, after: 120 },
+    children: [
+      new ImageRun({
+        type: "png",
+        data: buf,
+        transformation: { width: w, height: h },
+      }),
+    ],
+  });
+}
+
 function mermaidImage(diagramPngs: string[], index?: number, code?: string): Paragraph | null {
   if (index !== undefined && diagramPngs[index]) {
     const buf = dataUrlToPng(diagramPngs[index]);
-    if (buf) {
-      const size = pngSize(buf);
-      // Fit to page width first, then only shrink if the diagram is taller than
-      // a single page. min(scaleW, scaleH) would over-shrink tall top-down
-      // flowcharts (height binds → width collapses to a tiny strip).
-      const maxW = 650; // ≈ A4 content width @96dpi (6.7")
-      const maxH = 900; // ≈ A4 content height
-      let w = size?.w ?? 600;
-      let h = size?.h ?? 400;
-      let scale = Math.min(1, maxW / w);
-      if (h * scale > maxH) scale = maxH / h;
-      w = Math.round(w * scale);
-      h = Math.round(h * scale);
-      return new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { before: 120, after: 120 },
-        children: [
-          new ImageRun({
-            type: "png",
-            data: buf,
-            transformation: { width: w, height: h },
-          }),
-        ],
-      });
-    }
+    if (buf) return pngBufferToParagraph(buf);
   }
   // Fallback: keep the diagram as monospace code so content is never lost.
   const text = code?.trim();
   if (text) {
     return new Paragraph({
       children: text.split("\n").map((line) => new TextRun({ text: line, font: "Consolas", size: 18, break: 1 })),
+      spacing: { before: 120, after: 120 },
+    });
+  }
+  return new Paragraph({ children: [new TextRun({ text: "[diagram]", italics: true, color: "9CA3AF" })] });
+}
+
+function diagramSvgImage(diagramSvgPngs: string[], index?: number, code?: string): Paragraph | null {
+  if (index !== undefined && diagramSvgPngs[index]) {
+    const buf = dataUrlToPng(diagramSvgPngs[index]);
+    if (buf) return pngBufferToParagraph(buf);
+  }
+  const text = code?.trim();
+  if (text) {
+    // For raw SVG, show a truncated hint; for diagram-svg JSON show code
+    const preview = text.startsWith("<svg") ? "[SVG diagram — rasterize failed, see preview]" : text;
+    return new Paragraph({
+      children: preview.split("\n").map((line) => new TextRun({ text: line, font: "Consolas", size: 16, break: 1 })),
       spacing: { before: 120, after: 120 },
     });
   }
@@ -421,7 +460,12 @@ function buildFooter(meta: DocMeta): Footer {
   return new Footer({ children: [table] });
 }
 
-function renderSectionBlocks(blocks: Block[], diagramPngs: string[]): (Paragraph | Table)[] {
+function renderSectionBlocks(
+  blocks: Block[],
+  diagramPngs: string[],
+  diagramSvgPngs: string[] = [],
+  rawSvgPngs: string[] = [],
+): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = [];
   for (const block of blocks) {
     switch (block.type) {
@@ -469,13 +513,23 @@ function renderSectionBlocks(blocks: Block[], diagramPngs: string[]): (Paragraph
         if (p) out.push(p);
         break;
       }
+      case "diagramSvg": {
+        const p = diagramSvgImage(diagramSvgPngs, block.index, block.code);
+        if (p) out.push(p);
+        break;
+      }
+      case "rawSvg": {
+        const p = diagramSvgImage(rawSvgPngs, block.index, block.code);
+        if (p) out.push(p);
+        break;
+      }
     }
   }
   return out;
 }
 
 export async function buildDocx(input: DocxExportInput): Promise<Buffer> {
-  const { contentMd, diagramPngs, meta } = input;
+  const { contentMd, diagramPngs, diagramSvgPngs = [], rawSvgPngs = [], meta } = input;
   const sections = splitSections(contentMd);
 
   const header = buildHeader(meta);
@@ -516,7 +570,7 @@ export async function buildDocx(input: DocxExportInput): Promise<Buffer> {
         }
       });
     } else {
-      children.push(...renderSectionBlocks(blocks, diagramPngs));
+      children.push(...renderSectionBlocks(blocks, diagramPngs, diagramSvgPngs, rawSvgPngs));
     }
   });
 

@@ -19,6 +19,7 @@ Understand where artifacts live and what formats are expected. All paths below a
 │   ├── erd/                  # ERD in .dbml (or markdown)
 │   ├── task/                 # Task cards markdown
 │   ├── td/                   # Technical Documentation / SRS
+│   ├── sketches/             # Excalidraw canvas + standalone .svg (diagram-svg)
 │   ├── reports/              # (optional) gap / consistency reports
 │   └── timeline*.html        # Gantt chart (may also live directly in output/)
 ├── MASTER_ERD.md             # Rolling schema context (project root)
@@ -26,7 +27,7 @@ Understand where artifacts live and what formats are expected. All paths below a
 ├── templates/
 │   └── technical-documentation.md   # TD template (for the documentation workflow)
 └── .agents/
-    └── skills/               # Project skills (fsd-analyzer, markitdown)
+    └── skills/               # Project skills (fsd-analyzer, markitdown, diagram-svg, query-writer)
 ```
 
 > The dashboard watches `input/fsd`, `output/spec`, `output/erd`, `output/task`, and `output/td`. Changed files trigger an auto-refresh in the relevant tabs.
@@ -107,7 +108,16 @@ A **self-contained HTML** Gantt chart (openable directly in a browser). The **Ta
 
 ### 2.6 Technical Documentation (Markdown)
 
-SRS documents in `output/td/td_<timestamp>.md`, following the template `templates/technical-documentation.md`: Cover → Approvals → Introduction → Scope → Effort Estimation → System Overview (mermaid) → Requirement Detail per FD → ERD Appendix (mermaid) → Data Specification.
+SRS documents in `output/td/td_<timestamp>.md`, following the template `templates/technical-documentation.md`: Cover → Approvals → Introduction → Scope → Effort Estimation → System Overview (mermaid **or** ```diagram-svg/```svg) → Requirement Detail per FD → ERD Appendix (mermaid **or** ```diagram-svg/```svg) → Data Specification. Fences ```diagram-svg {"type":"pipeline"}``` / ```svg <svg>…``` render as vector previews and rasterize to PNG on DOCX export (`src/lib/docx-export.ts`, `src/routes/projects.$id.docs.tsx`).
+
+### 2.7 Diagram SVG — Markdown-Native (diagram-svg)
+
+The `diagram-svg` skill provides premium diagrams that live **inside markdown**:
+
+- **```diagram-svg JSON```** — `{type:"pipeline"|"sidecar", title, steps, footerNote}`. Minimal: `{"type":"pipeline"}` or custom steps — rendered via `src/lib/diagram-svg.ts` + `src/components/diagram/DiagramSvgBlock.tsx`.
+- **```svg ```** — raw `<svg>…</svg>` passthrough (hand-written, must have `viewBox`). For bespoke diagrams.
+
+Both fences **preview as vector** in `MarkdownViewer` and **export to DOCX** (canvas raster → PNG in `output/td`). Alternative standalone: write `.svg` to `output/sketches/<name>.svg`, but embedded fences are safer for DOCX. See `vendor/skills/diagram-svg/references/diagram_template.md` for templates and `references/style_tokens.md` for the Kumo palette.
 
 ## 3. Master Artifacts (Rolling Context)
 

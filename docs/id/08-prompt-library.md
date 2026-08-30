@@ -9,7 +9,7 @@ Ganti placeholder `<...>` sesuai project Anda.
 ## Cara Menjalankan
 
 **Di terminal embedded** (panel Terminal di project):
-- Ketik prompt lalu Enter. Agent berjalan di project root dengan skill `fsd-analyzer` / `markitdown` terpasang.
+- Ketik prompt lalu Enter. Agent berjalan di project root dengan 4 skill terpasang (`fsd-analyzer`, `markitdown`, `diagram-svg`, `query-writer`).
 
 **Dari terminal OS (alternatif):**
 ```bash
@@ -288,9 +288,123 @@ Tulis ke output/reports/consistency_<timestamp>.md.
 
 ---
 
+## P12 — Diagram Premium Markdown-Native (diagram-svg)
+
+Gunakan skill **`diagram-svg`** — diagram vector yang **preview di markdown** dan **export DOCX** tajam (beda dari mermaid HTML yang pecah di DOCX).
+
+### Pipeline FSD → Delivery (untuk SRS / System Overview)
+
+```text
+Kamu adalah Senior System Analyst. Gunakan skill diagram-svg.
+
+Buatkan diagram pipeline FSD → Delivery untuk SRS:
+
+```diagram-svg
+{
+  "type": "pipeline",
+  "title": "PIPELINE — FSD → DELIVERY (Artifact-Driven)",
+  "steps": [
+    { "label": "FSD PDF/DOCX", "sub": "input/fsd/", "badge": "MARKITDOWN" },
+    { "label": "Discovery", "sub": "Q & Assumption", "badge": "ALIGNED?" },
+    { "label": "ERD (DBML)", "sub": "output/erd/", "badge": "ERD" },
+    { "label": "Spec API", "sub": "output/spec/", "badge": "SPEC" },
+    { "label": "Tasks + Timeline", "sub": "output/task/", "badge": "TASK" }
+  ],
+  "footerNote": "File adalah kebenaran · UI hanya viewer"
+}
+```
+
+Sisipkan fence di atas ke `output/td/td_<timestamp>.md` bagian System Overview
+(ganti placeholder mermaid). Pastikan preview di tab Docs render vector dan
+Export DOCX rasterize tanpa pecah. Jika butuh custom warna, set bg/stroke per step
+(lihat vendor/skills/diagram-svg/references/style_tokens.md).
+```
+
+### Arsitektur Tauri + Bun Sidecar (untuk lampiran / README)
+
+```text
+Kamu adalah Senior System Analyst. Gunakan skill diagram-svg.
+
+Buatkan diagram arsitektur desktop untuk lampiran TD:
+
+```diagram-svg
+{"type":"sidecar","title":"DESKTOP ARCHITECTURE — Tauri 2 + Bun Sidecar"}
+```
+
+Sisipkan ke `output/td/td_<timestamp>.md` bagian System Overview / Lampiran.
+```
+
+### Raw SVG bespoke (kontrol penuh)
+
+```text
+Sisipkan diagram custom berikut ke `output/td/td_<timestamp>.md`:
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="320" viewBox="0 0 900 320"><rect x="0" y="0" width="900" height="320" rx="16" fill="#f8fafc" stroke="#e2e8f0"/><text x="450" y="160" text-anchor="middle" font-size="14" fill="#0f172a">Diagram custom — edit bebas</text></svg>
+```
+
+Pastikan fence mengandung <svg dan viewBox agar preview & DOCX berhasil.
+Lihat template lengkap di vendor/skills/diagram-svg/references/diagram_template.md.
+```
+
+### Validasi
+
+```bash
+python vendor/skills/diagram-svg/scripts/validate_diagrams.py output/td/td_<timestamp>.md
+# cek JSON valid, type pipeline/sidecar, svg punya viewBox
+```
+
+Lihat detail skill di `vendor/skills/diagram-svg/SKILL.md`.
+
+---
+
+## P13 — SQL Oracle Standar (query-writer)
+
+Gunakan skill **`query-writer`** standalone — bisa tanpa FSD, maupun otomatis dipanggil `fsd-analyzer` untuk Flow Logic / Task SQL. Aturan di `vendor/skills/query-writer/rules/query_rules.md` (urutan `FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → FETCH`, 8-step checklist).
+
+### Buatkan query standar
+
+```text
+Kamu adalah Senior System Analyst. Gunakan skill query-writer.
+
+Buatkan query Oracle untuk: <deskripsi kebutuhan, mis. daftar customer dengan jumlah order & total amount, filter tanggal, paging>
+
+Ikuti urutan FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → FETCH:
+- Explicit kolom (tanpa SELECT *), alias jelas
+- Tanggal pakai range >= / < (DB UTC → WIB)
+- Prefix mst_ / trn_ / tmp_ sesuai konvensi
+- Verifikasi dengan 8-step checklist di rules/query_rules.md sebelum menjawab
+
+Tampilkan SQL final dalam blok ```sql dan jelaskan singkat GROUP BY & WHERE.
+JANGAN mengubah file lain.
+```
+
+### Fix query existing
+
+```text
+Gunakan skill query-writer. Perbaiki query berikut agar lolos 8-step checklist:
+
+```sql
+<query lama>
+```
+
+Tulis hasil ke <path jika perlu, mis. catatan di output/reports/query_fix.md>.
+```
+
+### Validasi
+
+```bash
+python vendor/skills/query-writer/rules/query_rules.md  # baca manual
+# atau minta agent: "cek query ini dengan 8-step checklist query-writer"
+```
+
+Lihat `vendor/skills/query-writer/SKILL.md` dan mirror `vendor/skills/fsd-analyzer/references/query_rules.md`.
+
+---
+
 ## Catatan Umum Prompt
 
-- **Selalu sebutkan peran + skill**: `Kamu adalah Senior System Analyst. Gunakan skill fsd-analyzer.`
+- **Selalu sebutkan peran + skill**: `Kamu adalah Senior System Analyst. Gunakan skill fsd-analyzer / markitdown / diagram-svg / query-writer` (pilih yang relevan; Flow Logic SQL bisa `query-writer` saja).
 - **Sebutkan path file lengkap** (relatif project root) — jangan cuma nama.
 - **Jelaskan output path + format** — agent tidak boleh menebak.
 - **Tambah batasan**: `JANGAN mengubah file lain.` / `JANGAN modifikasi MASTER_* tanpa instruksi.`

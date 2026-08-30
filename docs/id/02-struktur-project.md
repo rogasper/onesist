@@ -19,6 +19,7 @@ Pahami di mana artefak tinggal dan format apa yang diharapkan. Semua path beriku
 │   ├── erd/                  # ERD dalam .dbml (atau markdown)
 │   ├── task/                 # Task cards markdown
 │   ├── td/                   # Technical Documentation / SRS
+│   ├── sketches/             # Excalidraw canvas + standalone .svg (diagram-svg)
 │   ├── reports/              # (opsional) laporan gap/consistency
 │   └── timeline*.html        # Gantt chart (bisa juga di output/)
 ├── MASTER_ERD.md             # Konteks rolling schema (root project)
@@ -26,7 +27,7 @@ Pahami di mana artefak tinggal dan format apa yang diharapkan. Semua path beriku
 ├── templates/
 │   └── technical-documentation.md   # Template TD (untuk workflow dokumentasi)
 └── .agents/
-    └── skills/               # Skill project (fsd-analyzer, markitdown)
+    └── skills/               # Skill project (fsd-analyzer, markitdown, diagram-svg, query-writer)
 ```
 
 > Dashboard memantau `input/fsd`, `output/spec`, `output/erd`, `output/task`, dan `output/td`. File yang berubah akan memicu auto-refresh di tab terkait.
@@ -107,7 +108,16 @@ Gantt chart **self-contained HTML** (bisa dibuka langsung di browser). Tab **Tas
 
 ### 2.6 Technical Documentation (Markdown)
 
-Dokumen SRS di `output/td/td_<timestamp>.md`, mengikuti template `templates/technical-documentation.md` dengan struktur: Cover → Approvals → Introduction → Scope → Effort Estimation → System Overview (mermaid) → Requirement Detail per FD → Lampiran ERD (mermaid) → Data Specification.
+Dokumen SRS di `output/td/td_<timestamp>.md`, mengikuti template `templates/technical-documentation.md` dengan struktur: Cover → Approvals → Introduction → Scope → Effort Estimation → System Overview (mermaid **atau** ```diagram-svg/```svg) → Requirement Detail per FD → Lampiran ERD (mermaid **atau** ```diagram-svg/```svg) → Data Specification. Fence ```diagram-svg {"type":"pipeline"}``` / ```svg <svg>…``` render vector di preview dan rasterize ke PNG saat Export DOCX (`src/lib/docx-export.ts`, `src/routes/projects.$id.docs.tsx`).
+
+### 2.7 Diagram SVG — Markdown-Native (diagram-svg)
+
+Skill `diagram-svg` menyediakan diagram premium yang hidup **di dalam markdown**:
+
+- **```diagram-svg JSON```** — `{type:"pipeline"|"sidecar", title, steps, footerNote}`. Contoh minimal: `{"type":"pipeline"}` atau custom steps — dirender via `src/lib/diagram-svg.ts` + `src/components/diagram/DiagramSvgBlock.tsx`.
+- **```svg ```** — raw `<svg>…</svg>` passthrough (hand-written, harus punya `viewBox`). Cocok untuk diagram bespoke.
+
+Kedua fence **preview vector** di `MarkdownViewer` dan **export DOCX** (rasterize canvas → PNG di `output/td`). Alternatif standalone: tulis `.svg` ke `output/sketches/<name>.svg` lalu rujuk, tapi embedded fence lebih terjamin untuk DOCX. Lihat `vendor/skills/diagram-svg/references/diagram_template.md` untuk template dan `references/style_tokens.md` untuk palet Kumo.
 
 ## 3. Master Artifacts (Konteks Rolling)
 

@@ -30,6 +30,7 @@ flowchart TD
   M -- belum --> K
   M -- ya --> N[agent CLI: generate Technical Documentation / SRS]
   N --> O[TD di output/td/]
+  O --> P[Premium diagrams via diagram-svg — pipeline/sidecar SVG in markdown → DOCX]
 ```
 
 ---
@@ -48,7 +49,7 @@ flowchart TD
 | [05 — Workflow Spec API](id/05-workflow-spec-api.md) | FD + ERD → Spec API + openapi.yaml → review → finalisasi |
 | [06 — Workflow Tasks & Timeline](id/06-workflow-tasks.md) | ERD + Spec → Task Cards → estimasi → timeline paralel |
 | [07 — Workflow Dokumentasi](id/07-workflow-dokumentasi.md) | Technical Documentation / SRS dari seluruh artefak |
-| [08 — Prompt Library](id/08-prompt-library.md) | Template prompt siap salin per fase |
+| [08 — Prompt Library](id/08-prompt-library.md) | Template prompt siap salin per fase (termasuk diagram-svg) |
 | [09 — Best Practices](id/09-best-practices.md) | Praktik terbaik lengkap + checklist quality gates |
 
 ### 🇬🇧 English
@@ -63,7 +64,7 @@ flowchart TD
 | [05 — API Spec Workflow](en/05-spec-api-workflow.md) | FD + ERD → Spec + openapi.yaml → review → finalize |
 | [06 — Tasks & Timeline Workflow](en/06-tasks-workflow.md) | ERD + Spec → Task Cards → estimation → parallel timeline |
 | [07 — Documentation Workflow](en/07-documentation-workflow.md) | Technical Documentation / SRS from all artifacts |
-| [08 — Prompt Library](en/08-prompt-library.md) | Copy-paste prompt templates per phase |
+| [08 — Prompt Library](en/08-prompt-library.md) | Copy-paste prompt templates per phase (incl. diagram-svg) |
 | [09 — Best Practices](en/09-best-practices.md) | Deep best practices + quality gate checklist |
 
 ---
@@ -76,8 +77,9 @@ flowchart TD
 4. **ERD** → prompt generate dari FD → review di tab ERD → finalisasi.
 5. **Spec API + openapi.yaml** → prompt generate dari FD + ERD → review di tab API Spec → finalisasi.
 6. **Task Cards + Estimasi + Timeline** → prompt generate dari ERD + Spec → review di tab Tasks / Timeline.
-7. **Technical Documentation (SRS)** → prompt generate dari seluruh artefak → hasil di `output/td/`.
+7. **Technical Documentation (SRS)** → prompt generate dari seluruh artefak → hasil di `output/td/` (sisipkan diagram premium via skill `diagram-svg` — ```diagram-svg / ```svg).
+8. **Premium diagrams** (opsional, kapan saja) → tulis ```diagram-svg {"type":"pipeline"}``` atau ```svg <svg>…``` di markdown mana pun (FSD, wiki, TD) — preview vector + export DOCX rasterized.
 
 ---
 
-*Versi dokumen: 1.0.0 — 2026-08-12*
+*Versi dokumen: 1.1.0 — 2026-08-31 (tambah skill diagram-svg: pipeline/sidecar SVG markdown-native + DOCX)*

@@ -286,6 +286,30 @@ function DocsPage() {
         pngs.push(await renderMermaidToPng(mermaid, jobs[i], i));
       }
 
+      // Premium SVG diagrams: ```diagram-svg JSON``` and ```svg raw``` — markdown-native via diagram-svg lib
+      const { renderDiagramSvg, svgToPngDataUrl } = await import("~/lib/diagram-svg");
+      const diagramSvgRe = /```diagram-svg\s*\n([\s\S]*?)\n```/gi;
+      const rawSvgRe = /```svg\s*\n([\s\S]*?)\n```/gi;
+      const diagramSvgJobs: string[] = [];
+      let dmm: RegExpExecArray | null;
+      while ((dmm = diagramSvgRe.exec(selectedContent)) !== null) diagramSvgJobs.push(dmm[1]);
+      const rawSvgJobs: string[] = [];
+      let rmm: RegExpExecArray | null;
+      while ((rmm = rawSvgRe.exec(selectedContent)) !== null) rawSvgJobs.push(rmm[1]);
+
+      const diagramSvgPngs: (string | null)[] = [];
+      for (let i = 0; i < diagramSvgJobs.length; i++) {
+        const { svg, error } = renderDiagramSvg(diagramSvgJobs[i]);
+        if (svg && !error) diagramSvgPngs.push(await svgToPngDataUrl(svg));
+        else diagramSvgPngs.push(null);
+      }
+      const rawSvgPngs: (string | null)[] = [];
+      for (let i = 0; i < rawSvgJobs.length; i++) {
+        const svg = rawSvgJobs[i].trim();
+        if (svg.includes("<svg")) rawSvgPngs.push(await svgToPngDataUrl(svg));
+        else rawSvgPngs.push(null);
+      }
+
       let processed = selectedContent;
       let offset = 0;
       let pidx = 0;
@@ -300,11 +324,48 @@ function DocsPage() {
         }
         pidx++;
       }
+      // Replace diagram-svg and svg fences with markers where rasterized successfully
+      // Note: recompute offsets after mermaid replacement — use fresh scan on processed
+      {
+        let off = 0;
+        const reD = /```diagram-svg\s*\n([\s\S]*?)\n```/gi;
+        let idx = 0;
+        let m: RegExpExecArray | null;
+        // Work on a snapshot to avoid index drift — collect matches first from original selectedContent offset already applied?
+        // Simpler: iteratively replace on processed with index tracking.
+        const matches: { index: number; length: number }[] = [];
+        let mm2: RegExpExecArray | null;
+        const tmpRe = /```diagram-svg\s*\n([\s\S]*?)\n```/gi;
+        while ((mm2 = tmpRe.exec(processed)) !== null) matches.push({ index: mm2.index, length: mm2[0].length });
+        for (let i = 0; i < matches.length; i++) {
+          const png = diagramSvgPngs[i];
+          if (!png) continue;
+          const marker = `<!-- DIAGRAM_SVG:${i} -->`;
+          const pos = matches[i].index + off;
+          processed = processed.slice(0, pos) + marker + processed.slice(pos + matches[i].length);
+          off += marker.length - matches[i].length;
+        }
+      }
+      {
+        let off = 0;
+        const matches: { index: number; length: number }[] = [];
+        let mm2: RegExpExecArray | null;
+        const tmpRe = /```svg\s*\n([\s\S]*?)\n```/gi;
+        while ((mm2 = tmpRe.exec(processed)) !== null) matches.push({ index: mm2.index, length: mm2[0].length });
+        for (let i = 0; i < matches.length; i++) {
+          const png = rawSvgPngs[i];
+          if (!png) continue;
+          const marker = `<!-- RAW_SVG:${i} -->`;
+          const pos = matches[i].index + off;
+          processed = processed.slice(0, pos) + marker + processed.slice(pos + matches[i].length);
+          off += marker.length - matches[i].length;
+        }
+      }
 
       const res = await fetch(`/api/projects/${id}/docs/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contentMd: processed, diagramPngs: pngs.filter(Boolean), meta }),
+        body: JSON.stringify({ contentMd: processed, diagramPngs: pngs.filter(Boolean), diagramSvgPngs: diagramSvgPngs.filter(Boolean), rawSvgPngs: rawSvgPngs.filter(Boolean), meta }),
       });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as any;
@@ -319,10 +380,17 @@ function DocsPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(a.href);
-      const renderedCount = pngs.filter((p) => p !== null).length;
-      const failedBlocks = pngs.map((p, i) => (p === null ? i : -1)).filter((i) => i !== -1);
-      setInfo(jobs.length > 0
-        ? `Exported ${a.download} (${renderedCount}/${jobs.length} diagrams embedded${failedBlocks.length ? ` — failed: block ${failedBlocks.join(", ")}` : ""})`
+      const renderedMermaid = pngs.filter((p) => p !== null).length;
+      const renderedDiagramSvg = diagramSvgPngs.filter((p) => p !== null).length;
+      const renderedRawSvg = rawSvgPngs.filter((p) => p !== null).length;
+      const totalJobs = jobs.length + diagramSvgJobs.length + rawSvgJobs.length;
+      const totalRendered = renderedMermaid + renderedDiagramSvg + renderedRawSvg;
+      const failedBlocks: string[] = [];
+      pngs.forEach((p, i) => { if (p === null) failedBlocks.push(`mermaid:${i}`); });
+      diagramSvgPngs.forEach((p, i) => { if (p === null) failedBlocks.push(`diagram-svg:${i}`); });
+      rawSvgPngs.forEach((p, i) => { if (p === null) failedBlocks.push(`svg:${i}`); });
+      setInfo(totalJobs > 0
+        ? `Exported ${a.download} (${totalRendered}/${totalJobs} diagrams embedded — mermaid ${renderedMermaid}/${jobs.length}, diagram-svg ${renderedDiagramSvg}/${diagramSvgJobs.length}, svg ${renderedRawSvg}/${rawSvgJobs.length}${failedBlocks.length ? ` — failed: ${failedBlocks.join(", ")}` : ""})`
         : `Exported ${a.download} (no diagrams)`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
