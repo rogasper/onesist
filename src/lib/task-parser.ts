@@ -249,7 +249,8 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
     const sectionContent = lines.slice(i, sectionEnd).join("\n");
 
     // SP: prefer the task's own detail table, fall back to the summary spMap
-    const spMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)\s*\|/i);
+    // Toleran terhadap "0.5 SP (2 jam)" — cukup capture angka setelah pipe
+    const spMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
     const sp = spMatch ? parseFloat(spMatch[1]) : (rawId ? (spMap[rawId] ?? null) : null);
 
     // Assignee: from the detail table `| Developer | <name> |`, else null
@@ -265,6 +266,99 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
       sourcePath: `${baseDir}/${filename}`,
       ...handoff,
     });
+  }
+
+  // Fallback general: AI via fsd-analyzer sering tulis root task sebagai
+  // H1 "# Task: ..." + sub-tasks H3 "### T1 — ..." (bukan H2 "## Task").
+  // Kasus nyata: output/task/task_tracking_leads_skip_duplicate_000.md
+  // punya "# Task: Skip Duplicate..." dan "### T1 — Edit duplicate check..."
+  // yang mengandung Goals/Scope/AC/Flow Logic. Tanpa ini file jadi skipped.
+  if (tasks.length === 0) {
+    // Coba ekstrak H3 sub-tasks (T1, T2, ...) — yang diharapkan jadi card
+    const fallbackTasks: ParsedTask[] = [];
+    // File-level SP fallback (tabel ringkas di atas Action List) — toleran "0.5 SP (2 jam)"
+    const fileSpMatch = content.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
+    const fileSp = fileSpMatch ? parseFloat(fileSpMatch[1]) : null;
+    const fileDevMatch = content.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
+    let fileAssignee: string | null = fileDevMatch ? fileDevMatch[1].trim() : null;
+    if (fileAssignee === "—" || fileAssignee === "-" || fileAssignee?.toLowerCase() === "n/a") fileAssignee = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const subMatch = lines[i].match(/^###\s+(\S+)\s*[—–-]\s*(.+)/);
+      if (!subMatch) continue;
+      const rawSubCode = subMatch[1].trim();
+      const subTitle = subMatch[2].trim();
+      if (!subTitle) continue;
+      // Namespace dengan moduleName agar T1 di file berbeda tidak collision di dedupe byCode
+      const prefix = rawSubCode.toLowerCase();
+      const code = prefix.startsWith(`${moduleName.toLowerCase()}-`) || prefix.startsWith(`${moduleName.toLowerCase()}_`) || prefix.startsWith(`${moduleName.toLowerCase()}.`)
+        ? rawSubCode
+        : `${moduleName}-${rawSubCode}`;
+
+      // Section dari H3 sampai H3/##/--- berikutnya atau EOF
+      let sectionEnd = lines.length;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].startsWith("### ") || lines[j].startsWith("## ") || lines[j].startsWith("---")) { sectionEnd = j; break; }
+      }
+      const sectionContent = lines.slice(i, sectionEnd).join("\n");
+
+      // SP: prefer section table, else **N SP**, else file-level — toleran "0.5 SP (2 jam)"
+      const spSectionMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
+      const spStarMatch = sectionContent.match(/\*\*([\d.]+)\s*SP\*\*/);
+      const sp = spSectionMatch ? parseFloat(spSectionMatch[1]) : (spStarMatch ? parseFloat(spStarMatch[1]) : (fileSp ?? null));
+
+      const devSectionMatch = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
+      let assignee: string | null = devSectionMatch ? devSectionMatch[1].trim() : fileAssignee;
+      if (assignee === "—" || assignee === "-" || assignee?.toLowerCase() === "n/a") assignee = fileAssignee;
+
+      const handoff = extractHandoffFields(sectionContent);
+      fallbackTasks.push({
+        code, title: subTitle, storyPoints: sp !== null && !isNaN(sp) ? sp : null,
+        assignee: assignee || null, module: moduleName, parentCode: null,
+        status: "todo", phase: null,
+        contentMd: sectionContent,
+        sourcePath: `${baseDir}/${filename}`,
+        ...handoff,
+      });
+    }
+    if (fallbackTasks.length > 0) {
+      tasks.push(...fallbackTasks);
+    } else {
+      // Single-task fallback: H1 "# Task: Title" tanpa Action List H3
+      const h1Idx = lines.findIndex((l) => /^#\s+Task\s*[:：]?\s*.+/i.test(l));
+      if (h1Idx !== -1) {
+        const h1 = lines[h1Idx];
+        let title = "";
+        let rawId = "";
+        const m1 = h1.match(/^#\s+Task\s*[:：]\s*(?:([A-Za-z0-9._-]+)\s*[:：—–-]\s*)?(.+)$/i);
+        const m2 = h1.match(/^#\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]\s*(.*)$/i);
+        if (m1) { rawId = (m1[1] || "").trim(); title = (m1[2] || "").trim(); }
+        else if (m2) { rawId = (m2[1] || "").trim(); title = (m2[2] || "").trim(); }
+        if (title) {
+          let code: string;
+          if (!rawId) code = moduleName;
+          else {
+            const p = rawId.toLowerCase();
+            code = p.startsWith(`${moduleName.toLowerCase()}-`) || p.startsWith(`${moduleName.toLowerCase()}_`) ? rawId : `${moduleName}-${rawId}`;
+          }
+          const sectionContent = lines.slice(h1Idx).join("\n");
+          const spH1Match = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
+          const sp = spH1Match ? parseFloat(spH1Match[1]) : (fileSp ?? null);
+          const devH1Match = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
+          let assignee: string | null = devH1Match ? devH1Match[1].trim() : fileAssignee;
+          if (assignee === "—" || assignee === "-" || assignee?.toLowerCase() === "n/a") assignee = null;
+          const handoff = extractHandoffFields(sectionContent);
+          tasks.push({
+            code, title, storyPoints: sp !== null && !isNaN(sp) ? sp : null,
+            assignee: assignee || null, module: moduleName, parentCode: null,
+            status: "todo", phase: null,
+            contentMd: sectionContent,
+            sourcePath: `${baseDir}/${filename}`,
+            ...handoff,
+          });
+        }
+      }
+    }
   }
 
   return tasks;
@@ -439,17 +533,17 @@ function extractHandoffFields(content: string): Pick<ParsedTask, "blocks" | "cri
   const rtmRef = rtmRefRaw ? rtmRefRaw.replace(/[`]/g, "").trim() : null;
 
   const acceptanceCriteria: string[] = [];
-  const acStart = content.search(/###\s+Acceptance Criteria/i);
+  const acStart = content.search(/#{3,}\s+Acceptance Criteria/i);
   if (acStart !== -1) {
     const acSlice = content.slice(acStart);
-    const acEnd = acSlice.search(/\n###\s+/);
+    const acEnd = acSlice.search(/\n#{3,}\s+/);
     const acBlock = acEnd !== -1 ? acSlice.slice(0, acEnd) : acSlice;
     for (const line of acBlock.split("\n")) {
-      const m = line.match(/^\s*-\s*\[[ xX]\]\s*(.+)/);
+      const m = line.match(/^\s*[-*]\s*\[[ xX]\]\s*(.+)/);
       if (m) acceptanceCriteria.push(m[1].trim());
       else {
-        const m2 = line.match(/^\s*-\s+(Given|When|Then).+/i);
-        if (m2) acceptanceCriteria.push(line.replace(/^\s*-\s*/, "").trim());
+        const m2 = line.match(/^\s*[-*]\s+(Given|When|Then).+/i);
+        if (m2) acceptanceCriteria.push(line.replace(/^\s*[-*]\s*/, "").trim());
       }
     }
   }

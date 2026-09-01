@@ -19,6 +19,7 @@ const AGENTS = [
   { value: "claude", label: "Claude Code", command: "claude" },
   { value: "codex", label: "Codex", command: "codex" },
   { value: "antigravity", label: "Antigravity", command: "agy" },
+  { value: "pi", label: "Pi", command: "pi" },
 ];
 
 const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20];

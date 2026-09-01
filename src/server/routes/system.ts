@@ -234,8 +234,8 @@ router.post("system/instances/kill", async ({ body }) => {
 });
 
 // /api/agent/models?agent=opencode — selectable models for the given agent CLI.
-// opencode (`opencode models`) and antigravity (`agy models`) expose a model
-// list; claude/codex return supported:false.
+// opencode (`opencode models`), antigravity (`agy models`), and pi (`pi --list-models`)
+// expose a model list; claude/codex return supported:false.
 router.get("agent/models", async ({ query }) => {
   const agent = query.get("agent") || "opencode";
   return json(listAgentModels(agent));
@@ -269,6 +269,8 @@ router.get("agent/prompt", async ({ query }) => {
     command = `codex exec ${q} --json --sandbox workspace-write --skip-git-repo-check`;
   } else if (agentName === "antigravity") {
     command = `agy -p ${q} --output-format stream-json --dangerously-skip-permissions --print-timeout 30m`;
+  } else if (agentName === "pi") {
+    command = `pi --mode json ${q}`;
   } else {
     command = `opencode run ${q} --auto --format json --dir ${JSON.stringify(root)}`;
   }

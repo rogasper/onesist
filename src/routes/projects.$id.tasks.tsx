@@ -49,7 +49,7 @@ function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>(loaderData?.tasks ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ inserted: number; updated: number; removed: number; skipped: number } | null>(null);
+  const [importResult, setImportResult] = useState<{ inserted: number; updated: number; removed: number; skipped: number; skippedFiles?: string[] } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [assigneeFilter, setAssigneeFilter] = useState("all");
@@ -420,10 +420,12 @@ function TasksPage() {
               </Badge>
             )}
             {importResult && (
-              <Badge variant="neutral" className="text-[11px]">
-                +{importResult.inserted} new · {importResult.updated} updated · {importResult.removed} removed
-                {importResult.skipped > 0 && ` · ${importResult.skipped} file kosong`}
-              </Badge>
+              <span title={importResult.skippedFiles?.length ? `File tanpa task terdeteksi (cek heading ## Task / ### T1): ${importResult.skippedFiles.join(", ")}` : undefined}>
+                <Badge variant="neutral" className="text-[11px]">
+                  +{importResult.inserted} new · {importResult.updated} updated · {importResult.removed} removed
+                  {importResult.skipped > 0 && ` · ${importResult.skipped} file kosong${importResult.skippedFiles?.length ? ` (${importResult.skippedFiles.slice(0,3).join(", ")}${importResult.skippedFiles.length>3 ? "…" : ""})` : ""}`}
+                </Badge>
+              </span>
             )}
           </>
         }

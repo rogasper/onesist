@@ -90,6 +90,11 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
       if (resumeId) args.push("--conversation", resumeId);
       else args.push("--continue");
       useJson = true;
+    } else if (agentName === "pi") {
+      // Pi: continue previous session. JSON mode with --continue or --session <id>.
+      if (resumeId) args = ["--mode", "json", "--session", resumeId, feedback];
+      else args = ["--mode", "json", "--continue", feedback];
+      useJson = true;
     } else {
       args = ["run", feedback, "--auto"];
     }
@@ -131,13 +136,17 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
       // multi-artifact generation; --print-timeout raises it.
       args = ["-p", prompt, "--output-format", "stream-json", "--dangerously-skip-permissions", "--print-timeout", "30m"];
       useJson = true;
+    } else if (agentName === "pi") {
+      // Pi headless: JSON event stream mode. Prompt is a positional arg.
+      args = ["--mode", "json", prompt];
+      useJson = true;
     } else {
       args = ["run", prompt, "--auto"];
     }
   }
 
   // Apply the selected model to any agent that supports --model.
-  if (model && (agentName === "opencode" || agentName === "claude" || agentName === "codex" || agentName === "antigravity")) {
+  if (model && (agentName === "opencode" || agentName === "claude" || agentName === "codex" || agentName === "antigravity" || agentName === "pi")) {
     args.push("--model", model);
   }
 
@@ -211,11 +220,14 @@ export async function runAgent(config: AgentRunConfig): Promise<void> {
             const json = JSON.parse(line);
             // Capture the agent CLI's session id so a follow-up "feedback" run
             // can resume the exact session (opencode `sessionID`, claude
-            // `session_id`, codex `thread_id`, antigravity `conversation_id`).
+            // `session_id`, codex `thread_id`, antigravity `conversation_id`,
+            // pi `id` from the initial {"type":"session","id":...} header).
             const agentSid =
-              agentName === "antigravity"
-                ? (json.conversation_id ?? json.init?.conversation_id ?? json.step_update?.conversation_id ?? json.result?.conversation_id)
-                : (json.sessionID ?? json.session_id ?? json.thread_id);
+              agentName === "pi"
+                ? (json.id ?? json.sessionId ?? json.session_id)
+                : agentName === "antigravity"
+                  ? (json.conversation_id ?? json.init?.conversation_id ?? json.step_update?.conversation_id ?? json.result?.conversation_id)
+                  : (json.sessionID ?? json.session_id ?? json.thread_id);
             if (agentSid) captureSessionId(sessionId, agentSid);
             const parsed = parseAgentLine(agentName, json);
             if (parsed) eventBus.emitAgentLog(parsed.level, parsed.message, sessionId);
@@ -356,6 +368,9 @@ function conciseTool(name: string, input: unknown): string {
  *    command_execution/file_change), error
  *  - agy     `--output-format stream-json`: { event:"init"|"step_update"|
  *    "result" }; step_update carries agent_response text_delta + tool calls
+ *  - pi      `--mode json`: {"type":"session"|"agent_start"|"message_update"|...}
+ *    message_update.assistantMessageEvent = {type:"text_delta"|"thinking_delta"|
+ *    "toolcall_start"|"toolcall_delta"|"toolcall_end", delta, id, toolName}
  */
 function parseAgentLine(agentName: string, json: any): { level: string; message: string } | null {
   if (agentName === "opencode") {
@@ -441,6 +456,66 @@ function parseAgentLine(agentName: string, json: any): { level: string; message:
     if (json.event === "error") {
       return { level: "error", message: json.error?.message ?? json.error ?? String(json) };
     }
+    return null;
+  }
+
+  // pi `--mode json`: {"type":"session","id":...} header then AgentSessionEvent stream.
+  // Relevant: agent_start, turn_start/end, message_start/end, message_update
+  // (delta: text_delta/thinking_delta/toolcall_*), tool_execution_start/end,
+  // agent_end, extension_error.
+  if (agentName === "pi") {
+    if (json.type === "session") {
+      // Session header — capture handled outside, nothing to display.
+      return null;
+    }
+    if (json.type === "message_update") {
+      const ev = json.assistantMessageEvent;
+      if (!ev) return null;
+      if (ev.type === "text_delta" && ev.delta) return { level: "output", message: ev.delta };
+      if (ev.type === "thinking_delta" && ev.delta) return { level: "think", message: ev.delta };
+      if (ev.type === "toolcall_start" && ev.toolName) return { level: "tool", message: `${ev.toolName}: …` };
+      if (ev.type === "toolcall_end" && ev.toolCall) {
+        const tc = ev.toolCall;
+        return { level: "tool", message: conciseTool(tc.name ?? tc.toolName ?? "tool", tc.arguments ?? tc.args ?? {}) };
+      }
+      // text_start/thinking_start/toolcall_delta are intermediate — skip.
+      return null;
+    }
+    if (json.type === "tool_execution_start") {
+      return { level: "tool", message: conciseTool(json.toolName ?? "tool", json.args ?? {}) };
+    }
+    if (json.type === "tool_execution_end") {
+      const res = json.result;
+      const isError = json.isError;
+      if (isError) return { level: "error", message: `tool ${json.toolName ?? "tool"} failed` };
+      // End already logged at start; avoid duplicate unless we have result text worth showing.
+      // Show a concise completion line only for non-trivial tools.
+      if (json.toolName === "bash" && res?.content) {
+        // bash tool result may contain output — already surfaced as text_delta elsewhere.
+        return null;
+      }
+      return null;
+    }
+    if (json.type === "message_end") {
+      const msg = json.message;
+      if (msg?.role === "assistant" && Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === "text" && block.text?.trim()) return { level: "output", message: block.text };
+        }
+      }
+      return null;
+    }
+    if (json.type === "agent_end") {
+      // Terminal summary — full messages array available, but stream already emitted deltas.
+      return null;
+    }
+    if (json.type === "extension_error") {
+      return { level: "error", message: json.error ?? String(json) };
+    }
+    if (json.type === "error") {
+      return { level: "error", message: json.message ?? json.error ?? String(json) };
+    }
+    // agent_start, turn_start/end, message_start, queue_update, compaction_* etc — no UI line.
     return null;
   }
 
