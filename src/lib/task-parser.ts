@@ -38,9 +38,17 @@ export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skipp
   const processedRelativeFiles = new Set<string>();
 
   for (const { rel: relDir, full: taskRoot } of existingRoots) {
-    const rootFiles = fs.readdirSync(taskRoot).filter((f) =>
-      f.endsWith(".md") && !f.startsWith(".") && (/^tasks?_/i.test(f) || f === "task.md" || f === "MASTER_TASK.md"),
-    );
+    // General: scan semua .md di root output/task (tidak hanya task_* prefix) —
+    // AI via fsd-analyzer kadang tulis tanpa prefix atau pakai H1 # Task \[FE]:
+    // Exclude README/index yang bukan task agar tidak noise di skippedFiles.
+    const rootFiles = fs.readdirSync(taskRoot).filter((f) => f.endsWith(".md") && !f.startsWith(".") && f.toLowerCase() !== "readme.md" && f.toLowerCase() !== "index.md");
+    // Prioritaskan file dengan prefix task_* agar dedupe stabil, tapi tetap parse sisanya
+    rootFiles.sort((a, b) => {
+      const aTask = /^tasks?_/i.test(a) || a === "task.md" || a === "MASTER_TASK.md" ? 0 : 1;
+      const bTask = /^tasks?_/i.test(b) || b === "task.md" || b === "MASTER_TASK.md" ? 0 : 1;
+      if (aTask !== bTask) return aTask - bTask;
+      return a.localeCompare(b);
+    });
     for (const file of rootFiles) {
       if (processedRelativeFiles.has(file)) continue;
       processedRelativeFiles.add(file);
@@ -209,11 +217,13 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
   // ones, so accept all of them (H2 only):
   //   A: "## Task FE-1: Title" — canonical; separator can be : ： — – -
   //   B: "## Task: Title"      — no ID → deterministic auto-number
+  //   B2:"## Task [FE]: Title" — bracket role (escaped \[FE] dari AI) -> auto-number
   //   C: "## FE-1: Title"      — code-like ID without the "Task" keyword
   const headingPatterns = [
     /^##\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]\s*(.*)$/i,
     // Empty group 1 keeps the (id, title) layout consistent across patterns
     /^##\s+Task\s*[:：]\s*()(.+)$/i,
+    /^##\s+Task\s*(?:\\?\[?[A-Za-z]+\]?\s*)?[:：]\s*()(.+)$/i,
     /^##\s+([A-Za-z]{1,12}-\d[\w.-]*)\s*[:：—–-]\s*(.+)$/,
   ];
   let autoIndex = 0;
@@ -325,15 +335,19 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
       tasks.push(...fallbackTasks);
     } else {
       // Single-task fallback: H1 "# Task: Title" tanpa Action List H3
-      const h1Idx = lines.findIndex((l) => /^#\s+Task\s*[:：]?\s*.+/i.test(l));
+      // Tolerant terhadap bracket role: "# Task \[FE]: Title" dan "# Task [BE]: Title"
+      const h1Idx = lines.findIndex((l) => /^#\s+Task\b/i.test(l));
       if (h1Idx !== -1) {
         const h1 = lines[h1Idx];
-        let title = "";
-        let rawId = "";
-        const m1 = h1.match(/^#\s+Task\s*[:：]\s*(?:([A-Za-z0-9._-]+)\s*[:：—–-]\s*)?(.+)$/i);
-        const m2 = h1.match(/^#\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]\s*(.*)$/i);
-        if (m1) { rawId = (m1[1] || "").trim(); title = (m1[2] || "").trim(); }
-        else if (m2) { rawId = (m2[1] || "").trim(); title = (m2[2] || "").trim(); }
+        // Strip prefix "# Task", optional bracket role "[FE]" / "\[FE]", dan separator
+        let title = h1.replace(/^#\s+Task\s*(?:\\?\[?[A-Za-z0-9._-]+\]?\s*)?[:：—–-]?\s*/i, "").trim();
+        // Jika masih ada sisa bracket di depan (mis. "\[FE]:" tanpa spasi), bersihkan lagi
+        if (/^(\\?\[?[A-Za-z]+\]?\s*[:：—–-]\s*)/.test(title)) {
+          title = title.replace(/^\\?\[?[A-Za-z]+\]?\s*[:：—–-]?\s*/i, "").trim();
+        }
+        // RawId tidak dipakai untuk H1 single-task (code = moduleName), kecuali ada ID eksplisit setelah Task
+        const rawIdMatch = h1.match(/^#\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]/i);
+        const rawId = rawIdMatch ? rawIdMatch[1].trim() : "";
         if (title) {
           let code: string;
           if (!rawId) code = moduleName;
@@ -533,10 +547,10 @@ function extractHandoffFields(content: string): Pick<ParsedTask, "blocks" | "cri
   const rtmRef = rtmRefRaw ? rtmRefRaw.replace(/[`]/g, "").trim() : null;
 
   const acceptanceCriteria: string[] = [];
-  const acStart = content.search(/#{3,}\s+Acceptance Criteria/i);
+  const acStart = content.search(/#{2,}\s+Acceptance Criteria/i);
   if (acStart !== -1) {
     const acSlice = content.slice(acStart);
-    const acEnd = acSlice.search(/\n#{3,}\s+/);
+    const acEnd = acSlice.search(/\n#{2,}\s+/);
     const acBlock = acEnd !== -1 ? acSlice.slice(0, acEnd) : acSlice;
     for (const line of acBlock.split("\n")) {
       const m = line.match(/^\s*[-*]\s*\[[ xX]\]\s*(.+)/);
