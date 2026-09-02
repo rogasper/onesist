@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.41 — Pi agent + Task H1/H3 general fallback
+
+### Feat — Agent
+- **Pi CLI (pi.dev) as 5th agent** (`src/lib/agent-cli.ts`, `agent-command.ts`, `server/services/agent-runner.ts`, `server/routes/system.ts`, `public/images/pi.*`) — detect `pi` via `resolveExecutable`, headless `pi --mode json` + session `id` capture from `{"type":"session"}` header, stream parser `message_update` (`text_delta`/`thinking_delta`/`toolcall_*`) + `tool_execution_*`, `pi --list-models`, logo SVG (prefers-color-scheme) + 128 PNG, Settings chip, manual `pi --mode json` fallback in `/api/agent/prompt`.
+- **System prompt fallback** — OpenAPI/RTM/SIT manual commands support `pi` in `src/server/routes/system.ts`.
+
+### Fix — Tasks
+- **General H1/H3 fallback** (`src/lib/task-parser.ts`) — AI via `fsd-analyzer` kadang tulis `output/task/*.md` sebagai `# Task \[FE]: Title` (H1 bracket) + `### T1 — ...` Action List (H3) bukan `## Task`. Fallback: jika `## Task` 0, scan `### T1` → card `tracking_leads_skip_duplicate_000-T1` dengan `Goals/Scope/AC/Flow Logic`; jika tanpa `T1`, fallback H1 single-task tolerant bracket `\[FE]`/`[BE]`, code=`moduleName`.
+- **Scanner** — root `output/task` sekarang scan semua `*.md` (exclude `README`/`index`) prioritas `task_*` dulu, jadi `lepas_validasi_fe.md` tanpa prefix tetap ter-parse.
+- **H2 kanonik** — pattern `## Task \[FE]:` dengan escaped bracket sebagai auto-number.
+- **SP/AC toleran** — `Story Point` regex toleran `0.5 SP (2 jam)` (capture angka saja), `Acceptance Criteria` heading `#{2,}` agar `## Acceptance Criteria` (H2) ke-capture, bullet `[-*]` agar `* [ ]` dan `- [ ]` keduanya ke-capture.
+- **Observability** — `POST /api/projects/:id/tasks/import` return `skippedFiles` + `console.warn`, UI Tasks badge tooltip list file kosong.
+
 ## v0.1.36 — Fix splash logo broken on Windows
 
 ### Fix — Desktop

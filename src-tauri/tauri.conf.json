@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Onesist",
-  "version": "0.1.37",
+  "version": "0.1.41",
   "identifier": "com.rogasper.onesist",
   "build": {
     "frontendDist": "../dist",
@@ -18,8 +18,13 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/onesist-server"],
-    "resources": ["web-dist", "vendor-skills"],
+    "externalBin": [
+      "binaries/onesist-server"
+    ],
+    "resources": [
+      "web-dist",
+      "vendor-skills"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
