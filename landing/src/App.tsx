@@ -2,7 +2,44 @@ import { useEffect, useState, useRef } from "react";
 
 const GH_REPO = "https://github.com/rogasper/onesist";
 const GH_RELEASES = `${GH_REPO}/releases`;
-const VERSION = "v0.1.37";
+const CHANGELOG_URLS = [
+  "https://raw.githubusercontent.com/rogasper/onesist/main/CHANGELOG.md",
+  "https://cdn.jsdelivr.net/gh/rogasper/onesist@main/CHANGELOG.md",
+];
+
+/**
+ * Latest release version, resolved at runtime so the landing page never
+ * needs a per-release edit. Primary source is CHANGELOG.md's first
+ * `## vX.Y.Z` heading (no rate limit, live on push to main); fallback is
+ * the GitHub Releases API. Returns null while loading / if offline.
+ */
+function useLatestVersion(): string | null {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      for (const url of CHANGELOG_URLS) {
+        try {
+          const r = await fetch(url, { cache: "no-store" });
+          if (!r.ok) continue;
+          const txt = await r.text();
+          const m = txt.match(/^##\s+(v[\d.]+)/m);
+          if (m && !cancelled) { setVersion(m[1].trim()); return; }
+        } catch {}
+      }
+      try {
+        const r = await fetch("https://api.github.com/repos/rogasper/onesist/releases/latest", { headers: { Accept: "application/vnd.github.v3+json" } });
+        if (!r.ok) return;
+        const data = await r.json();
+        const tag: string = data?.tag_name ?? "";
+        if (tag && !cancelled) setVersion(tag.startsWith("v") ? tag : `v${tag}`);
+      } catch {}
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, []);
+  return version;
+}
 
 function track(name: string, data?: Record<string, string>) {
   try { (window as any).umami?.track(name, data); } catch {}
@@ -36,6 +73,7 @@ function Nav() {
 
 // --- Hero ---
 function Hero() {
+  const version = useLatestVersion();
   return (
     <section className="relative overflow-hidden bg-[#fcfcfa]">
       <div className="absolute inset-0 -z-10 bg-gradient-to-b from-[#f5f6ff] via-[#fcfcfa] to-white" />
@@ -47,7 +85,7 @@ function Hero() {
           <div>
             <div className="inline-flex items-center gap-2 text-[11px] tracking-wide font-medium px-3 py-1 rounded-full bg-white border border-zinc-200 text-zinc-600 shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              v{VERSION.replace("v", "")} • Desktop for macOS & Windows • MIT
+              {version ? `v${version.replace("v", "")}` : "Latest"} • Desktop for macOS & Windows • MIT
             </div>
             <h1 className="mt-5 text-[34px] md:text-[48px] font-semibold leading-[0.95] tracking-tight text-zinc-900">
               Planner, <span className="text-zinc-400">not executor.</span>
@@ -291,6 +329,7 @@ function Carousel() {
 // --- Download ---
 function Download() {
   const [os, setOs] = useState<"mac" | "win" | "unknown">("unknown");
+  const version = useLatestVersion();
   useEffect(() => {
     const ua = navigator.userAgent.toLowerCase();
     if (ua.includes("mac")) setOs("mac");
@@ -304,15 +343,15 @@ function Download() {
             <h3 className="text-lg font-semibold text-zinc-900">Download Desktop</h3>
             <p className="mt-1 text-sm text-zinc-500">Free, MIT. Works offline. Your files stay local (SQLite + file watcher + SSE).</p>
             <div className="mt-3 flex items-center gap-2 text-xs">
-              <span className="px-2 py-1 rounded-full bg-zinc-900 text-white">Version {VERSION}</span>
+              <span className="px-2 py-1 rounded-full bg-zinc-900 text-white">Version {version ?? "latest"}</span>
               <a href={GH_RELEASES} target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-zinc-900 underline underline-offset-4">Releases</a>
               <span className="text-zinc-300">•</span>
               <a href={`${GH_REPO}/blob/main/CHANGELOG.md`} target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-zinc-900 underline underline-offset-4">Changelog</a>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
-            <a href={`${GH_RELEASES}/tag/${VERSION}`} target="_blank" rel="noreferrer" onClick={() => track("download-macos")} className={`px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-sm ${os === "mac" ? "bg-[#6d7cff] text-white" : "bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50"}`}>macOS .dmg</a>
-            <a href={`${GH_RELEASES}/tag/${VERSION}`} target="_blank" rel="noreferrer" onClick={() => track("download-windows")} className={`px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-sm ${os === "win" ? "bg-[#6d7cff] text-white" : "bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50"}`}>Windows .msi</a>
+            <a href={GH_RELEASES} target="_blank" rel="noreferrer" onClick={() => track("download-macos")} className={`px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-sm ${os === "mac" ? "bg-[#6d7cff] text-white" : "bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50"}`}>macOS .dmg</a>
+            <a href={GH_RELEASES} target="_blank" rel="noreferrer" onClick={() => track("download-windows")} className={`px-5 py-2.5 rounded-full text-sm font-semibold transition shadow-sm ${os === "win" ? "bg-[#6d7cff] text-white" : "bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50"}`}>Windows .msi</a>
             <a href={GH_REPO} target="_blank" rel="noreferrer" onClick={() => track("download-github")} className="px-5 py-2.5 rounded-full border border-zinc-200 bg-white text-sm text-zinc-700 hover:bg-zinc-50 transition">GitHub</a>
           </div>
         </div>
@@ -334,10 +373,7 @@ function Changelog() {
   useEffect(() => {
     let cancelled = false;
     // Use raw CHANGELOG.md — no rate limit (vs GitHub API 60/h). jsDelivr/CDN caches but still live on push.
-    const urls = [
-      "https://raw.githubusercontent.com/rogasper/onesist/main/CHANGELOG.md",
-      "https://cdn.jsdelivr.net/gh/rogasper/onesist@main/CHANGELOG.md",
-    ];
+    const urls = CHANGELOG_URLS;
     const fetchChangelog = async () => {
       for (const url of urls) {
         try {
