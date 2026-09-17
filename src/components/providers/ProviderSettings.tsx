@@ -64,6 +64,9 @@ const emptyDraft = (): ProviderDraft => ({
   model: "",
   maxOutputTokens: 8192,
   contextWindow: null,
+  customHeaders: {},
+  inputPricePerMTok: null,
+  outputPricePerMTok: null,
   proxyUrl: "",
   skipTlsVerify: false,
   enableThinking: false,
@@ -80,6 +83,9 @@ function draftFrom(p: ProviderSummary): ProviderDraft {
     model: p.model ?? "",
     maxOutputTokens: p.maxOutputTokens,
     contextWindow: p.contextWindow,
+    customHeaders: (p as any).customHeaders ?? {},
+    inputPricePerMTok: (p as any).inputPricePerMTok ?? null,
+    outputPricePerMTok: (p as any).outputPricePerMTok ?? null,
     proxyUrl: p.proxyUrl ?? "",
     skipTlsVerify: p.skipTlsVerify,
     enableThinking: p.enableThinking,
@@ -488,6 +494,65 @@ export function ProviderSettings({ open, onClose }: Props) {
                 placeholder="8192"
                 onChange={(e) => setDraft((d) => ({ ...d, maxOutputTokens: e.target.value ? Number(e.target.value) : null }))}
               />
+            </FieldRow>
+
+            <FieldRow
+              label="Header HTTP tambahan"
+              hint="Opsional. Satu header per baris, format `Nama: nilai`. Sebagian endpoint memerlukannya — mis. gateway yang meminta header sesi khusus. Header ini dikirim apa adanya, jadi jangan taruh kredensial di sini kalau endpoint-nya bukan milik Anda."
+            >
+              <textarea
+                className={`${inputCls} min-h-[72px] font-mono text-[0.8125rem]`}
+                value={Object.entries(draft.customHeaders ?? {})
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join("\n")}
+                disabled={readOnly}
+                placeholder={"x-opencode-session: abc123"}
+                onChange={(e) => {
+                  const next: Record<string, string> = {};
+                  for (const line of e.target.value.split("\n")) {
+                    const sep = line.indexOf(":");
+                    if (sep <= 0) continue;
+                    const name = line.slice(0, sep).trim();
+                    const value = line.slice(sep + 1).trim();
+                    if (name) next[name] = value;
+                  }
+                  setDraft((d) => ({ ...d, customHeaders: next }));
+                }}
+              />
+            </FieldRow>
+
+            <FieldRow
+              label="Harga per 1 juta token"
+              hint="Opsional. Dipakai untuk memperkirakan biaya tiap percakapan. Kosongkan kalau tidak ingin angka biaya ditampilkan — token tetap tercatat, dan tidak ada harga bawaan yang ditebak aplikasi."
+            >
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 text-sm text-kumo-subtle">
+                  masuk
+                  <input
+                    className={`${inputCls} w-28`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={draft.inputPricePerMTok ?? ""}
+                    disabled={readOnly}
+                    placeholder="0.27"
+                    onChange={(e) => setDraft((d) => ({ ...d, inputPricePerMTok: e.target.value ? Number(e.target.value) : null }))}
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-kumo-subtle">
+                  keluar
+                  <input
+                    className={`${inputCls} w-28`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={draft.outputPricePerMTok ?? ""}
+                    disabled={readOnly}
+                    placeholder="1.10"
+                    onChange={(e) => setDraft((d) => ({ ...d, outputPricePerMTok: e.target.value ? Number(e.target.value) : null }))}
+                  />
+                </label>
+              </div>
             </FieldRow>
 
             <div className="grid gap-3 pt-2">

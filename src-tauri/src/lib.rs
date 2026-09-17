@@ -76,6 +76,8 @@ pub fn run() {
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_process::init())
+    // Native notifications for finished / approval-blocked agent runs (FR-B16).
+    .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .invoke_handler(tauri::generate_handler![pick_folder, open_project_window])
     .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

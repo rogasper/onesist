@@ -22,7 +22,7 @@ import { awaitApproval, createRun, finishRun, getApprovalSecret, persistStepCoun
 import { MUTATING_TOOLS, buildTools, type FileChange, type TodoItem } from "./tools";
 import { SUBAGENT_LIMITS, findSubagent, withSubagentSlot, type SubagentInfo } from "./subagents";
 import { getAppSubagents } from "./store";
-import { isProtectedPath, type PermissionMode, type ThreadMode } from "./types";
+import { isProtectedPath, toolPolicyFor, type PermissionMode, type ThreadMode } from "./types";
 import { newId } from "./store";
 
 export { recoverInterruptedRuns, stopRun, getApprovalSecret };
@@ -145,17 +145,22 @@ You are ${subagent.name}, running as a read-only subagent. You cannot change any
 export async function startTurn(input: TurnInput): Promise<AgentStream> {
   const run = createRun({ runId: input.runId, threadId: input.threadId, projectId: input.projectId });
 
-  const model: LanguageModel = buildLanguageModel(input.provider);
+  // threadId dikirim sebagai session id: gateway (mis. OpenCode Zen) memakai
+  // id stabil per percakapan untuk routing dan prompt caching.
+  const model: LanguageModel = buildLanguageModel(input.provider, { sessionId: input.threadId });
   const maxOutputTokens = resolveMaxOutputTokens(input.provider);
   const contextWindow = resolveContextWindow(input.provider.contextWindow);
 
-  // Ask mode must not change anything; readonly neither.
-  const includeMutating = input.mode === "agent" && input.permissionMode !== "readonly";
+  // Tool families for this turn: plan mode (like ask/readonly) installs neither
+  // write tools nor a shell, so "a plan cannot change anything" is a property of
+  // the tool set, not of the prompt (FR-B18).
+  const { includeMutating, includeShell } = toolPolicyFor(input.mode, input.permissionMode);
   const tools = buildTools({
     projectId: input.projectId,
     root: input.root,
     threadId: input.threadId,
     includeMutating,
+    includeShell,
     onFileChange: input.onFileChange,
     onFileRead: input.onFileRead,
     // Bounded concurrency (FR-G4): `task` calls that start together queue here.

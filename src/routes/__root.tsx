@@ -11,6 +11,7 @@ import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
+import { useRunNotifications } from "~/lib/use-run-notifications";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
@@ -124,6 +125,11 @@ function RootComponent() {
   const location = useLocation();
   const pathname = location.pathname;
   const isDashboardActive = pathname === "/";
+
+  // Desktop notifications for finished/blocked chat runs (FR-B16). Lives at the
+  // root so a run started in one project still reaches the user while they are
+  // working somewhere else (or with the window hidden to the tray).
+  useRunNotifications();
 
   useEffect(() => {
     const fetchProjects = () => {

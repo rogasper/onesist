@@ -81,6 +81,12 @@ export interface ProviderDraft {
   model: string;
   maxOutputTokens: number | null;
   contextWindow: number | null;
+  /** Header HTTP tambahan (FR-A2): sebagian endpoint butuh header khusus, mis.
+   *  gateway yang meminta header sesi. Bentuknya objek nama→nilai. */
+  customHeaders: Record<string, string>;
+  /** Harga per 1 juta token, diisi user (Fase 5.5). Kosong = biaya tidak dihitung. */
+  inputPricePerMTok: number | null;
+  outputPricePerMTok: number | null;
   proxyUrl: string;
   skipTlsVerify: boolean;
   enableThinking: boolean;

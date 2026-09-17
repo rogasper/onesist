@@ -1,6 +1,19 @@
 import { EventEmitter } from "node:events";
 
-type EventName = "file:changed" | "agent:log" | "agent:status" | "agent:done" | "agent:error" | "task:status" | "fsd:conversion";
+type EventName =
+  | "file:changed"
+  | "agent:log"
+  | "agent:status"
+  | "agent:done"
+  | "agent:error"
+  | "task:status"
+  | "fsd:conversion"
+  // Chat run lifecycle (Fase 5.6). Deliberately NOT a transcript channel: the
+  // payload is a few fields for a native notification, and history still comes
+  // from the DB (FR-B13). See ROADMAP 5.6 for why the notification is driven
+  // from here rather than from the client's own stream.
+  | "chat:run"
+  | "chat:approval";
 
 interface EventPayload {
   type: EventName;
@@ -83,6 +96,40 @@ class AppEventBus extends EventEmitter {
 
   emitFsdConversion(sessionId: string, status: "converting" | "converted" | "failed", error?: string | null, contentLength?: number) {
     this.emitAppEvent({ type: "fsd:conversion", data: { sessionId, status, error, contentLength } });
+  }
+
+  /** A chat run reached a terminal status (Fase 5.6, FR-B16).
+   *
+   *  `projectName` + `threadTitle` ride along so the desktop shell can write a
+   *  notification that says WHICH conversation finished without having to query
+   *  anything — a notification for an unfocused window has no UI to look things
+   *  up in, and the client that receives this may be on another project. */
+  emitChatRun(input: {
+    runId: string;
+    threadId: string;
+    projectId: string;
+    status: "done" | "error" | "stopped" | "interrupted";
+    error?: string | null;
+    projectName?: string | null;
+    threadTitle?: string | null;
+  }) {
+    this.emitAppEvent({ type: "chat:run", data: { ...input, error: input.error ?? null } });
+  }
+
+  /** A chat run is parked waiting for the user's decision (FR-E3/FR-E4).
+   *  This is the higher-value trigger of the two: the run stays blocked until
+   *  someone answers, so a hidden window means it waits forever. */
+  emitChatApproval(input: {
+    runId: string;
+    threadId: string;
+    projectId: string;
+    toolCallId: string;
+    name: string;
+    preview: string;
+    projectName?: string | null;
+    threadTitle?: string | null;
+  }) {
+    this.emitAppEvent({ type: "chat:approval", data: { ...input } });
   }
 
   private emitAppEvent(payload: Omit<EventPayload, "timestamp">) {

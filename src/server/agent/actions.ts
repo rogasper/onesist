@@ -76,7 +76,11 @@ function normalizeAction(raw: unknown): ChatAction | null {
   const prompt = cleanText(entry.prompt, ACTION_LIMITS.prompt);
   if (!id || !label || !prompt) return null;
   const hint = cleanText(entry.hint, ACTION_LIMITS.hint);
-  return { id, label, hint: hint ?? "", prompt };
+  // `command` is optional in the project file: an action written before slash
+  // commands existed still gets one, derived from its id, instead of silently
+  // disappearing from the `/` list.
+  const command = cleanId(entry.command) ?? id;
+  return { id, label, hint: hint ?? "", prompt, command };
 }
 
 export function resolveChatActions(root: string): ResolvedActions {

@@ -104,6 +104,13 @@ const RUNTIME_TABLES = [
     text, path UNINDEXED, label UNINDEXED, chunk_id UNINDEXED, project_id UNINDEXED,
     tokenize='unicode61 remove_diacritics 2'
   )`,
+  // Cross-thread message search (Fase 5.3, FR-B17). Same reasoning as index_fts:
+  // hand-written migration 0013_chat_fts.sql, duplicated idempotently here for
+  // databases that predate it.
+  `CREATE VIRTUAL TABLE IF NOT EXISTS chat_fts USING fts5(
+    text, message_id UNINDEXED, thread_id UNINDEXED, role UNINDEXED,
+    tokenize='unicode61 remove_diacritics 2'
+  )`,
   `CREATE TABLE IF NOT EXISTS app_settings (
     key text PRIMARY KEY NOT NULL, value text NOT NULL, updated_at text DEFAULT (datetime('now'))
   )`,
@@ -196,6 +203,9 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     // chat columns added after 0006 — see migrations/0007_*.sql
     "ALTER TABLE chat_messages ADD COLUMN reasoning_ms INTEGER",
     "ALTER TABLE chat_thread_files ADD COLUMN diff_json TEXT",
+    // Fase 5.5: harga per juta token untuk perkiraan biaya (diisi user).
+    "ALTER TABLE llm_providers ADD COLUMN input_price_per_mtok REAL",
+    "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",
   ];
   for (const sql of statements) {
     try { runSql(sql); } catch {}
@@ -251,6 +261,77 @@ if (isBun) {
   // See the ordering note in the Bun branch above.
   runDrizzleMigrations(() => migrate(db, { migrationsFolder: migrationsDir }));
   applyMigrations((sql) => sqlite.exec(sql));
+}
+
+/**
+ * Koneksi BACA-SAJA untuk tool agent (Fase 6, FR-M1).
+ *
+ * Dibuka sebagai koneksi terpisah dengan `readonly: true` pada driver, bukan
+ * sekadar memvalidasi teks SQL di atas koneksi utama. Alasannya: validasi string
+ * bisa bocor lewat satu bentuk sintaks yang belum saya pikirkan, sedangkan
+ * koneksi read-only menolak penulisan apa pun di lapisan SQLite — termasuk
+ * `PRAGMA`, `ATTACH`, dan DDL yang tidak lewat jalur biasa.
+ *
+ * Dibuat malas (lazy) dan dipakai ulang: membuka koneksi per query akan
+ * menghabiskan file handle, dan tool ini dipanggil berkali-kali dalam satu turn.
+ */
+let readOnlyRaw: any = null;
+
+async function readOnlyConnection(): Promise<any> {
+  if (readOnlyRaw) return readOnlyRaw;
+  if (isBun) {
+    // Import dinamis, sama seperti koneksi utama: cabang Node tidak boleh pernah
+    // memuat `bun:sqlite`, dan cabang Bun tidak boleh memuat better-sqlite3.
+    const { Database } = await import("bun:sqlite");
+    readOnlyRaw = new Database(dbPath, { readonly: true });
+  } else {
+    const BetterSqlite3 = (await import("better-sqlite3")).default;
+    readOnlyRaw = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
+  }
+  return readOnlyRaw;
+}
+
+/**
+ * Menjalankan satu query baca dan mengembalikan barisnya, berhenti pada `maxRows`.
+ *
+ * Memakai iterasi, bukan `all()`: `SELECT * FROM chat_messages` pada DB yang
+ * sudah lama dipakai akan mewujudkan puluhan ribu baris di memori sebelum
+ * dipotong, dan batas baris seharusnya membatasi kerja, bukan hanya keluarannya.
+ */
+export async function runReadOnlyQuery(query: string, maxRows: number): Promise<{ rows: Record<string, unknown>[]; truncated: boolean }> {
+  const conn = await readOnlyConnection();
+  // `prepare()` di KEDUA driver (bukan `query()` milik bun, yang meng-cache
+  // statement dan jadi masalah saat kita finalisasi di bawah).
+  const statement = conn.prepare(query);
+  const rows: Record<string, unknown>[] = [];
+  let truncated = false;
+  try {
+    const iterator = statement.iterate();
+    for (const row of iterator) {
+      if (rows.length >= maxRows) {
+        truncated = true;
+        break;
+      }
+      rows.push(row as Record<string, unknown>);
+    }
+    try {
+      (iterator as any).return?.();
+    } catch {
+      /* driver tertentu tidak punya .return() */
+    }
+  } finally {
+    // WAJIB: berhenti di tengah iterasi meninggalkan transaksi baca terbuka, dan
+    // di mode WAL transaksi yang menggantung memaku SNAPSHOT — query berikutnya di
+    // koneksi ini akan melihat data lama (terukur: 199 dari 226 baris sesudah
+    // penyisipan, karena snapshot diambil sebelum penyisipan). Efeknya agent bisa
+    // menjawab "task itu tidak ada" tepat setelah membuatnya.
+    try {
+      statement.finalize?.();
+    } catch {
+      /* sudah final */
+    }
+  }
+  return { rows, truncated };
 }
 
 /// Checkpoint the WAL journal so it doesn't grow without bound during

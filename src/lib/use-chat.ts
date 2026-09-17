@@ -13,10 +13,12 @@ export interface ThreadSummary {
   id: string;
   projectId: string;
   title: string | null;
-  mode: "ask" | "agent";
+  /** ask = menjawab · plan = menyusun rencana read-only (Fase 5.1) ·
+   *  agent = boleh memakai tool. */
+  mode: "ask" | "agent" | "plan";
   providerId: string | null;
   model: string | null;
-  permissionMode: "ask" | "auto" | "readonly";
+  permissionMode: "ask" | "auto" | "no-shell" | "readonly";
   maxSteps: number;
   tokensUsed: number;
   archived: boolean;
@@ -66,6 +68,9 @@ export interface ThreadDetail {
   toolCalls: ThreadToolCall[];
   /** Files the agent read whose content no longer matches what it saw (FR-C12). */
   staleReads: { path: string; readAt: string | null }[];
+  /** Token split + cost estimate for this thread (Fase 5.5). `estimate` is null
+   *  when the provider has no price configured — then tokens are shown alone. */
+  usage: { tokensIn: number; tokensOut: number; estimate: { amount: number; currency: "usd"; partial: boolean } | null };
   provider: { id: string; name: string; apiKeyMasked: string | null; source: string; model: string | null } | null;
 }
 
@@ -92,6 +97,63 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
   return body as T;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-thread search (Fase 5.3, FR-B17)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ChatSearchHit {
+  threadId: string;
+  threadTitle: string | null;
+  messageId: string;
+  role: string;
+  /** Matched excerpt; terms are wrapped in `\u0001`…`\u0002` (control chars, so
+   *  they can never collide with message text) for highlighting. */
+  snippet: string;
+  rank: number;
+  createdAt: string | null;
+}
+
+/**
+ * Message search across the project's threads, debounced.
+ *
+ * Short queries are dropped client-side as well as server-side: one or two
+ * characters match everything, so firing a request for them would only produce
+ * a wall of noise and wasted queries.
+ */
+export function useChatSearch(projectId: string | undefined, query: string) {
+  const [hits, setHits] = useState<ChatSearchHit[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (!projectId || q.length < 2) {
+      setHits([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api<{ hits: ChatSearchHit[] }>(
+          `/api/chat/search?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(q)}`,
+        );
+        if (!cancelled) setHits(Array.isArray(res.hits) ? res.hits : []);
+      } catch {
+        if (!cancelled) setHits([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [projectId, query]);
+
+  return { hits, loading };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -442,6 +504,8 @@ export interface ResolvedChatAction {
   label: string;
   hint: string;
   prompt: string;
+  /** Slash command that inserts `prompt` (FR-5.4). */
+  command: string;
   /** `project` = read from `<project>/.agents/onesist-actions.json`, which means
    *  it arrived with the repo and is treated as untrusted content (FR-K1). */
   source: "builtin" | "project";
@@ -549,4 +613,23 @@ export function messageText(message: UIMessage | { parts?: any[] }): string {
   return (message.parts ?? [])
     .map((p: any) => (p?.type === "text" ? p.text : ""))
     .join("");
+}
+
+
+/** Formats a cost estimate for display. Small amounts keep four decimals, because
+ *  a single cheap turn must not render as "$0.00" — that reads as free. */
+export function formatCost(estimate: { amount: number; partial: boolean } | null | undefined): string | null {
+  if (!estimate) return null;
+  if (estimate.amount === 0) return estimate.partial ? "sebagian" : "$0";
+  const digits = estimate.amount < 0.01 ? 4 : 2;
+  const text = `$${estimate.amount.toFixed(digits)}`;
+  return estimate.partial ? `±${text}` : text;
+}
+
+/** Angka token yang cepat dibaca: 8.512 di bawah sepuluh ribu, 12,3 rb di atasnya.
+ *  Satu definisi untuk semua permukaan supaya pesan dan footer tidak berbeda
+ *  format. */
+export function formatTokens(n: number): string {
+  if (n < 10_000) return n.toLocaleString("id-ID");
+  return new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }

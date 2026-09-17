@@ -28,6 +28,16 @@ import { newId } from "~/server/agent/store";
 
 export const router = new Router();
 
+/** Harga per juta token (Fase 5.5). Angka non-negatif, selain itu dianggap kosong —
+ *  harga negatif atau NaN akan menghasilkan biaya yang salah arah, dan lebih baik
+ *  tidak menampilkan biaya sama sekali. */
+function readPrice(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+
 /**
  * Provider shape for the UI. Replaces `api_key` with a masked version and adds
  * derived results so the UI does not have to compute them itself.
@@ -52,6 +62,8 @@ function toPublicProvider(row: ProviderRow) {
     enableThinking: row.enableThinking,
     effortCapabilityJson: row.effortCapabilityJson,
     maxOutputTokens: row.maxOutputTokens,
+    inputPricePerMTok: row.inputPricePerMTok ?? null,
+    outputPricePerMTok: row.outputPricePerMTok ?? null,
     contextWindow: row.contextWindow,
     cliAgent: row.cliAgent,
     cliPath: row.cliPath,
@@ -161,6 +173,8 @@ router.post("providers", async (ctx) => {
         skipTlsVerify: readBoolean(body.skipTlsVerify, false),
         enableThinking: readBoolean(body.enableThinking, false),
         effortCapabilityJson: parseList(body, "effortCapability"),
+        inputPricePerMTok: readPrice(body.inputPricePerMTok),
+        outputPricePerMTok: readPrice(body.outputPricePerMTok),
         maxOutputTokens:
           typeof body.maxOutputTokens === "number" && body.maxOutputTokens > 0
             ? body.maxOutputTokens
@@ -202,6 +216,8 @@ router.put("providers/:id", async (ctx) => {
   if (typeof body.authMethod === "string") patch.authMethod = body.authMethod;
   if (body.model !== undefined) patch.model = body.model ? String(body.model).trim() : null;
   if (body.maxOutputTokens !== undefined) patch.maxOutputTokens = body.maxOutputTokens === null ? null : Number(body.maxOutputTokens);
+  if (body.inputPricePerMTok !== undefined) patch.inputPricePerMTok = readPrice(body.inputPricePerMTok);
+  if (body.outputPricePerMTok !== undefined) patch.outputPricePerMTok = readPrice(body.outputPricePerMTok);
   if (body.contextWindow !== undefined) patch.contextWindow = body.contextWindow === null ? null : Number(body.contextWindow);
   if (body.proxyUrl !== undefined) patch.proxyUrl = body.proxyUrl ? String(body.proxyUrl) : null;
   if (body.skipTlsVerify !== undefined) patch.skipTlsVerify = readBoolean(body.skipTlsVerify, false);

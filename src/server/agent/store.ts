@@ -6,9 +6,9 @@
  * in-memory ring buffer lost on server restart.
  */
 import crypto from "node:crypto";
-import { and, asc, desc, eq, max } from "drizzle-orm";
+import { and, asc, desc, eq, max, sql } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents } from "~/server/db/schema";
+import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
 import type { FileOp, PermissionMode, ThreadMode } from "./types";
 
 export type ThreadRow = typeof chatThreads.$inferSelect;
@@ -91,6 +91,13 @@ export function deleteThread(id: string): void {
   db.delete(chatMessages).where(eq(chatMessages.threadId, id)).run();
   db.delete(chatRuns).where(eq(chatRuns.threadId, id)).run();
   db.delete(chatThreads).where(eq(chatThreads.id, id)).run();
+  // FTS5 has no foreign keys, so its rows are dropped by hand — otherwise a
+  // deleted thread would keep showing up in search results.
+  try {
+    db.run(sql`DELETE FROM chat_fts WHERE thread_id = ${id}`);
+  } catch {
+    /* search index only — never block deleting the thread itself */
+  }
 }
 
 export function addTokens(threadId: string, inputTokens: number, outputTokens: number): void {
@@ -158,8 +165,147 @@ export function appendMessage(input: {
       createdAt: new Date().toISOString(),
     })
     .run();
+  // Index the searchable text as the message is stored, so cross-thread search
+  // (FR-B17) never has to walk history to stay current.
+  const text = messageText(input.parts);
+  if (text) indexChatMessage({ id, threadId: input.threadId, role: input.role, text });
   touchThread(input.threadId);
   return db.select().from(chatMessages).where(eq(chatMessages.id, id)).get() as MessageRow;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-thread message search (Fase 5.3, FR-B17)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The searchable text of a stored message: its `text` parts, joined.
+ *  Tool and reasoning parts are excluded on purpose — they are machine output
+ *  (sometimes tens of KB of JSON) and would drown real hits. */
+export function messageText(parts: unknown): string {
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+    .map((p: any) => String(p.text))
+    .join("\n")
+    .trim();
+}
+
+function parseParts(contentJson: string | null): unknown {
+  if (!contentJson) return [];
+  try {
+    const parsed = JSON.parse(contentJson);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** One FTS row per message: DELETE then INSERT, because FTS5 has no upsert and
+ *  a message can be indexed twice (streamed turn, then the one-time backfill).
+ *  Failures are swallowed: search must never be what fails a conversation. */
+function indexChatMessage(input: { id: string; threadId: string; role: string; text: string }): void {
+  try {
+    db.run(sql`DELETE FROM chat_fts WHERE message_id = ${input.id}`);
+    db.run(
+      sql`INSERT INTO chat_fts (text, message_id, thread_id, role)
+          VALUES (${input.text}, ${input.id}, ${input.threadId}, ${input.role})`,
+    );
+  } catch {
+    /* idem */
+  }
+}
+
+let chatIndexChecked = false;
+
+/** Marks the one-time backfill as done for this database. Deliberately a raw
+ *  `app_settings` key rather than an entry in `SETTING_DEFAULTS` — that registry
+ *  is what the settings endpoint serves, and an internal migration marker is not
+ *  a user preference. */
+const CHAT_FTS_BACKFILL_KEY = "chatFtsBackfilled";
+
+/** One-time backfill so databases that predate `chat_fts` become searchable.
+ *
+ *  The gate is a stored flag, NOT "is the FTS table empty": by the time the
+ *  first search happens, messages sent since the upgrade are already indexed by
+ *  `appendMessage`, so an emptiness check would skip the backfill and leave the
+ *  older half of the history invisible forever. `indexChatMessage` deletes
+ *  before inserting, so re-indexing an already-indexed message stays one row. */
+export function ensureChatIndex(): void {
+  if (chatIndexChecked) return;
+  chatIndexChecked = true;
+  try {
+    const done = db.select().from(appSettings).where(eq(appSettings.key, CHAT_FTS_BACKFILL_KEY)).get();
+    if (done) return;
+    let jumlah = 0;
+    for (const row of db.select().from(chatMessages).all() as MessageRow[]) {
+      const text = messageText(parseParts(row.contentJson));
+      if (!text) continue;
+      indexChatMessage({ id: row.id, threadId: row.threadId, role: row.role, text });
+      jumlah += 1;
+    }
+    db.insert(appSettings)
+      .values({
+        key: CHAT_FTS_BACKFILL_KEY,
+        value: JSON.stringify({ at: new Date().toISOString(), messages: jumlah }),
+        updatedAt: new Date().toISOString(),
+      })
+      .run();
+  } catch {
+    /* idempotent */
+  }
+}
+
+export interface ChatSearchHit {
+  threadId: string;
+  threadTitle: string | null;
+  messageId: string;
+  role: string;
+  /** Matched excerpt; the matched terms are wrapped in `\u0001`…`\u0002`
+   *  (char(1)/char(2)) so the UI can highlight without re-finding the terms. */
+  snippet: string;
+  rank: number;
+  createdAt: string | null;
+}
+
+/**
+ * Search stored messages across every thread of one project (FR-B17).
+ *
+ * Same query sanitisation as the artifact index: raw `"`, `*`, `(` are FTS5
+ * syntax and would throw or silently change meaning, so the query becomes a
+ * phrase-per-token OR. The FTS table is named in full (never aliased) because
+ * `MATCH` and `bm25()` resolve against the table name in the FROM clause.
+ */
+export function searchChatMessages(projectId: string, query: string, limit: number): ChatSearchHit[] {
+  ensureChatIndex();
+  const terms = query
+    .replace(/["'*()^:]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 1)
+    .slice(0, 8);
+  if (!terms.length) return [];
+
+  const match = terms.map((t) => `"${t}"`).join(" OR ");
+  const rows = db.all(
+    sql`SELECT chat_fts.message_id AS message_id, chat_fts.thread_id AS thread_id, chat_fts.role AS role,
+               snippet(chat_fts, 0, char(1), char(2), '…', 12) AS snippet,
+               bm25(chat_fts) AS rank, t.title AS thread_title, m.created_at AS created_at
+        FROM chat_fts
+        JOIN chat_threads t ON t.id = chat_fts.thread_id
+        LEFT JOIN chat_messages m ON m.id = chat_fts.message_id
+        WHERE t.project_id = ${projectId} AND chat_fts MATCH ${match}
+        ORDER BY rank
+        LIMIT ${limit}`,
+  ) as any[];
+
+  return rows.map((r) => ({
+    threadId: String(r.thread_id),
+    threadTitle: (r.thread_title as string | null) ?? null,
+    messageId: String(r.message_id),
+    role: String(r.role ?? "assistant"),
+    snippet: String(r.snippet ?? ""),
+    rank: Number(r.rank ?? 0),
+    createdAt: (r.created_at as string | null) ?? null,
+  }));
 }
 
 export function listMessages(threadId: string): MessageRow[] {
@@ -340,6 +486,17 @@ export function listThreadReads(threadId: string) {
  *  "context was compacted" marker appeared with no stored summary. */
 export function setThreadSummary(threadId: string, summary: string | null): void {
   updateThread(threadId, { summary });
+}
+
+/** Token masuk/keluar untuk satu thread, dijumlahkan dari pesan.
+ *
+ *  `chat_threads.tokensUsed` menyimpan satu angka gabungan (dipakai daftar
+ *  thread), sedangkan perkiraan biaya butuh pemisahan — harga masuk dan keluar
+ *  berbeda, dan menjumlahkannya lebih dulu akan membuat biayanya salah. */
+export function threadTokens(threadId: string): { in: number; out: number } {
+  const row = (db.all(sql`SELECT COALESCE(SUM(input_tokens), 0) AS masuk, COALESCE(SUM(output_tokens), 0) AS keluar
+    FROM chat_messages WHERE thread_id = ${threadId}`) as any[])[0];
+  return { in: Number(row?.masuk ?? 0), out: Number(row?.keluar ?? 0) };
 }
 
 export function listThreadFiles(threadId: string) {

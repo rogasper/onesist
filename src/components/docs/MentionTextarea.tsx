@@ -9,7 +9,15 @@ export interface MentionFile {
 /** One `char`-triggered popup inside the textarea. */
 export interface MentionTrigger {
   char: string;
-  items: { name: string; path: string; hint?: string; tag?: string }[];
+  items: {
+    name: string;
+    path: string;
+    hint?: string;
+    tag?: string;
+    /** Text to insert instead of `<char><path>`. Slash commands use it: the user
+     *  types `/sit` but the field should end up holding the full instruction. */
+    insert?: string;
+  }[];
   /** Header line shown above the items, e.g. "Skill · menentukan format artefak". */
   label?: string;
 }
@@ -126,14 +134,14 @@ export function MentionTextarea({
    *  The trigger character is part of the inserted text: a mention is only a
    *  mention if it keeps its marker. Dropping it produced a bare path, which the
    *  agent then had to guess was meant as a reference. */
-  const insert = (item: { path: string }) => {
+  const insert = (item: { path: string; insert?: string }) => {
     const ta = taRef.current;
     if (!ta || openTrigger == null) return;
     const trigger = activeTriggers[openTrigger];
     const pos = ta.selectionStart ?? value.length;
     const found = detect(value, pos);
     const start = found ? found.start : pos;
-    const inserted = `${trigger.char}${item.path}`;
+    const inserted = item.insert ?? `${trigger.char}${item.path}`;
     const next = value.slice(0, start) + inserted + value.slice(pos);
     onChange(next);
     setOpenTrigger(null);
@@ -209,38 +217,49 @@ export function MentionTextarea({
         className={`${className ?? ""} ${dropActive ? "ring-2 ring-kumo-brand" : ""}`}
         placeholder={placeholder}
       />
-      {open && filtered.length > 0 && active ? (
+      {open && active ? (
         <div className="absolute left-0 right-0 bottom-full mb-1 max-h-64 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-elevated shadow-lg z-50">
           {active.label ? (
             <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-kumo-subtle border-b border-kumo-line">{active.label}</p>
           ) : null}
-          {filtered.map((item, i) => (
-            <button
-              key={item.path}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                insert(item);
-              }}
-              onMouseEnter={() => setHighlight(i)}
-              className={`w-full text-left px-3 py-1.5 flex items-start gap-2 ${
-                i === highlight ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle"
-              }`}
-            >
-              <span className="mt-0.5 shrink-0 opacity-60">
-                {isSkillTrigger ? <Sparkle size={11} /> : <FileText size={11} />}
-              </span>
-              <span className="grid gap-0.5 min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className={`truncate ${isSkillTrigger ? "text-sm text-kumo-default" : "text-[11px] font-mono"}`}>
-                    {isSkillTrigger ? item.name : item.path}
-                  </span>
-                  {item.tag ? <span className="shrink-0 text-[10px] uppercase tracking-wide text-kumo-subtle">{item.tag}</span> : null}
+          {filtered.length === 0 ? (
+            // A trigger that matches but has nothing to offer must SAY so. It
+            // used to render nothing at all, which is indistinguishable from the
+            // popup being broken — and that is exactly how an empty `/` list
+            // stayed invisible (the list was empty because of a missing
+            // dependency, not because the user typed something wrong).
+            <p className="px-3 py-2 text-[11px] text-kumo-subtle">
+              {active.char === "/" ? "Tidak ada perintah yang cocok." : active.char === "$" ? "Tidak ada skill yang cocok." : "Tidak ada berkas yang cocok."}
+            </p>
+          ) : (
+            filtered.map((item, i) => (
+              <button
+                key={item.path}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insert(item);
+                }}
+                onMouseEnter={() => setHighlight(i)}
+                className={`w-full text-left px-3 py-1.5 flex items-start gap-2 ${
+                  i === highlight ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle"
+                }`}
+              >
+                <span className="mt-0.5 shrink-0 opacity-60">
+                  {isSkillTrigger ? <Sparkle size={11} /> : <FileText size={11} />}
                 </span>
-                {item.hint ? <span className="text-[11px] leading-snug text-kumo-subtle line-clamp-2">{item.hint}</span> : null}
-              </span>
-            </button>
-          ))}
+                <span className="grid gap-0.5 min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className={`truncate ${isSkillTrigger ? "text-sm text-kumo-default" : "text-[11px] font-mono"}`}>
+                      {isSkillTrigger ? item.name : item.path}
+                    </span>
+                    {item.tag ? <span className="shrink-0 text-[10px] uppercase tracking-wide text-kumo-subtle">{item.tag}</span> : null}
+                  </span>
+                  {item.hint ? <span className="text-[11px] leading-snug text-kumo-subtle line-clamp-2">{item.hint}</span> : null}
+                </span>
+              </button>
+            ))
+          )}
         </div>
       ) : null}
     </div>

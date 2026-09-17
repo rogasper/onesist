@@ -14,10 +14,61 @@ export type ApiStyle = "completions" | "responses" | "anthropic-messages" | "cli
 export type AuthMethod = "bearer" | "api-key" | "none";
 
 /** How far the agent may act without asking (FR-E1). */
-export type PermissionMode = "ask" | "auto" | "readonly";
+/**
+ * Seberapa jauh agent boleh bertindak (FR-E1), plus satu derajat tambahan dari
+ * FR-M7:
+ *   ask      — setiap penulisan menunggu persetujuan
+ *   auto     — boleh menulis, kecuali path terproteksi
+ *   no-shell — boleh menulis berkas, TAPI tool `bash` tidak dipasang sama sekali
+ *   readonly — hanya membaca (tanpa tool tulis, dan tanpa shell)
+ *
+ * `no-shell` ada karena tanpa itu pilihannya biner: `readonly` sudah berarti
+ * "tanpa shell" sejak awal, jadi user yang ingin agent menulis artefak tetapi
+ * tidak ingin memberinya shell tidak punya pilihan.
+ */
+export type PermissionMode = "ask" | "auto" | "no-shell" | "readonly";
 
-/** Conversation mode. `ask` = text only, no tools. */
-export type ThreadMode = "ask" | "agent";
+/** Shell hanya tersedia di mode yang mengizinkannya (FR-M7). */
+export function shellAllowed(mode: PermissionMode): boolean {
+  return mode === "ask" || mode === "auto";
+}
+
+/** Tool yang mengubah state dipasang kecuali di mode baca-saja. */
+export function mutatingAllowed(mode: PermissionMode): boolean {
+  return mode !== "readonly";
+}
+
+/**
+ * Conversation mode.
+ *   ask  — jawab dengan teks (tool baca tetap ada)
+ *   plan — Fase 5.1: sama-sama tanpa tool yang mengubah state, tetapi hasilnya
+ *          diarahkan menjadi RENCANA yang bisa disetujui user; persetujuan itu
+ *          yang mengubah thread ke `agent` dan menjalankannya
+ *   agent — boleh memakai tool dan mengubah berkas (dengan izin)
+ */
+export type ThreadMode = "ask" | "agent" | "plan";
+
+/** Mode yang tidak boleh mengubah apa pun (plan mode termasuk). Shell juga
+ *  tidak dipasang di sini: `bash` bisa menulis berkas, dan rencana yang menulis
+ *  berkas bukan rencana. */
+export function isReadOnlyMode(mode: ThreadMode): boolean {
+  return mode !== "agent";
+}
+
+/**
+ * Which tool families a turn installs.
+ *
+ * One decision instead of two expressions inside `startTurn`, because plan mode's
+ * guarantee — "cannot write anything" (FR-B18) — must be assertable on its own:
+ * the suite checks both this policy and the tool set that follows from it.
+ */
+export function toolPolicyFor(mode: ThreadMode, permissionMode: PermissionMode): { includeMutating: boolean; includeShell: boolean } {
+  return {
+    includeMutating: mode === "agent" && mutatingAllowed(permissionMode),
+    // bash can write files, so it follows the same rule as the write tools.
+    includeShell: mode === "agent" && shellAllowed(permissionMode),
+  };
+}
 
 export type RunStatus = "running" | "done" | "error" | "stopped" | "interrupted";
 

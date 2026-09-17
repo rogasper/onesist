@@ -11,6 +11,7 @@ import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
 import {
+  formatTokens,
   uploadAttachment,
   useChatActions,
   useChatSkills,
@@ -63,12 +64,6 @@ const ROUTE_TO_TAB: Record<string, { tab: string; label: string }> = {
 };
 
 const MONO = "font-mono text-[0.8125rem]";
-
-/** Token numbers that scan fast: 8,512 below ten thousand, 12.3k above. */
-function fmtTokens(n: number): string {
-  if (n < 10_000) return n.toLocaleString("id-ID");
-  return new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 }).format(n);
-}
 
 /** Durations in readable units: 820 ms · 1.2 s · 1 min 5 s. */
 function fmtDuration(ms: number): string {
@@ -236,6 +231,28 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
     });
   }
 
+  /**
+   * Approve the plan and run it (FR-B18) — without the user having to copy the
+   * plan into a new message.
+   *
+   * The mode switch is PERSISTED before the message is sent: the server builds
+   * the system prompt from the thread row it reads when the request arrives, so
+   * sending first would run the plan with plan-mode tools (i.e. none) and the
+   * agent would answer "I cannot write files".
+   */
+  async function approvePlan() {
+    if (streaming) return;
+    setMode("agent");
+    await patchThread({ mode: "agent" });
+    atBottomRef.current = true;
+    setNow(Date.now());
+    await sendMessage({ text: "Setujui rencana di atas. Jalankan langkah-langkahnya sekarang." });
+  }
+
+  const lastMessage = messages[messages.length - 1];
+  const planReadyToApprove =
+    mode === "plan" && !streaming && lastMessage?.role === "assistant" && Boolean((lastMessage.parts ?? []).some(isTextUIPart));
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <WorkspacePanel
@@ -271,6 +288,21 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
             <ApprovalBlock key={a.toolCallId} approval={a} onDecide={decide} />
           ))}
 
+          {planReadyToApprove ? (
+            // Plan mode has no write tool, so the plan is the end of the turn.
+            // Approving flips the thread to Work mode and sends one message —
+            // the plan itself is already in the conversation.
+            <div className="flex items-center gap-3 rounded-xl ring ring-kumo-line bg-kumo-elevated px-3.5 py-3">
+              <ListChecks size={16} className="text-kumo-brand shrink-0" />
+              <span className="text-sm text-kumo-default flex-1 min-w-0">
+                Rencana ini belum dijalankan. Menyetujui akan mengubah mode percakapan ke <b>Kerjakan</b> dan langsung memulainya.
+              </span>
+              <Button variant="primary" onClick={() => void approvePlan()}>
+                Setujui &amp; jalankan
+              </Button>
+            </div>
+          ) : null}
+
           {error ? <InlineAlert>{error.message}</InlineAlert> : null}
         </div>
       </div>
@@ -281,7 +313,7 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
             <Pulse />
             <span>
               Menghasilkan balasan
-              {mode === "agent" ? " · memakai tool" : ""} · berjalan {elapsedSeconds(startedAt, now)}s
+              {mode === "agent" ? " · memakai tool" : mode === "plan" ? " · menyusun rencana" : ""} · berjalan {elapsedSeconds(startedAt, now)}s
             </span>
           </div>
         </div>
@@ -324,6 +356,7 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
           void patchThread({ permissionMode: v });
         }}
         tokensUsed={detail.thread.tokensUsed}
+        usage={detail.usage}
         hasSummary={detail.thread.hasSummary}
         attachments={attachments}
         onAttach={handleAttach}
@@ -561,8 +594,8 @@ function MessageBlock({
 
       {inTok || outTok ? (
         <p className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex items-center gap-2">
-          <span>↑{fmtTokens(inTok ?? 0)} masuk</span>
-          <span>↓{fmtTokens(outTok ?? 0)} keluar</span>
+          <span>↑{formatTokens(inTok ?? 0)} masuk</span>
+          <span>↓{formatTokens(outTok ?? 0)} keluar</span>
           {reasoningMs ? <span>· berpikir {fmtDuration(reasoningMs)}</span> : null}
           {failed ? <span className="text-amber-400">· {metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
         </p>
@@ -666,7 +699,7 @@ function NoticeBlock({ data }: { data: any }) {
   return (
     <div className="rounded-lg ring ring-kumo-line px-3 py-2 text-sm text-kumo-subtle">
       Konteks percakapan diringkas
-      {data.estimatedBefore ? ` · perkiraan ${fmtTokens(data.estimatedBefore)} → ${fmtTokens(data.estimatedAfter ?? 0)} token` : ""}.
+      {data.estimatedBefore ? ` · perkiraan ${formatTokens(data.estimatedBefore)} → ${formatTokens(data.estimatedAfter ?? 0)} token` : ""}.
       Pesan-pesan awal digantikan ringkasannya.
     </div>
   );
@@ -873,6 +906,7 @@ function ToolRow({
         <span className="h-lh flex items-center text-kumo-subtle shrink-0">
           {state.tone === "ok" ? <ShieldCheck size={13} /> : <meta.icon size={13} />}
         </span>
+       
         <span className="text-sm font-medium text-kumo-default shrink-0">{meta.label}</span>
         <span className={`${MONO} text-kumo-subtle truncate min-w-0 flex-1`} title={target}>
           {name === "bash" ? `$ ${target}` : target || name}

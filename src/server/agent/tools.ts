@@ -23,6 +23,7 @@ import { diffStat, resolveInRoot, type DiffStat } from "./paths";
 import { readSkill } from "./skills";
 import { appendMemory } from "./memory";
 import { buildCodeSearchTool } from "./index/tool";
+import { buildDbTools } from "./db/tools";
 import type { ChangeSource, FileOp } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +65,11 @@ export interface ToolContext {
   onTodos?: (todos: TodoItem[]) => void;
   /** `false` = ask/readonly mode: state-changing tools are not installed. */
   includeMutating?: boolean;
+  /** `false` = `no-shell`/`readonly` mode: the bash tool is not installed at all
+   *  (FR-M7). Without this the permission menu was all-or-nothing: readonly
+   *  already meant "no shell", leaving no way to allow file writes while
+   *  refusing a shell. */
+  includeShell?: boolean;
 }
 
 const LIMITS = {
@@ -383,7 +389,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
       })
     : null;
 
-  const bashTool = includeMutating
+  const bashTool = includeMutating && ctx.includeShell !== false
     ? tool({
         description:
           "Jalankan perintah shell di root project. Berguna untuk membuat folder (mkdir -p) atau memeriksa " +
@@ -399,7 +405,13 @@ export function buildTools(ctx: ToolContext): ToolSet {
           const args = isWin ? ["/d", "/s", "/c", command] : ["-lc", command];
 
           return await new Promise<string>((resolve) => {
-            const child = spawn(shell, args, { cwd: ctx.root, windowsHide: true });
+            // Environment dibersihkan (FR-M7): shell agent tidak butuh dan tidak
+            // boleh tahu di mana database aplikasi berada. Tanpa ini, seluruh
+            // proteksi akses DB bisa dilewati dengan `sqlite3 "$SA_DB_PATH"`.
+            // PATH tetap diteruskan supaya perintah biasa (git, test, mkdir) jalan.
+            const childEnv = { ...process.env };
+            for (const key of ["SA_DB_PATH", "SA_MIGRATIONS_DIR", "SA_VENDOR_SKILLS_DIR", "SA_ROOT"]) delete childEnv[key];
+            const child = spawn(shell, args, { cwd: ctx.root, windowsHide: true, env: childEnv });
             let out = "";
             let killed = false;
             const timer = setTimeout(() => {
@@ -554,6 +566,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
   });
 
   const codeSearchTool = buildCodeSearchTool({ projectId: ctx.projectId, root: ctx.root });
+  const { dbQuery, dbSchema, appWrite } = buildDbTools({ projectId: ctx.projectId, permissionMode: "auto" });
 
   const tools: ToolSet = {
     read_file: readFileTool,
@@ -564,9 +577,14 @@ export function buildTools(ctx: ToolContext): ToolSet {
     todo_write: todoTool,
     skill_read: skillReadTool,
     code_search: codeSearchTool,
+    db_schema: dbSchema,
+    db_query: dbQuery,
     task: taskTool,
   };
   if (memoryWriteTool) tools.memory_write = memoryWriteTool;
+  // app_write adalah tool tulis (lewat endpoint aplikasi), jadi ikut aturan tool
+  // bermutasi: tidak ada di mode readonly, dan lewat approval di mode ask.
+  if (includeMutating) tools.app_write = appWrite;
   if (writeFileTool) tools.write_file = writeFileTool;
   if (editFileTool) tools.edit_file = editFileTool;
   if (bashTool) tools.bash = bashTool;
@@ -575,4 +593,4 @@ export function buildTools(ctx: ToolContext): ToolSet {
 
 /** Names of state-changing tools — used for permission gating (FR-E) and to
  *  make sure subagents never get them (FR-G6). */
-export const MUTATING_TOOLS = new Set(["write_file", "edit_file", "bash", "memory_write"]);
+export const MUTATING_TOOLS = new Set(["write_file", "edit_file", "bash", "memory_write", "app_write"]);

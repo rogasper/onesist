@@ -21,7 +21,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatRuns } from "~/server/db/schema";
+import { chatRuns, chatThreads, projects } from "~/server/db/schema";
+import { eventBus } from "~/server/realtime/events";
 import type { RunStatus } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,6 +166,22 @@ export function persistStepCount(runId: string, stepCount: number) {
   }
 }
 
+/**
+ * Names for the notification copy (Fase 5.6). A notification for an unfocused
+ * window has no UI to look things up in, so the plain names are resolved here,
+ * where the run still knows its thread. Never throws: notification bookkeeping
+ * must not be what fails a conversation.
+ */
+function notifyContext(threadId: string, projectId: string): { threadTitle: string | null; projectName: string | null } {
+  try {
+    const thread = db.select().from(chatThreads).where(eq(chatThreads.id, threadId)).get() as { title?: string | null } | undefined;
+    const project = db.select().from(projects).where(eq(projects.id, projectId)).get() as { name?: string | null } | undefined;
+    return { threadTitle: thread?.title?.trim() || null, projectName: project?.name?.trim() || null };
+  } catch {
+    return { threadTitle: null, projectName: null };
+  }
+}
+
 export function finishRun(runId: string, status: RunStatus, error?: string): void {
   const run = RUNS.get(runId);
   if (run) {
@@ -177,6 +194,20 @@ export function finishRun(runId: string, status: RunStatus, error?: string): voi
   }
   persistStatus(runId, status, error);
   RUNS.delete(runId);
+  // Emitted only when the run was still in the registry: that is the FIRST
+  // transition out of `running`. `finishRun` is called twice on some paths
+  // (the request-abort listener and then the stream's `finally`), and the
+  // notification must not fire twice for one run (FR-B16).
+  if (run) {
+    eventBus.emitChatRun({
+      runId,
+      threadId: run.threadId,
+      projectId: run.projectId,
+      status: status as "done" | "error" | "stopped" | "interrupted",
+      error: error ?? null,
+      ...notifyContext(run.threadId, run.projectId),
+    });
+  }
 }
 
 /** Stops a run: cancels the stream, rejects pending approvals,
@@ -193,6 +224,16 @@ export function stopRun(runId: string): boolean {
   run.pending.clear();
   persistStatus(runId, "stopped");
   RUNS.delete(runId);
+  // The client gates on window focus, so a user who pressed Stop while looking
+  // at the app still sees nothing — only a hidden window hears about it.
+  eventBus.emitChatRun({
+    runId,
+    threadId: run.threadId,
+    projectId: run.projectId,
+    status: "stopped",
+    error: null,
+    ...notifyContext(run.threadId, run.projectId),
+  });
   return true;
 }
 
@@ -215,6 +256,17 @@ export function awaitApproval(
       resolve("denied");
     }, APPROVAL_TIMEOUT_MS);
     run.pending.set(info.toolCallId, { ...info, resolve, timer });
+    // Emitted here, not at the call site: every future write tool inherits it,
+    // and the notification must be raised the moment the run actually blocks.
+    eventBus.emitChatApproval({
+      runId,
+      threadId: run.threadId,
+      projectId: run.projectId,
+      toolCallId: info.toolCallId,
+      name: info.name,
+      preview: info.preview,
+      ...notifyContext(run.threadId, run.projectId),
+    });
   });
 }
 

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@cloudflare/kumo";
-import { Check, Gear, Plus, X } from "@phosphor-icons/react";
+import { Check, Gear, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { ChatSurface } from "~/components/chat/ChatSurface";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import { useChatProviders, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
 
 /**
  * Chat panel docked on the right side (FR-B1).
@@ -94,7 +94,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
           <Button variant="ghost" onClick={handleNew} disabled={creating} title="Percakapan baru">
             <Plus size={14} />
           </Button>
-          <ThreadPicker threads={threads} activeId={activeId} onSelect={setActiveId} />
+          <ThreadPicker threads={threads} activeId={activeId} onSelect={setActiveId} projectId={projectId} />
           {active ? (
             <Button variant="ghost" onClick={() => setPendingDelete(active)} title="Hapus percakapan">
               <X size={13} />
@@ -171,18 +171,26 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
 
 /** Conversation picker: a chip that opens the list, not a native `<select>` —
  *  the system menu falls outside the app's design language and cannot hold
- *  subtext (changed-file count, compacted-context marker). */
+ *  subtext (changed-file count, compacted-context marker).
+ *
+ *  The popover also carries cross-thread message search (FR-B17): the panel is
+ *  too narrow for a second search surface, and "which conversation was that in"
+ *  is exactly the question this popover already answers. */
 function ThreadPicker({
   threads,
   activeId,
   onSelect,
+  projectId,
 }: {
   threads: ThreadSummary[];
   activeId: string | null;
   onSelect: (id: string | null) => void;
+  projectId: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const { hits, loading: searching } = useChatSearch(open ? projectId : undefined, query);
 
   useEffect(() => {
     if (!open) return;
@@ -193,7 +201,14 @@ function ThreadPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
+  // A closed popover should not keep a stale query around: reopening it with
+  // last week's results still on screen is worse than an empty field.
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
   const active = threads.find((t) => t.id === activeId) ?? null;
+  const searchingNow = query.trim().length >= 2;
 
   return (
     <div ref={ref} className="relative flex-1 min-w-0">
@@ -206,7 +221,46 @@ function ThreadPicker({
         <span className="text-kumo-subtle text-xs shrink-0">{open ? "⌄" : "⌃"}</span>
       </button>
       {open ? (
-        <div className="absolute top-full left-0 right-0 mt-1 z-30 max-h-72 overflow-y-auto rounded-xl bg-kumo-base ring ring-kumo-line shadow-lg p-1.5">
+        <div className="absolute top-full left-0 right-0 mt-1 z-30 max-h-80 overflow-y-auto rounded-xl bg-kumo-base ring ring-kumo-line shadow-lg p-1.5">
+          <div className="sticky top-0 z-10 bg-kumo-base pb-1">
+            <div className="flex items-center gap-1.5 rounded-lg px-2 h-8 ring ring-kumo-line">
+              <MagnifyingGlass size={13} className="text-kumo-subtle shrink-0" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Cari pesan di semua percakapan"
+                className="w-full bg-transparent text-sm text-kumo-default focus:outline-none placeholder:text-kumo-subtle"
+              />
+              {searching ? <span className="text-xs text-kumo-subtle shrink-0">…</span> : null}
+            </div>
+          </div>
+
+          {searchingNow ? (
+            <div className="pb-1">
+              {hits.map((h) => (
+                <button
+                  key={`${h.messageId}`}
+                  onClick={() => {
+                    onSelect(h.threadId);
+                    setOpen(false);
+                  }}
+                  className="w-full flex flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-kumo-elevated"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs text-kumo-subtle shrink-0">{h.role === "user" ? "Anda" : "Agent"}</span>
+                    <span className="text-xs text-kumo-subtle truncate">{h.threadTitle || "Percakapan baru"}</span>
+                  </span>
+                  <span className="text-sm leading-snug">
+                    <Snippet text={h.snippet} />
+                  </span>
+                </button>
+              ))}
+              {!hits.length && !searching ? <p className="px-2.5 py-2 text-sm text-kumo-subtle">Tidak ada pesan yang cocok.</p> : null}
+            </div>
+          ) : null}
+
+          {searchingNow ? <div className="mx-2.5 border-t border-kumo-line/60 mb-1" /> : null}
+
           {threads.map((t) => (
             <button
               key={t.id}
@@ -220,8 +274,14 @@ function ThreadPicker({
               <span className="grid gap-0.5 min-w-0">
                 <span className="text-sm text-kumo-default truncate">{t.title || "Percakapan baru"}</span>
                 <span className="text-xs text-kumo-subtle">
-                  {t.mode === "ask" ? "Menjawab" : "Mengerjakan"}
-                  {t.permissionMode === "readonly" ? " · hanya baca" : t.permissionMode === "auto" ? " · otomatis" : " · tanya dulu"}
+                  {t.mode === "ask" ? "Menjawab" : t.mode === "plan" ? "Merencanakan" : "Mengerjakan"}
+                  {t.permissionMode === "readonly"
+                    ? " · hanya baca"
+                    : t.permissionMode === "no-shell"
+                      ? " · tanpa shell"
+                      : t.permissionMode === "auto"
+                        ? " · otomatis"
+                        : " · tanya dulu"}
                   {t.tokensUsed ? ` · ${t.tokensUsed.toLocaleString("id-ID")} token` : ""}
                   {t.hasSummary ? " · diringkas" : ""}
                 </span>
@@ -232,5 +292,28 @@ function ThreadPicker({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** A search excerpt with its matched terms highlighted. The server wraps hits
+ *  in char(1)/char(2) — control characters that cannot occur in message text —
+ *  so no re-matching is needed on the client, and the split alternates
+ *  plain / match / plain / match… */
+function Snippet({ text }: { text: string }) {
+  const parts = text.split(/[\u0001\u0002]/);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <span key={i} className="text-kumo-brand">
+            {part}
+          </span>
+        ) : (
+          <span key={i} className="text-kumo-subtle">
+            {part}
+          </span>
+        ),
+      )}
+    </>
   );
 }

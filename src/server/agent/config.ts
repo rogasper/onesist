@@ -151,7 +151,69 @@ export function resolveMaxOutputTokens(config: Pick<ProviderRow, "maxOutputToken
 
 /** Builds an AI SDK model instance from a single provider row.
  *  Throws ProviderConfigError with a user-readable message. */
-export function buildLanguageModel(config: ProviderRow): LanguageModel {
+/**
+ * Identitas kita ke endpoint, dan header yang diminta gateway tertentu.
+ *
+ * Ditemukan dari laporan user: endpoint OpenCode Zen ("Go") menolak permintaan
+ * dengan "Request is missing x-opencode-session and cannot be routed efficiently".
+ * Dokumentasi mereka memang meminta dua hal dari klien non-OpenCode: **session id
+ * yang stabil per percakapan** di `x-opencode-session`, dan **user agent sendiri**,
+ * bukan nama SDK umum. Keduanya kita kirim sekarang, karena itu syarat resmi
+ * pemakaian sebagai klien pihak ketiga — bukan akal-akalan.
+ *
+ * UA dikirim ke semua endpoint (mengidentifikasi diri itu sopan dan membantu
+ * penyedia menelusuri masalah); header sesi hanya ke host yang memintanya, supaya
+ * kita tidak mengirim header asing ke endpoint yang tidak mengharapkannya.
+ */
+const APP_USER_AGENT = `onesist/${process.env.SA_APP_VERSION?.trim() || "0.1"}`;
+
+/**
+ * Fetch yang memasang identitas kita, dan header sesi bila endpoint memintanya.
+ *
+ * Kenapa lewat `fetch` dan bukan opsi `headers` provider: sudah diuji langsung ke
+ * wire (endpoint lokal yang mencatat header yang diterima) bahwa `headers` kustom
+ * memang terkirim, tetapi **`user-agent` ditimpa SDK** dengan miliknya
+ * (`ai/7.0.102 ai-sdk/provider-utils/…`). Dokumentasi gateway OpenCode meminta
+ * klien pihak ketiga mengidentifikasi diri dengan user agent sendiri, jadi satu-
+ * satunya tempat yang bisa memastikan itu adalah sebelum permintaan keluar.
+ */
+export function identityHeaders(endpoint: string, sessionId: string | undefined, overrides: Record<string, string> = {}): Record<string, string> {
+  const identity: Record<string, string> = {
+    "user-agent": APP_USER_AGENT,
+    ...sessionHeaderFor(endpoint, sessionId),
+  };
+  for (const [name, value] of Object.entries(overrides)) identity[name.toLowerCase()] = value;
+  return identity;
+}
+
+function identityFetch(opts: { endpoint: string; sessionId?: string; overrides: Record<string, string> }): typeof fetch {
+  // Nilai yang kita kirim, dan yang menang kalau USER mengisinya sendiri di
+  // header kustom. SDK sudah menaruh `user-agent` bawaannya di init.headers, jadi
+  // "sudah ada" BUKAN alasan untuk tidak menimpanya — itu justru yang membuat
+  // identitas aplikasi tidak pernah terkirim (terukur di wire).
+  const identity = identityHeaders(opts.endpoint, opts.sessionId, opts.overrides);
+  return (async (input: any, init: any) => {
+    const headers = new Headers(init?.headers ?? undefined);
+    for (const [name, value] of Object.entries(identity)) headers.set(name, value);
+    return fetch(input, { ...init, headers });
+  }) as typeof fetch;
+}
+
+function sessionHeaderFor(endpoint: string, sessionId: string | undefined): Record<string, string> {
+  try {
+    const host = new URL(endpoint).hostname;
+    if (/(^|\.)opencode\.ai$/i.test(host)) {
+      // Stabil per percakapan: id thread. Kalau tidak ada (mis. uji koneksi
+      // sebelum thread dibuat), pakai satu id tetap per proses.
+      return { "x-opencode-session": sessionId?.trim() || "onesist-standalone" };
+    }
+  } catch {
+    /* endpoint belum bisa diparse — jangan menambah header apa pun */
+  }
+  return {};
+}
+
+export function buildLanguageModel(config: ProviderRow, opts: { sessionId?: string } = {}): LanguageModel {
   const model = config.model?.trim();
   if (!model) throw new ProviderConfigError("Model belum diisi pada konfigurasi provider ini.");
 
@@ -160,7 +222,9 @@ export function buildLanguageModel(config: ProviderRow): LanguageModel {
     throw new ProviderConfigError("Endpoint belum diisi pada konfigurasi provider ini.");
   }
 
-  const headers = { ...authHeaders(config), ...customHeadersOf(config) };
+  // Urutan penting: header yang diminta provider TIDAK menimpa header kustom user
+  // (kalau user mau menimpanya sendiri, itu haknya).
+  const headers = { "user-agent": APP_USER_AGENT, ...sessionHeaderFor(endpoint ?? "", opts.sessionId), ...authHeaders(config), ...customHeadersOf(config) };
 
   if (config.apiStyle === "cli") {
     throw new ProviderConfigError(
@@ -177,7 +241,8 @@ export function buildLanguageModel(config: ProviderRow): LanguageModel {
         ? { apiKey: config.apiKey?.trim() || undefined }
         : { authToken: config.apiKey?.trim() || undefined }),
       baseURL: endpoint,
-      headers: Object.keys(customHeadersOf(config)).length ? customHeadersOf(config) : undefined,
+      headers,
+      fetch: identityFetch({ endpoint: endpoint ?? "", sessionId: opts.sessionId, overrides: customHeadersOf(config) }),
     });
     return provider(model);
   }
@@ -186,7 +251,12 @@ export function buildLanguageModel(config: ProviderRow): LanguageModel {
     const provider = createOpenAI({
       apiKey: config.apiKey?.trim() || undefined,
       baseURL: endpoint,
-      headers: Object.keys(customHeadersOf(config)).length ? customHeadersOf(config) : undefined,
+      // `headers`, bukan hanya header kustom user: di sinilah user agent aplikasi
+      // dan header sesi gateway ikut terkirim. Versi sebelumnya menyusun `headers`
+      // lalu tidak memakainya di cabang ini — itulah sebabnya error
+      // `x-opencode-session` masih muncul walau headernya "sudah" ditambahkan.
+      headers,
+      fetch: identityFetch({ endpoint: endpoint ?? "", sessionId: opts.sessionId, overrides: customHeadersOf(config) }),
     });
     return provider.responses(model);
   }
@@ -199,6 +269,7 @@ export function buildLanguageModel(config: ProviderRow): LanguageModel {
     apiKey: config.authMethod === "bearer" ? config.apiKey?.trim() || undefined : undefined,
     baseURL: endpoint!,
     headers: Object.keys(headers).length ? headers : undefined,
+    fetch: identityFetch({ endpoint: endpoint!, sessionId: opts.sessionId, overrides: customHeadersOf(config) }),
     includeUsage: true,
   });
   return provider(model);
@@ -434,11 +505,23 @@ export function getDefaultProvider(): ProviderRow | undefined {
 export const ENV_PROVIDER_ID = "env-bootstrap";
 
 /**
- * Temporary provider from the environment (FR-A17). Used so dev and CI can
- * run without filling in the configuration form first. DB providers ALWAYS
- * win.
+ * Provider from the environment (FR-A17) — **opt-in, off by default**.
+ *
+ * Sebelumnya provider ini selalu aktif sebagai cadangan, dan itu melahirkan kelas
+ * masalah yang nyata: aplikasi memakai endpoint yang tidak pernah dikonfigurasi
+ * user, sementara di permukaan pengaturan endpoint itu tidak muncul sebagai
+ * pilihan user. Akibatnya user bisa menghabiskan waktu men-debug endpoint yang
+ * bahkan tidak ia kenal — persis bagaimana error "Request is missing
+ * x-opencode-session" sampai ke layar padahal tidak ada yang mengisi endpoint itu
+ * di aplikasi.
+ *
+ * Aplikasi ini BYOK: provider yang dipakai harus yang user isi sendiri. Dev, CI,
+ * dan suite verifikasi tetap butuh jalur cepat ini, jadi mereka mengaktifkannya
+ * secara eksplisit lewat `SA_ALLOW_ENV_PROVIDER=1` — pernyataan yang sengaja,
+ * bukan efek samping environment yang kebetulan terisi.
  */
 export function envBootstrapProvider(): ProviderRow | null {
+  if (process.env.SA_ALLOW_ENV_PROVIDER !== "1") return null;
   const endpoint = process.env.BASE_URL_LLM?.trim();
   const model = process.env.MODEL_NAME_LLM?.trim();
   const apiKey = process.env.API_KEY_LLM?.trim();
@@ -446,6 +529,10 @@ export function envBootstrapProvider(): ProviderRow | null {
 
   const now = new Date().toISOString();
   return {
+    // Harga tidak diisi: provider env adalah jalur uji, dan menebak harganya
+    // akan menghasilkan angka biaya yang salah. UI menampilkan token saja.
+    inputPricePerMTok: null,
+    outputPricePerMTok: null,
     id: ENV_PROVIDER_ID,
     name: "Environment (BASE_URL_LLM)",
     preset: "custom-openai",

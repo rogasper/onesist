@@ -17,6 +17,7 @@
     "core:window:allow-set-title",
     "updater:default",
     "process:default",
+    "notification:default",
     "shell:allow-execute",
     "dialog:allow-open",
     "dialog:allow-save",

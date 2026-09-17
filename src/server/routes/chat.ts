@@ -44,6 +44,8 @@ import {
   newId,
   recordThreadRead,
   recordToolCall,
+  searchChatMessages,
+  threadTokens,
   getAppSubagents,
   getAppSubagent,
   createAppSubagent,
@@ -69,6 +71,7 @@ import {
   writeMemoryContent,
   type MemoryScope,
 } from "~/server/agent/memory";
+import { estimateCost } from "~/server/agent/cost";
 import { getSetting, normalizeAgentMaxSteps } from "~/server/agent/settings";
 import type { FileChange } from "~/server/agent/tools";
 import { normalizeMaxSteps } from "~/server/agent/types";
@@ -171,7 +174,9 @@ router.post("chat/threads", async (ctx) => {
   const thread = createThread({
     projectId,
     title: body.title ? String(body.title) : null,
-    mode: (body.mode as any) ?? "agent",
+    // Validated rather than cast: an unknown mode used to reach the DB and the
+    // runtime, which then silently fell back to agent behavior.
+    mode: body.mode === "ask" || body.mode === "plan" ? body.mode : "agent",
     providerId: body.providerId ? String(body.providerId) : null,
     model: body.model ? String(body.model) : null,
     permissionMode: (body.permissionMode as any) ?? "ask",
@@ -201,6 +206,20 @@ router.get("chat/threads/:id", async (ctx) => {
       endedAt: t.endedAt,
     })),
     staleReads: staleReadsFor(thread.id, root),
+    // Usage + cost (Fase 5.5). The price comes from the provider the user
+    // configured; without one the estimate is null and the UI shows tokens only.
+    usage: (() => {
+      const tokens = threadTokens(thread.id);
+      const estimate = provider
+        ? estimateCost({
+            inputTokens: tokens.in,
+            outputTokens: tokens.out,
+            inputPricePerMTok: (provider as any).inputPricePerMTok ?? null,
+            outputPricePerMTok: (provider as any).outputPricePerMTok ?? null,
+          })
+        : null;
+      return { tokensIn: tokens.in, tokensOut: tokens.out, estimate };
+    })(),
     provider: provider
       ? { id: provider.id, name: provider.name, apiKeyMasked: maskApiKey(provider.apiKey), source: provider.source, model: provider.model }
       : null,
@@ -213,8 +232,16 @@ router.put("chat/threads/:id", async (ctx) => {
   const body = await ctx.body();
   const patch: Partial<typeof chatThreads.$inferInsert> = {};
   if (body.title !== undefined) patch.title = body.title ? String(body.title) : null;
-  if (body.mode === "ask" || body.mode === "agent") patch.mode = body.mode;
-  if (body.permissionMode === "ask" || body.permissionMode === "auto" || body.permissionMode === "readonly") {
+  if (body.mode === "ask" || body.mode === "agent" || body.mode === "plan") patch.mode = body.mode;
+  // `no-shell` was missing from this list since the mode was introduced (Fase 6):
+  // picking "Tanpa shell" in the composer changed the label but the PUT was
+  // silently ignored, so the thread kept its old permission mode.
+  if (
+    body.permissionMode === "ask" ||
+    body.permissionMode === "auto" ||
+    body.permissionMode === "no-shell" ||
+    body.permissionMode === "readonly"
+  ) {
     patch.permissionMode = body.permissionMode;
   }
   if (body.providerId !== undefined) patch.providerId = body.providerId ? String(body.providerId) : null;
@@ -239,6 +266,22 @@ router.get("chat/threads/:id/files", async (ctx) => {
   return json({ files: listThreadFiles(thread.id) });
 });
 
+// ── Cross-thread search (Fase 5.3, FR-B17) ─────────────────────────────────
+
+/** Message search across every thread of one project. Project-scoped because
+ *  that is the unit the chat panel lives in; the FTS index itself carries the
+ *  thread id, so widening it to all projects later is a query change, not a
+ *  schema change. */
+router.get("chat/search", async (ctx) => {
+  const projectId = ctx.query.get("projectId");
+  if (!projectId) return json({ error: "projectId wajib." }, 400);
+  const q = (ctx.query.get("q") ?? "").trim();
+  // Below two characters every message matches, which is noise, not a result.
+  if (q.length < 2) return json({ hits: [] });
+  const limit = Math.min(50, Math.max(1, Number(ctx.query.get("limit") ?? 20) || 20));
+  return json({ hits: searchChatMessages(projectId, q, limit) });
+});
+
 // ── Send message → UI message stream ───────────────────────────────────────
 
 router.post("chat/threads/:id/messages", async (ctx) => {
@@ -253,8 +296,8 @@ router.post("chat/threads/:id/messages", async (ctx) => {
     return json(
       {
         error:
-          "Belum ada provider yang bisa dipakai. Tambahkan konfigurasi provider di Pengaturan, " +
-          "atau set BASE_URL_LLM / MODEL_NAME_LLM / API_KEY_LLM di environment.",
+          "Belum ada provider yang bisa dipakai. Tambahkan konfigurasi provider Anda sendiri (BYOK) lewat " +
+          "pengaturan provider — dari pemilih model di kolom pesan, atau ikon gear di panel chat.",
       },
       400,
     );

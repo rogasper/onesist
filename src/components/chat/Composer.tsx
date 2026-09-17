@@ -3,7 +3,7 @@ import { Button } from "@cloudflare/kumo";
 import { ArrowUp, CaretDown, Check, Info, ListChecks, Paperclip, ShieldCheck, Stop, X } from "@phosphor-icons/react";
 import { MentionTextarea, type MentionFile, type MentionTrigger } from "~/components/docs/MentionTextarea";
 import { ModelPicker } from "~/components/chat/ModelPicker";
-import type { ChatProviderOption, ChatSkillOption, ProjectActionFile, ResolvedChatAction } from "~/lib/use-chat";
+import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
 
 /**
  * Chat composer (FR-B, FR-C10, FR-C11, ADR-001 D8).
@@ -58,13 +58,16 @@ interface Props {
   model: string | null;
   onSelectModel: (providerId: string, model: string | null) => void;
   onOpenProviders: () => void;
-  /** "ask" = answer without tools · "agent" = allowed to use tools. */
+  /** "ask" = answer without tools · "plan" = read-only plan to be approved ·
+   *  "agent" = allowed to use tools. */
   threadMode: string;
   onThreadMode: (mode: string) => void;
   /** ask | auto | readonly */
   permissionMode: string;
   onPermissionMode: (mode: string) => void;
   tokensUsed: number;
+  /** Token masuk/keluar + perkiraan biaya thread ini (Fase 5.5). */
+  usage?: { tokensIn: number; tokensOut: number; estimate: { amount: number; currency: "usd"; partial: boolean } | null } | null;
   hasSummary: boolean;
   attachments: Attachment[];
   onAttach: (files: File[]) => void;
@@ -99,6 +102,7 @@ export function Composer(props: Props) {
     permissionMode,
     onPermissionMode,
     tokensUsed,
+    usage,
     hasSummary,
     attachments,
     onAttach,
@@ -127,6 +131,7 @@ export function Composer(props: Props) {
     () => [
       { value: "ask", label: "Tanya dulu", hint: "Setiap tulis berkas menunggu persetujuan" },
       { value: "auto", label: "Otomatis", hint: "Boleh menulis, kecuali path terproteksi" },
+      { value: "no-shell", label: "Tanpa shell", hint: "Boleh menulis berkas, tapi tidak diberi akses shell" },
       { value: "readonly", label: "Hanya baca", hint: "Tidak boleh mengubah apa pun" },
     ],
     [],
@@ -144,6 +149,22 @@ export function Composer(props: Props) {
         items: mentions.map((f) => ({ name: f.name, path: f.path })),
       },
       {
+        // Slash commands (FR-5.4) come from the SAME list as the `Aksi` popover, so
+        // typing `/sit` and clicking the action produce identical text. Two entry
+        // points, one registry — that is what keeps them from drifting.
+        char: "/",
+        label: "Perintah · mengisi instruksi siap pakai",
+        items: actions.map((a) => ({
+          name: `/${a.command}`,
+          path: a.command,
+          // `/sit` fills the composer with that action's instruction. Same text as
+          // the Aksi popover inserts — see the registry comment in chat-actions.ts.
+          insert: a.prompt,
+          hint: a.label,
+          tag: a.source === "project" ? "project" : undefined,
+        })),
+      },
+      {
         char: "$",
         label: "Skill · menentukan format artefak",
         items: skills.map((s) => ({
@@ -154,7 +175,11 @@ export function Composer(props: Props) {
         })),
       },
     ],
-    [mentions, skills],
+    // `actions` MUST be here: it arrives from an async fetch, and without the
+    // dependency the `/` popup kept whatever the list was on the last
+    // mentions/skills change — usually empty, which renders as nothing at all
+    // (MentionTextarea hides the popup when it has no items).
+    [mentions, skills, actions],
   );
 
   return (
@@ -209,7 +234,7 @@ export function Composer(props: Props) {
             onFilesDropped={onAttach}
             autoGrow
             maxHeightPx={176}
-            placeholder={streaming ? "Agent sedang bekerja…" : "Tulis instruksi untuk agent, @ untuk menyebut berkas, $ untuk skill"}
+            placeholder={streaming ? "Agent sedang bekerja…" : "Tulis instruksi · / perintah · @ berkas · $ skill"}
             className="block w-full resize-none overflow-y-auto min-h-[52px] max-h-44 text-sm leading-6 px-3.5 pt-2.5 pb-1.5 bg-transparent focus:outline-none text-kumo-default"
           />
 
@@ -238,6 +263,7 @@ export function Composer(props: Props) {
               value={threadMode}
               options={[
                 { value: "ask", label: "Jawab", hint: "Menjawab tanpa memakai tool" },
+                { value: "plan", label: "Rencana", hint: "Menyusun rencana read-only, lalu disetujui untuk dijalankan" },
                 { value: "agent", label: "Kerjakan", hint: "Boleh memakai tool dan mengubah berkas" },
               ]}
               onChange={onThreadMode}
@@ -330,7 +356,7 @@ export function Composer(props: Props) {
 
             <div className="ml-auto flex items-center gap-1.5 shrink-0">
               <span className="hidden @2xl/composer:inline text-xs text-kumo-subtle whitespace-nowrap">
-                {tokensUsed ? `${tokensUsed.toLocaleString("id-ID")} token` : ""}
+
                 {hasSummary ? " · konteks diringkas" : ""}
               </span>
 
@@ -352,8 +378,19 @@ export function Composer(props: Props) {
           </div>
         </div>
 
-        <p className="mt-1.5 text-xs text-kumo-subtle">
-          <span className="font-mono">@</span> berkas project · <span className="font-mono">$</span> skill · lampirkan atau seret berkas ke sini untuk dibaca agent
+        {/* Token + biaya thread diletakkan di baris petunjuk, bukan di baris
+            toolbar: di panel selebar ini baris toolbar sudah penuh (Jawab/Kerjakan,
+            Aksi, Izin, Model), dan sebelumnya span ini terender dengan lebar 0 —
+            jadi angkanya tidak pernah terlihat. */}
+        <p className="mt-1.5 text-xs text-kumo-subtle flex items-center gap-2">          
+          <span className="ml-auto shrink-0">
+            {usage && (usage.tokensIn || usage.tokensOut)
+              ? `↑${formatTokens(usage.tokensIn)} ↓${formatTokens(usage.tokensOut)}`
+              : tokensUsed
+                ? `${formatTokens(tokensUsed)} token`
+                : ""}
+            {formatCost(usage?.estimate) ? ` · ${formatCost(usage?.estimate)}` : ""}
+          </span>
         </p>
       </div>
     </div>

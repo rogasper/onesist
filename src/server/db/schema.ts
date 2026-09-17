@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
@@ -308,6 +308,14 @@ export const llmProviders = sqliteTable("llm_providers", {
   /** REQUIRED when in use: without an explicit value, registry providers
    *  cap output at 4096 tokens (spike T2). */
   maxOutputTokens: integer("max_output_tokens"),
+  /** Harga per 1 juta token, diisi user (Fase 5.5).
+   *
+   *  Nullable dan TIDAK ada tabel harga bawaan: satu-satunya sumber yang jujur
+   *  untuk biaya endpoint BYOK adalah user — harga per model berubah, berbeda per
+   *  penyedia, dan menebaknya akan menghasilkan angka yang salah dengan percaya
+   *  diri. Tanpa harga, UI menampilkan token saja. */
+  inputPricePerMTok: real("input_price_per_mtok"),
+  outputPricePerMTok: real("output_price_per_mtok"),
   contextWindow: integer("context_window"),
   /** CLI provider (apiStyle = "cli") — path + per-CLI env (FR-A13). */
   cliAgent: text("cli_agent"),
