@@ -80,6 +80,30 @@ const RUNTIME_TABLES = [
     read_at text DEFAULT (datetime('now')),
     FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
   )`,
+  // FTS5 + symbol index (Fase 3). The virtual table is why this file carries the
+  // DDL in addition to the drizzle migration: drizzle cannot model a virtual
+  // table, so migrations/0011_index.sql is hand-written and this is its
+  // idempotent counterpart for databases that predate it.
+  `CREATE TABLE IF NOT EXISTS index_files (
+    id text PRIMARY KEY NOT NULL, project_id text NOT NULL, path text NOT NULL, ext text,
+    size integer, mtime_ms integer, chunk_count integer DEFAULT 0 NOT NULL, symbol_count integer DEFAULT 0 NOT NULL,
+    indexed_at text DEFAULT (datetime('now'))
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_index_files_project_path ON index_files (project_id, path)`,
+  `CREATE TABLE IF NOT EXISTS index_chunks (
+    id text PRIMARY KEY NOT NULL, project_id text NOT NULL, path text NOT NULL,
+    ord integer NOT NULL, kind text NOT NULL, label text, start_line integer, end_line integer, text text NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_index_chunks_project_path ON index_chunks (project_id, path)`,
+  `CREATE TABLE IF NOT EXISTS index_symbols (
+    id text PRIMARY KEY NOT NULL, project_id text NOT NULL, path text NOT NULL,
+    name text NOT NULL, kind text NOT NULL, line integer, container text
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_index_symbols_project_name ON index_symbols (project_id, name)`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS index_fts USING fts5(
+    text, path UNINDEXED, label UNINDEXED, chunk_id UNINDEXED, project_id UNINDEXED,
+    tokenize='unicode61 remove_diacritics 2'
+  )`,
   `CREATE TABLE IF NOT EXISTS app_settings (
     key text PRIMARY KEY NOT NULL, value text NOT NULL, updated_at text DEFAULT (datetime('now'))
   )`,

@@ -10,6 +10,7 @@ import { db } from "~/server/db/client";
 import { projects } from "~/server/db/schema";
 import { resolveNodeExe } from "~/lib/resolve-node";
 import { recoverInterruptedRuns } from "~/server/agent/run-registry";
+import { startIndexWatcher } from "~/server/agent/index/watch";
 
 // Wrapped: a seeding failure (e.g. schema not ready yet) must NOT kill the
 // process. A sidecar that dies at start leaves the desktop app hanging on
@@ -32,6 +33,17 @@ try {
   const n = recoverInterruptedRuns();
   if (n > 0) console.log(`[agent] ${n} run(s) marked interrupted (app exited while a run was in progress)`);
 } catch {}
+
+// Incremental index refresh (FR-I6): subscribe to the file:changed bus the watcher
+// already emits, so an edit updates the index for that file only. Started once per
+// process; `startIndexWatcher` returns an unsubscribe used by the verification
+// suite, not by production.
+try {
+  startIndexWatcher();
+  console.log("[index] reindex inkremental aktif (mengikuti event file:changed)");
+} catch (err: any) {
+  console.warn(`[index] reindex inkremental tidak aktif: ${err?.message ?? err}`);
+}
 
 // Register every project root so the file watcher emits SSE file:changed
 // events for project files (input/fsd etc.). Without this, the watcher only

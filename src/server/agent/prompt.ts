@@ -135,6 +135,9 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     `- JANGAN menyalin isi artefak ke dalam balasan. Tulis ke berkas lewat tool, lalu sebutkan berkas mana yang berubah.`,
     `- Baca dulu sebelum mengubah: pakai read_file, lalu sertakan hash-nya sebagai expected_hash saat menulis.`,
     `- Ikuti konvensi format yang sudah ada di workspace. Kalau ada skill yang relevan, baca isinya lebih dulu.`,
+    `- Untuk MENCARI (di mana X dideklarasikan, frasa apa ada di berkas mana, berkas apa namanya begini), pakai \`code_search\` ` +
+      `sebelum \`grep\`/\`glob\`: hasilnya sudah berindeks, berkelompok per berkas, dan membawa nomor baris — jadi kamu tidak perlu membaca berkas utuh. ` +
+      `\`grep\` tetap tepat untuk pencarian yang sangat spesifik atau saat index belum memuat berkas terbaru.`,
     `- Buat folder per modul saat menulis artefak (mis. output/erd/<modul>/erd.dbml) dengan mkdir -p lewat bash.`,
     `- Untuk tugas berbilang langkah, tulis rencananya lewat todo_write lalu perbarui seiring berjalan.`,
     "",

@@ -1,4 +1,5 @@
-import { SubagentsPanel } from "~/components/subagents/SubagentsPanel";
+import { IndexPanel } from "~/components/settings/IndexPanel";
+import { SubagentsPanel } from "~/components/settings/SubagentsPanel";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadProjectRouteData } from "~/lib/project-queries";
@@ -179,7 +180,11 @@ function SettingsPage() {
         </Section>
 
         {/* Terminal */}
-        <Section title="Subagent">
+        <Section title="Index">
+        <IndexPanel projectId={id} />
+      </Section>
+
+      <Section title="Subagent">
         <SubagentsPanel projectId={id} />
       </Section>
 

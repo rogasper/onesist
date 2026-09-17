@@ -27,6 +27,7 @@ import {
   resolveProvider,
 } from "~/server/agent/config";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
+import { getIndexStatus, indexProject } from "~/server/agent/index/service";
 import { finishRun, getRunForThread, listPendingApprovals, resolveApproval, stopRun } from "~/server/agent/run-registry";
 import {
   addTokens,
@@ -641,6 +642,26 @@ router.delete("chat/memory", async (ctx) => {
   const removed = deleteMemoryEntry(target.root, target.scope, Number(ctx.query.get("index")));
   if (!removed) return json({ error: "Entri tidak ditemukan." }, 404);
   return json(readMemory(target.root));
+});
+
+// Index status and full reindex (FR-I7). The status is what the Settings panel
+// polls while a build runs: `done`/`total` come from the in-memory progress of
+// the running pass, `stats` from the tables.
+router.get("chat/index", async (ctx) => {
+  const projectId = ctx.query.get("projectId");
+  if (!projectId) return json({ error: "projectId wajib." }, 400);
+  const root = projectRootOf(projectId);
+  if (!root) return json({ error: "Project tidak ditemukan atau belum punya root path." }, 404);
+  return json(getIndexStatus(projectId));
+});
+
+router.post("chat/index", async (ctx) => {
+  const projectId = ctx.query.get("projectId");
+  if (!projectId) return json({ error: "projectId wajib." }, 400);
+  const root = projectRootOf(projectId);
+  if (!root) return json({ error: "Project tidak ditemukan atau belum punya root path." }, 404);
+  const result = indexProject(projectId, root);
+  return json({ ...result, ...getIndexStatus(projectId) });
 });
 
 // Subagents for a project (FR-G1, FR-G2, FR-G7). The list is the resolved view:

@@ -148,7 +148,7 @@ export function startFileWatcher(intervalMs = 2000) {
             // Emit on creation (prev undefined) and on mtime change.
             if (prev === undefined || Math.abs(mtime - prev) > 50) {
               const route = detectRoute(relPath);
-              eventBus.emitFileChanged(route, relPath);
+              eventBus.emitFileChanged(route, relPath, root);
             }
             knownFiles.set(fullPath, mtime);
           }
@@ -161,7 +161,7 @@ export function startFileWatcher(intervalMs = 2000) {
           if (!fs.existsSync(key)) {
             const relPath = key.slice(root.length + 1);
             const route = detectRoute(relPath);
-            eventBus.emitFileChanged(route, relPath);
+            eventBus.emitFileChanged(route, relPath, root);
             knownFiles.delete(key);
           }
         } catch {}

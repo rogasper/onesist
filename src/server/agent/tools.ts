@@ -22,6 +22,7 @@ import { IGNORED_DIRS, TEXT_EXTS, detectRoute, readFile, searchProjectFiles } fr
 import { diffStat, resolveInRoot, type DiffStat } from "./paths";
 import { readSkill } from "./skills";
 import { appendMemory } from "./memory";
+import { buildCodeSearchTool } from "./index/tool";
 import type { ChangeSource, FileOp } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -552,6 +553,8 @@ export function buildTools(ctx: ToolContext): ToolSet {
     },
   });
 
+  const codeSearchTool = buildCodeSearchTool({ projectId: ctx.projectId, root: ctx.root });
+
   const tools: ToolSet = {
     read_file: readFileTool,
     list_dir: listDirTool,
@@ -560,6 +563,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
     web_fetch: webFetchTool,
     todo_write: todoTool,
     skill_read: skillReadTool,
+    code_search: codeSearchTool,
     task: taskTool,
   };
   if (memoryWriteTool) tools.memory_write = memoryWriteTool;

@@ -54,8 +54,11 @@ class AppEventBus extends EventEmitter {
     }
   }
 
-  emitFileChanged(route: string, filePath: string) {
-    this.emitAppEvent({ type: "file:changed", data: { route, path: filePath } });
+  emitFileChanged(route: string, filePath: string, root?: string) {
+    // `root` is additive: the watcher knows which project tree changed, and the
+    // indexer needs it to refresh only that project. Existing listeners use
+    // `route`/`path` and are unaffected.
+    this.emitAppEvent({ type: "file:changed", data: { route, path: filePath, root } });
   }
 
   emitAgentLog(level: string, message: string, sessionId?: string) {
