@@ -146,7 +146,12 @@ export function Composer(props: Props) {
       {
         char: "@",
         label: "Berkas project",
-        items: mentions.map((f) => ({ name: f.name, path: f.path })),
+        // Insert the NAME, not the path: the field then shows a compact chip
+        // (`@chat.ts`) instead of a long path, and ChatSurface expands it to the
+        // full `@dir/chat.ts` when the message is sent — the model still receives
+        // a path it can act on. The popup keeps listing paths, so a duplicate name
+        // is still distinguishable before choosing.
+        items: mentions.map((f) => ({ name: f.name, path: f.path, insert: `@${f.name}` })),
       },
       {
         // Slash commands (FR-5.4) come from the SAME list as the `Aksi` popover, so

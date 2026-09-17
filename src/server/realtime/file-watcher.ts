@@ -9,7 +9,19 @@ let watcherTimer: ReturnType<typeof setInterval> | null = null;
 // Project roots are registered dynamically (see registerWatchRoot) so the
 // watcher scans the actual project folders — NOT SA_ROOT (home dir), which
 // caused SSE file:changed events to never fire for project files.
+//
+// Registration alone was not enough: it only happened when a project was
+// CREATED, so a project made in an earlier session was never watched after a
+// restart (the set is in-memory). The tick therefore also picks up every project
+// root from the DB — that is what makes "the tab updates by itself / a new file
+// is mentionable" true for projects the user simply opened.
 const watchRoots = new Set<string>();
+
+/** Depth limit for the per-artifact-dir scan. Artifacts are written per module
+ *  (`output/erd/<modul>/erd.dbml`) and FSD sources can sit one level down
+ *  (`input/fsd/sources/x.md`), so a flat scan missed exactly the files the chat
+ *  works with. */
+const WATCH_DEPTH = 3;
 
 const watchDirs = [
   "input/fsd", "input/fsds",
@@ -80,6 +92,28 @@ export function getWatchRoots(): string[] {
   return Array.from(watchRoots);
 }
 
+/** Project roots straight from the DB (async, never awaited by the tick).
+ *
+ *  Registration alone was not enough: `registerWatchRoot` only ran when a project
+ *  was CREATED, so after an app restart a project the user merely opened was not
+ *  watched at all — which is why a newly written file could be invisible to the
+ *  `@` popup and to the artifact tabs. Reading the table every couple of seconds
+ *  is one cheap local query, and it cannot go stale.
+ */
+async function refreshProjectRoots(): Promise<void> {
+  try {
+    const { db } = await import("~/server/db/client");
+    const { projects } = await import("~/server/db/schema");
+    const rows = db.select({ rootPath: projects.rootPath }).from(projects).all() as { rootPath: string | null }[];
+    for (const row of rows) {
+      const root = row.rootPath?.trim();
+      if (root) watchRoots.add(path.resolve(root));
+    }
+  } catch {
+    /* DB unavailable: keep whatever was registered explicitly */
+  }
+}
+
 export function startFileWatcher(intervalMs = 2000) {
   if (watcherActive) return;
   watcherActive = true;
@@ -98,6 +132,9 @@ export function startFileWatcher(intervalMs = 2000) {
   let tick = 0;
   watcherTimer = setInterval(() => {
     tick += 1;
+    // The callback stays synchronous; the DB read for project roots is fired
+    // without awaiting so a slow read can never stall the watch loop.
+    void refreshProjectRoots();
 
     // Memory watchdog: restart before we OOM the machine.
     if (tick % 5 === 0) {
@@ -128,7 +165,7 @@ export function startFileWatcher(intervalMs = 2000) {
       void import("~/server/db/client").then((m) => m.checkpointWal()).catch(() => {});
     }
 
-    const roots = Array.from(watchRoots);
+    let roots = Array.from(watchRoots);
     if (roots.length === 0) roots.push(fallbackRoot);
     const rootsSet = new Set(roots);
 
@@ -137,21 +174,29 @@ export function startFileWatcher(intervalMs = 2000) {
         const fullDir = path.join(root, dir);
         try {
           if (!fs.existsSync(fullDir)) continue;
-          const entries = fs.readdirSync(fullDir, { withFileTypes: true });
-          for (const entry of entries) {
-            if (!entry.isFile() || entry.name.startsWith(".")) continue;
-            const fullPath = path.join(fullDir, entry.name);
-            const relPath = path.join(dir, entry.name);
-            const stat = fs.statSync(fullPath);
-            const mtime = stat.mtimeMs;
-            const prev = knownFiles.get(fullPath);
-            // Emit on creation (prev undefined) and on mtime change.
-            if (prev === undefined || Math.abs(mtime - prev) > 50) {
-              const route = detectRoute(relPath);
-              eventBus.emitFileChanged(route, relPath, root);
+          // Recursive, bounded: see WATCH_DEPTH.
+          const scan = (current: string, relPrefix: string, depth: number) => {
+            const entries = fs.readdirSync(current, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.name.startsWith(".")) continue;
+              const relPath = relPrefix ? path.join(relPrefix, entry.name) : path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                if (depth < WATCH_DEPTH) scan(path.join(current, entry.name), relPath, depth + 1);
+                continue;
+              }
+              if (!entry.isFile()) continue;
+              const fullPath = path.join(current, entry.name);
+              const stat = fs.statSync(fullPath);
+              const mtime = stat.mtimeMs;
+              const prev = knownFiles.get(fullPath);
+              // Emit on creation (prev undefined) and on mtime change.
+              if (prev === undefined || Math.abs(mtime - prev) > 50) {
+                eventBus.emitFileChanged(detectRoute(relPath), relPath, root);
+              }
+              knownFiles.set(fullPath, mtime);
             }
-            knownFiles.set(fullPath, mtime);
-          }
+          };
+          scan(fullDir, dir, 1);
         } catch {}
       }
       // Detect deletions

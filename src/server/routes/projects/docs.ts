@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { DocMeta } from "~/shared/types";
 import { json, notFound } from "../../http/response";
@@ -110,6 +111,54 @@ router.get("projects/:id/docs/files", ({ params }) => {
       }
     }
   } catch {}
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return json({ files });
+});
+
+// GET /api/projects/:id/project-files — EVERY file worth mentioning in the chat
+// composer's `@` popup.
+//
+// Deliberately wider than `docs/files` above, which answers a different question
+// (which DOCUMENTS may be attached to a doc note). The chat agent works on the
+// whole workspace: FSD sources can sit in a folder the user made themselves
+// (`fsd/sources/…`), artifacts live under `output/`, and a file may be worth
+// pointing at before it exists in either. Restricting this popup to
+// `input/` + `output/` meant the one file the user wanted to mention was the one
+// file the popup refused to show.
+router.get("projects/:id/project-files", ({ params }) => {
+  const { rootPath } = getCtx(params.id);
+  const files: { name: string; path: string }[] = [];
+  const CAP = 800;
+  // Skipped because they are either machine output (node_modules, dist, target)
+  // or listed by another trigger: `.agents/skills` and `.agents/agents` belong to
+  // `$` and to the subagent picker, and listing every SKILL.md here would bury
+  // the actual workspace files under them.
+  const SKIP = new Set(["node_modules", ".git", "dist", "binaries", "target", ".cache", ".next", ".turbo", "coverage", ".mastra"]);
+
+  const walk = (dir: string, prefix: string, depth: number) => {
+    if (files.length >= CAP) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= CAP) return;
+      if (entry.name.startsWith(".") && entry.name !== ".agents") continue;
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (SKIP.has(entry.name)) continue;
+        if (rel === ".agents/skills" || rel === ".agents/agents") continue;
+        if (depth >= 6) continue;
+        walk(path.join(dir, entry.name), rel, depth + 1);
+      } else if (entry.isFile()) {
+        files.push({ name: entry.name, path: rel });
+      }
+    }
+  };
+  walk(rootPath, "", 0);
+
   files.sort((a, b) => a.path.localeCompare(b.path));
   return json({ files });
 });

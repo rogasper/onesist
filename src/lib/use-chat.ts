@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DefaultChatTransport, type UIMessage } from "~/lib/ai-client";
+import { useFileChanged } from "~/lib/use-file-data";
 
 /**
  * Data hook for the Chat tab (FR-B, FR-C).
@@ -63,6 +64,8 @@ export interface MessageMetadata {
 
 export interface ThreadDetail {
   thread: ThreadSummary;
+  /** Absolute workspace root — used to open a changed file with the OS. */
+  rootPath?: string | null;
   messages: { id: string; role: "user" | "assistant" | "system"; parts: any[]; metadata?: MessageMetadata }[];
   files: ThreadFile[];
   toolCalls: ThreadToolCall[];
@@ -557,28 +560,75 @@ export function useChatActions(projectId: string | undefined) {
 /** Project artifact file list (input/ + output/ + root) for the `@` popup.
  *  Same endpoint the Docs page uses, so the offered list stays
  *  consistent across the app. */
-export function useMentionFiles(projectId: string | undefined) {
+/**
+ * Expands `@name` chips back into `@dir/name` paths before a message is sent.
+ *
+ * The composer inserts mentions by NAME so the field shows a compact chip; the
+ * agent, however, needs a path it can hand to `read_file`. Expansion only
+ * happens when the name is unambiguous — with two files of the same name the
+ * text is left exactly as typed, which keeps the ambiguity visible instead of
+ * silently pointing at one of them. Anything already containing a slash is
+ * treated as a hand-typed path and left alone.
+ */
+export function expandMentions(text: string, files: { name: string; path: string }[]): string {
+  if (!text.includes("@") || !files.length) return text;
+  return text
+    .split(/(\s+)/)
+    .map((chunk) => {
+      const at = chunk.indexOf("@");
+      if (at < 0) return chunk;
+      // The `@` must not sit inside a word — an e-mail address is not a mention.
+      if (at > 0 && /[\p{L}\p{N}]/u.test(chunk[at - 1])) return chunk;
+      const after = chunk.slice(at + 1);
+      // Surrounding punctuation belongs to the sentence, not to the mention
+      // (`(@name),` must still expand).
+      const trailing = after.match(/[,.;:!?)\]}"]+$/)?.[0] ?? "";
+      const label = after.slice(0, after.length - trailing.length);
+      if (!label || label.includes("/")) return chunk;
+      const matches = files.filter((f) => f.name === label);
+      if (matches.length !== 1) return chunk;
+      return `${chunk.slice(0, at)}@${matches[0].path}${trailing}`;
+    })
+    .join("");
+}
+
+/** Files offered by the `@` trigger. *
+ *  Scope is the WHOLE project folder (not just `input/`/`output/`): the chat
+ *  agent works on the workspace as the user organised it, and an FSD source is
+ *  often in a folder the user created themselves. The only things left out are
+ *  machine-output directories and `.agents/skills|agents`, which belong to the
+ *  `$` trigger. */
+export function useMentionFiles(projectId: string | undefined, root?: string | null) {
   const [files, setFiles] = useState<{ name: string; path: string }[]>([]);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!projectId) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/docs/files`, { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setFiles((data.files ?? []) as { name: string; path: string }[]);
-      } catch {
-        /* an empty mention popup is fine — not a failure worth surfacing */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const res = await fetch(`/api/projects/${projectId}/project-files`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setFiles((data.files ?? []) as { name: string; path: string }[]);
+    } catch {
+      /* an empty mention popup is fine — not a failure worth surfacing */
+    }
   }, [projectId]);
 
-  return { files };
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // A file created during the conversation (agent, bash CLI, or the user) must be
+  // mentionable immediately — without reloading the page and without polling.
+  // The listener refreshes on `file:changed` for THIS project's root; when the
+  // root is not known yet, any change refreshes (one cheap local request).
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useFileChanged((data) => {
+    if (root && data.root && data.root !== root) return;
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => void load(), 500);
+  });
+
+  return { files, reload: load };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

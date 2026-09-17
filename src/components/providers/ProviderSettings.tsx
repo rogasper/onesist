@@ -231,7 +231,7 @@ function Toggle({ checked, onChange, label, description, disabled }: { checked: 
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
 export function ProviderSettings({ open, onClose }: Props) {
-  const { providers, presets, loading, error, createProvider, updateProvider, deleteProvider, testProvider, getModelsForDraft } = useProviders();
+  const { providers, presets, loading, error, createProvider, updateProvider, deleteProvider, testProvider, testDraft, getModelsForDraft } = useProviders();
 
   const [view, setView] = useState<"list" | "form">("list");
   const [selected, setSelected] = useState<string | "new" | null>(null);
@@ -307,20 +307,20 @@ export function ProviderSettings({ open, onClose }: Props) {
     setTestResult(null);
     const fp = draftFingerprint(draft);
     try {
-      let id = current?.id;
       if (isNew) {
+        // Test the DRAFT: nothing is created. Previously this path called
+        // createProvider() first, so pressing Test on a new config silently
+        // saved it — the opposite of "test before apply".
         if (nameState !== "valid") {
           setTestResult({ success: false, message: "Isi nama konfigurasi yang unik dulu sebelum menguji.", errorCategory: "config" });
           setTestedFingerprint(fp);
           return;
         }
-        await createProvider(draft);
-        const list = await refreshList();
-        id = list.find((p) => p.name.trim().toLowerCase() === draft.name.trim().toLowerCase())?.id;
-        if (id) setSelected(id);
+        setTestResult(await testDraft(draft));
+        setTestedFingerprint(fp);
+        return;
       }
-      if (!id) return;
-      const result = await testProvider(id, isNew ? undefined : ({ ...draft, apiKey: draft.apiKey.trim() || undefined } as Partial<ProviderDraft>));
+      const result = await testProvider(current!.id, { ...draft, apiKey: draft.apiKey.trim() || undefined } as Partial<ProviderDraft>);
       setTestResult(result);
       setTestedFingerprint(fp);
     } catch (err: any) {
@@ -583,22 +583,7 @@ export function ProviderSettings({ open, onClose }: Props) {
               </InlineAlert>
             ) : null}
 
-            {testResult && testIsCurrent ? (
-              <InlineAlert kind={testResult.success ? "success" : "error"}>
-                {testResult.success ? (
-                  <>
-                    Terhubung
-                    {typeof testResult.latencyMs === "number" ? ` · ${testResult.latencyMs} ms` : ""}
-                    {testResult.modelUsed ? ` · ${testResult.modelUsed}` : ""}
-                  </>
-                ) : (
-                  <>
-                    {testResult.message}
-                    <div className="mt-1">{testErrorHint(testResult.errorCategory)}</div>
-                  </>
-                )}
-              </InlineAlert>
-            ) : testedFingerprint ? (
+            {testResult && !testIsCurrent ? (
               <InlineAlert kind="warning">Konfigurasi berubah sejak pengujian terakhir — uji ulang untuk memastikan.</InlineAlert>
             ) : null}
 
@@ -608,11 +593,43 @@ export function ProviderSettings({ open, onClose }: Props) {
 
         {/* Footer: Test on the left, Cancel/Apply on the right — exactly the reference. */}
         <footer className="flex items-center gap-2 px-8 py-4 border-t border-kumo-line shrink-0">
-          {!isNew && !readOnly ? (
+          {!readOnly ? (
+            // Available for a NEW config too: it tests the draft and saves nothing.
             <Button variant="secondary" onClick={handleTest} disabled={testing}>
               {testing ? "Menguji…" : "Test"}
             </Button>
           ) : null}
+
+          {/* The outcome belongs NEXT TO the button that produced it: as a block
+              above the footer it read as a page-level alert, and it scrolled out
+              of view on a long form. Message first, explanation in the tooltip —
+              the failure text is what tells the user whether to fix the key, the
+              endpoint or the model. */}
+          {testResult ? (
+            <span
+              className={`text-sm min-w-0 truncate ${testResult.success ? "text-green-400" : "text-red-400"}`}
+              title={testResult.success ? undefined : `${testResult.message}\n${testErrorHint(testResult.errorCategory)}`}
+            >
+              {testResult.success ? (
+                <>
+                  Terhubung
+                  {typeof testResult.latencyMs === "number" ? ` · ${testResult.latencyMs} ms` : ""}
+                  {testResult.modelUsed ? ` · ${testResult.modelUsed}` : ""}
+                </>
+              ) : (
+                <>
+                  Gagal: {testResult.message}
+                  <span className="text-red-400/70"> · {testErrorHint(testResult.errorCategory)}</span>
+                </>
+              )}
+            </span>
+          ) : null}
+          {testResult && !testIsCurrent ? (
+            <span className="text-sm text-amber-400 shrink-0" title="Konfigurasi berubah sejak pengujian terakhir">
+              konfigurasi berubah — uji ulang
+            </span>
+          ) : null}
+
           {!isNew && !readOnly ? (
             <Button variant="ghost" onClick={handleDelete} disabled={saving}>
               Hapus
@@ -674,6 +691,14 @@ export function ProviderSettings({ open, onClose }: Props) {
                           {p.source === "env" ? <span className="text-sm text-kumo-subtle">· environment</span> : null}
                         </span>
                         <span className={`${MONO} text-kumo-subtle truncate`}>{p.model || p.cliAgent || "belum ada model"}</span>
+                        {/* A failed test must say WHY here too: the list is where
+                            the state is read at a glance, and a red dot labelled
+                            "gagal" without a reason forces a trip into the form. */}
+                        {p.lastTestOk === false ? (
+                          <span className="text-xs text-red-400 truncate">
+                            {testErrorHint(p.lastTestErrorCategory ?? undefined)}
+                          </span>
+                        ) : null}
                       </span>
                       <span className="text-sm text-kumo-subtle shrink-0">{status}</span>
                     </button>

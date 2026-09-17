@@ -180,8 +180,108 @@ function recordChange(
   return stat;
 }
 
-/** Read a file with the hash guard. Returns the content + its hash. */
-function readForEdit(ctx: ToolContext, relPath: string, expectedHash?: string): { rel: string; abs: string; content: string; hash: string } {
+/**
+ * Workspace snapshot for attributing what a shell command changed (FR-C5).
+ *
+ * The agent never tells us which files a command will touch: `markitdown -o`,
+ * `sed -i`, heredocs and `mkdir -p` all write as a side effect. So the honest way
+ * to know is to look at the workspace before and after. mtime+size finds the
+ * changes; the content of small text files is kept too, so a change carries a
+ * real diff instead of just "something happened".
+ *
+ * Bounded on purpose: hidden directories (`.git`, `.agents`) are skipped, the
+ * walk stops at the same ignored dirs as everywhere else, symlinks are never
+ * followed, and the text snapshot gives up after 4 MB so one huge artifact cannot
+ * make every bash call expensive.
+ */
+const BASH_SNAPSHOT_TEXT_MAX_BYTES = 256 * 1024;
+const BASH_SNAPSHOT_TEXT_BUDGET_BYTES = 4 * 1024 * 1024;
+/** A command that rewrites hundreds of files must not flood the ledger — the
+ *  changed-files card summarises a turn, it is not a file-system journal. */
+const BASH_CHANGE_LIMIT = 50;
+
+function snapshotWorkspace(root: string): Map<string, { mtimeMs: number; size: number; text?: string }> {
+  const out = new Map<string, { mtimeMs: number; size: number; text?: string }>();
+  let textBudget = BASH_SNAPSHOT_TEXT_BUDGET_BYTES;
+
+  const walk = (dir: string, prefix: string, depth: number) => {
+    if (depth > 6 || out.size > 2000) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.size > 2000) return;
+      if (entry.name.startsWith(".")) continue;
+      // Symlinks are never followed: one inside the workspace pointing outside
+      // would turn this walk into a reader of arbitrary files.
+      if (entry.isSymbolicLink()) continue;
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (IGNORED_DIRS.has(entry.name)) continue;
+        walk(path.join(dir, entry.name), rel, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      try {
+        // Same boundary guard as every other file access in this file (FR-E2):
+        // resolveInRoot rejects anything that escapes the project root.
+        const { abs } = resolveInRoot(root, rel);
+        const st = fs.statSync(abs);
+        const ext = path.extname(entry.name).toLowerCase();
+        const mayHoldText = TEXT_EXTS.has(ext) && st.size <= BASH_SNAPSHOT_TEXT_MAX_BYTES && textBudget > 0;
+        out.set(rel, {
+          mtimeMs: st.mtimeMs,
+          size: st.size,
+          text: mayHoldText ? fs.readFileSync(abs, "utf-8") : undefined,
+        });
+        if (mayHoldText) textBudget -= st.size;
+      } catch {
+        /* unreadable or outside the root: it simply cannot be attributed */
+      }
+    }
+  };
+
+  walk(root, "", 0);
+  return out;
+}
+
+/** Diff two snapshots and record every difference as a `bash` change (FR-C5). */
+function attributeBashChanges(
+  ctx: ToolContext,
+  before: Map<string, { mtimeMs: number; size: number; text?: string }>,
+  after: Map<string, { mtimeMs: number; size: number; text?: string }>,
+): void {
+  if (!ctx.onFileChange) return;
+  let recorded = 0;
+  const record = (rel: string, op: FileOp, beforeText: string, afterText: string) => {
+    if (recorded >= BASH_CHANGE_LIMIT) return;
+    recorded += 1;
+    const stat = diffStat(beforeText, afterText);
+    ctx.onFileChange?.({
+      path: rel,
+      route: detectRoute(rel),
+      op,
+      source: "bash",
+      linesAdded: stat.added,
+      linesRemoved: stat.removed,
+      diff: stat.diff,
+    });
+  };
+
+  for (const [rel, meta] of after) {
+    const prev = before.get(rel);
+    if (!prev) record(rel, "create", "", meta.text ?? "");
+    else if (prev.mtimeMs !== meta.mtimeMs || prev.size !== meta.size) record(rel, "update", prev.text ?? "", meta.text ?? "");
+  }
+  for (const [rel, meta] of before) {
+    if (!after.has(rel)) record(rel, "delete", meta.text ?? "", "");
+  }
+}
+
+/** Read a file with the hash guard. Returns the content + its hash. */function readForEdit(ctx: ToolContext, relPath: string, expectedHash?: string): { rel: string; abs: string; content: string; hash: string } {
   const { abs, rel } = resolveInRoot(ctx.root, relPath);
   if (!fs.existsSync(abs)) {
     throw new Error(`Berkas tidak ditemukan: ${rel}. Periksa path-nya, atau pakai list_dir/glob untuk melihat isi workspace.`);
@@ -405,6 +505,12 @@ export function buildTools(ctx: ToolContext): ToolSet {
           const args = isWin ? ["/d", "/s", "/c", command] : ["-lc", command];
 
           return await new Promise<string>((resolve) => {
+            // Atribusi perubahan (FR-C5): command shell tidak memberi tahu berkas
+            // mana yang ia sentuh, jadi workspace di-snapshot sebelum & sesudah.
+            // Tanpa ini, artefak yang ditulis CLI (mis. hasil konversi markitdown)
+            // tidak pernah masuk kartu "Berkas berubah" — tidak ada yang bisa
+            // diklik untuk membukanya, dan jejaknya hanya teks jawaban agent.
+            const before = snapshotWorkspace(ctx.root);
             // Environment dibersihkan (FR-M7): shell agent tidak butuh dan tidak
             // boleh tahu di mana database aplikasi berada. Tanpa ini, seluruh
             // proteksi akses DB bisa dilewati dengan `sqlite3 "$SA_DB_PATH"`.
@@ -430,6 +536,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
             });
             child.on("close", (code) => {
               clearTimeout(timer);
+              attributeBashChanges(ctx, before, snapshotWorkspace(ctx.root));
               const body = truncate(out.trim() || "(tanpa output)", LIMITS.bashBytes);
               if (killed) resolve(`${body}\n\n[perintah dihentikan setelah ${timeout} ms]`);
               else resolve(`exit=${code}\n${body}`);

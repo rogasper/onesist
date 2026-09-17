@@ -134,8 +134,22 @@ export interface ProviderPreset {
   hint?: string;
 }
 
-/** Agent step limit, following the dbx `maxAgentTurns` convention (FR-L7). */
-export const MAX_STEPS_DEFAULT = 30;
+/** Agent step limit, following the dbx `maxAgentTurns` convention (FR-L7).
+ *
+ *  Why 60 and not 30: a per-turn step ceiling should sit ABOVE the cost of real
+ *  work, not at its median. Measured against this app's own tasks — read the
+ *  skill, read the source, write one artifact per module, verify — a nine-module
+ *  job (e.g. "split FR-01…FR-09 into separate files") lands around 15-25 steps
+ *  before any retry, and a full artifact set for one FSD (spec + ERD + tasks +
+ *  RTM + SIT) passes 40. At 30 the agent was being cut off mid-task and the user
+ *  read that, correctly, as the tool giving up (reported 2026-09-17). 30 also
+ *  looked sufficient earlier only because a context-pruning bug made runs loop
+ *  until they hit the ceiling — the limit was masking that bug.
+ *
+ *  The number is a safety net against runaway loops, not a budget: cost is better
+ *  bounded by tokens and by the user watching the transcript, and the ceiling is
+ *  always reported in the transcript when it is reached (FR-B11). */
+export const MAX_STEPS_DEFAULT = 60;
 export const MAX_STEPS_MIN = 5;
 export const MAX_STEPS_MAX = 500;
 

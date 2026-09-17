@@ -301,6 +301,57 @@ router.post("providers/:id/test", async (ctx) => {
   return json({ result });
 });
 
+// POST /api/providers/test-draft — test an UNSAVED configuration (FR-A5).
+//
+// Why it exists: `Test` used to be available only for a SAVED provider, and the
+// only way to test a new one was to press Test — which silently CREATED it
+// (POST /api/providers, then a second call to test). So "test before apply" was
+// impossible: either you saved a config you had not verified, or you never saw
+// the result. This route maps the draft with the SAME field mapping as
+// POST /api/providers and persists nothing, so what it tests is exactly what
+// saving would produce.
+router.post("providers/test-draft", async (ctx) => {
+  const body = (await ctx.body()) as Record<string, unknown>;
+  const presetId = String(body.preset ?? "custom-openai");
+  const preset = getPreset(presetId);
+  const candidate: ProviderRow = {
+    id: "draft",
+    name: String(body.name ?? "").trim() || "Draft",
+    preset: presetId,
+    apiStyle: String(body.apiStyle ?? preset?.apiStyle ?? "completions"),
+    endpoint: body.endpoint ? String(body.endpoint).replace(/\/+$/, "") : preset?.endpoint || null,
+    apiKey: body.apiKey === undefined || body.apiKey === null || body.apiKey === "" ? null : String(body.apiKey),
+    authMethod: String(body.authMethod ?? preset?.authMethod ?? "bearer"),
+    model: body.model ? String(body.model).trim() : preset?.defaultModel ?? null,
+    modelsJson: parseList(body, "models"),
+    customHeadersJson: parseList(body, "customHeaders"),
+    proxyUrl: body.proxyUrl ? String(body.proxyUrl) : null,
+    skipTlsVerify: readBoolean(body.skipTlsVerify, false),
+    enableThinking: readBoolean(body.enableThinking, false),
+    effortCapabilityJson: parseList(body, "effortCapability"),
+    inputPricePerMTok: readPrice(body.inputPricePerMTok),
+    outputPricePerMTok: readPrice(body.outputPricePerMTok),
+    maxOutputTokens:
+      typeof body.maxOutputTokens === "number" && body.maxOutputTokens > 0
+        ? body.maxOutputTokens
+        : preset?.defaultMaxOutputTokens ?? null,
+    contextWindow: typeof body.contextWindow === "number" ? body.contextWindow : null,
+    cliAgent: preset?.cliAgent ?? (body.cliAgent ? String(body.cliAgent) : null),
+    cliPath: body.cliPath ? String(body.cliPath) : null,
+    cliEnvJson: parseList(body, "cliEnv"),
+    isDefault: false,
+    lastTestOk: null,
+    lastTestedAt: null,
+    lastTestLatencyMs: null,
+    lastTestErrorCategory: null,
+    source: "user",
+    createdAt: null,
+    updatedAt: null,
+  };
+  const result = await testConnection(candidate);
+  return json({ result });
+});
+
 // GET /api/providers/:id/models — discovery merged with stored models (FR-L4)
 router.get("providers/:id/models", async (ctx) => {
   const row = ctx.params.id === ENV_PROVIDER_ID ? envBootstrapProvider() : getProvider(ctx.params.id);

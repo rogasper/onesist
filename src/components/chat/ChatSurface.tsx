@@ -10,7 +10,9 @@ import { ArtifactPreview } from "~/components/chat/ArtifactPreview";
 import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
+import { MAX_STEPS_DEFAULT, MAX_STEPS_MAX } from "~/server/agent/types";
 import {
+  expandMentions,
   formatTokens,
   uploadAttachment,
   useChatActions,
@@ -65,6 +67,10 @@ const ROUTE_TO_TAB: Record<string, { tab: string; label: string }> = {
 
 const MONO = "font-mono text-[0.8125rem]";
 
+/** Inside the Tauri shell? Same check the rest of the app uses; the OS actions
+ *  below have no meaning in a browser build. */
+const inDesktopShell = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 /** Durations in readable units: 820 ms · 1.2 s · 1 min 5 s. */
 function fmtDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
@@ -75,6 +81,12 @@ function fmtDuration(ms: number): string {
 
 function elapsedSeconds(from: number, now: number): number {
   return Math.max(0, Math.floor((now - from) / 1000));
+}
+
+/** Errors that mean "the connection to our own server died", not "the model
+ *  refused". WebKit says "Load failed", Chromium says "Failed to fetch". */
+function isConnectionFailure(message: string): boolean {
+  return /load failed|failed to fetch|networkerror|network error|the operation couldn/i.test(message);
 }
 
 export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProviders }: Props) {
@@ -100,8 +112,41 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachBusy, setAttachBusy] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+  /** This thread's step ceiling; mirrored locally because raising it from the
+   *  transcript must take effect immediately (the PUT persists it). */
+  const [currentMaxSteps, setCurrentMaxSteps] = useState(detail.thread.maxSteps);
+  /** Server log path, shown when a run dies mid-stream (fetched once). */
+  const [logPath, setLogPath] = useState<string | null>(null);
 
-  const { files: mentionFiles } = useMentionFiles(projectId);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/health", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (typeof data?.logPath === "string") setLogPath(data.logPath);
+      } catch {
+        /* the hint is optional */
+      }
+    })();
+  }, []);
+
+  // Report stream failures into the server log as they appear. The server logs
+  // its own side (a disconnect), so both halves of a broken run end up in one
+  // file with timestamps — which is the only way to tell who dropped it.
+  useEffect(() => {
+    if (!error) return;
+    void fetch("/api/system/client-error", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ where: "chat-stream", message: error.message }),
+      cache: "no-store",
+    }).catch(() => {
+      /* the server may be what is gone */
+    });
+  }, [error]);
+
+  const { files: mentionFiles } = useMentionFiles(projectId, detail.rootPath ?? null);
   const { skills } = useChatSkills(projectId);
   const { actions, projectFile } = useChatActions(projectId);
 
@@ -198,11 +243,13 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
     // Attachments are referenced as `@…` paths so the agent reads them via
     // `read_file` — the same way users mention files themselves.
     const attachmentLine = attachments.length ? `Lampiran:\n${attachments.map((a) => `@${a.path}`).join("\n")}\n\n` : "";
+    // Mentions were inserted by name (compact chips); the model gets full paths.
+    const expanded = expandMentions(text, mentionFiles);
     setInput("");
     setAttachments([]);
     atBottomRef.current = true;
     setNow(Date.now());
-    await sendMessage({ text: `${attachmentLine}${text}`.trim() });
+    await sendMessage({ text: `${attachmentLine}${expanded}`.trim() });
   }
 
   async function handleAttach(files: File[]) {
@@ -253,6 +300,28 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
   const planReadyToApprove =
     mode === "plan" && !streaming && lastMessage?.role === "assistant" && Boolean((lastMessage.parts ?? []).some(isTextUIPart));
 
+  /**
+   * Continue a turn that was cut off by the step ceiling (FR-B11).
+   *
+   * The conversation is already stored, so continuing is just another message —
+   * the agent does not lose what it did, it reads the history. `raiseLimit`
+   * doubles THIS thread's ceiling (the app default only applies to new threads,
+   * so a stored value would otherwise keep cutting the same task).
+   */
+  async function continueAfterStepLimit(raiseLimit: boolean) {
+    if (streaming) return;
+    if (raiseLimit) {
+      const next = Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT));
+      setCurrentMaxSteps(next);
+      await patchThread({ maxSteps: next });
+    }
+    atBottomRef.current = true;
+    setNow(Date.now());
+    await sendMessage({
+      text: "Lanjutkan tugas tadi dari langkah terakhir. Jangan mengulang pembacaan atau analisis yang sudah dilakukan; selesaikan yang belum selesai.",
+    });
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <WorkspacePanel
@@ -281,6 +350,8 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
               projectId={projectId}
               toolDuration={toolDuration}
               approvalById={approvalById}
+              nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
+              onContinueAfterLimit={() => void continueAfterStepLimit(true)}
             />
           ))}
 
@@ -303,7 +374,28 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
             </div>
           ) : null}
 
-          {error ? <InlineAlert>{error.message}</InlineAlert> : null}
+          {error ? (
+            // "Load failed" (WebKit) tells the user nothing. When the failure is
+            // the connection to our own server, say what happened, that the
+            // history survives, and where the log is — that is the difference
+            // between a report we can act on and one we cannot.
+            <InlineAlert>
+              {isConnectionFailure(error.message) ? (
+                <>
+                  Koneksi ke server Onesist terputus di tengah run — run ditandai berhenti, tetapi riwayat tetap tersimpan.
+                  Kirim ulang pesannya untuk melanjutkan.
+                  {logPath ? (
+                    <>
+                      {" "}
+                      Detailnya di <span className={`${MONO} break-all`}>{logPath}</span>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                error.message
+              )}
+            </InlineAlert>
+          ) : null}
         </div>
       </div>
 
@@ -526,6 +618,8 @@ function MessageBlock({
   projectId,
   toolDuration,
   approvalById,
+  nextStepLimit,
+  onContinueAfterLimit,
 }: {
   message: UIMessage;
   streaming: boolean;
@@ -533,6 +627,10 @@ function MessageBlock({
   projectId: string;
   toolDuration: (toolCallId: string | undefined) => number | null;
   approvalById: Map<string, string>;
+  /** Ceiling a step-limit notice would raise the thread to, and the action that
+   *  does it and continues the turn (FR-B11). */
+  nextStepLimit?: number;
+  onContinueAfterLimit?: () => void;
 }) {
   if (message.role === "user") {
     const text = (message.parts ?? []).map((p: any) => (isTextUIPart(p) ? p.text : "")).join("");
@@ -576,7 +674,17 @@ function MessageBlock({
               durationIsTotal={reasoningBlocks > 1}
             />
           );
-        if (b.kind === "notice") return <NoticeBlock key={b.key} data={b.data} />;
+        if (b.kind === "notice") {
+          const limit = b.data?.kind === "stepLimit";
+          return (
+            <NoticeBlock
+              key={b.key}
+              data={b.data}
+              nextLimit={limit ? nextStepLimit : undefined}
+              onContinue={limit ? onContinueAfterLimit : undefined}
+            />
+          );
+        }
         if (b.kind === "todos") return <TodoPanel key={b.key} todos={b.todos} />;
         if (b.kind === "subagent") return <SubagentBlock key={b.key} part={b.part} approval={approvalById.get(b.part?.toolCallId)} />;
         if (b.kind === "tools") return <ToolGroup key={b.key} parts={b.parts} duration={toolDuration} approvalById={approvalById} />;
@@ -694,7 +802,30 @@ function TodoPanel({ todos }: { todos: TodoItem[] }) {
 
 /** System-event marker in the transcript — for now context compaction
  *  (FR-B9), so the user knows when the agent starts losing early detail. */
-function NoticeBlock({ data }: { data: any }) {
+function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: number; onContinue?: () => void }) {
+  if (data?.kind === "stepLimit") {
+    // FR-B11: reaching the step ceiling MUST be visible, otherwise the agent
+    // simply stops mid-task and the transcript reads as "it gave up for no
+    // reason" — observed as a real report: 30 steps of skill_read/list_dir/
+    // todo_write with no file written and no explanation anywhere.
+    return (
+      <div className="rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-kumo-default grid gap-2">
+        <span>
+          <b>Batas langkah tercapai{data.steps ? ` (${data.steps} langkah)` : ""}.</b> Agent berhenti karena kehabisan
+          langkah, bukan karena tugasnya selesai. Periksa apa yang sudah dikerjakan di atas — riwayatnya tetap ada, jadi
+          melanjutkan tidak mengulang dari awal.
+        </span>
+        {onContinue && nextLimit ? (
+          <span className="flex items-center gap-2">
+            <Button variant="secondary" onClick={onContinue}>
+              Naikkan batas ke {nextLimit} &amp; lanjutkan
+            </Button>
+            <span className="text-xs text-kumo-subtle">Batas tersimpan di percakapan ini, jadi tugas berikutnya tidak terpotong lagi.</span>
+          </span>
+        ) : null}
+      </div>
+    );
+  }
   if (data?.kind !== "compacted") return null;
   return (
     <div className="rounded-lg ring ring-kumo-line px-3 py-2 text-sm text-kumo-subtle">
@@ -946,37 +1077,48 @@ function ToolGroup({
   duration: (id: string | undefined) => number | null;
   approvalById: Map<string, string>;
 }) {
-  const [open, setOpen] = useState(false);
   const err = parts.map(toolState).filter((s) => s.tone === "err").length;
   const running = parts.map(toolState).filter((s) => s.tone === "run").length;
   const judul = groupTitle(parts);
   const JudulIcon = judul.icon;
-  const tampil = open ? parts : parts.slice(-2);
+
+  // `null` = the user has not decided yet. Undecided follows the work: rows are
+  // visible while the group is running (you want to watch progress) and fold away
+  // once it is done (finished work is a summary line, and the transcript stays
+  // readable through a 30-step turn).
+  //
+  // The previous version ALWAYS showed the last two rows and toggled only what
+  // came before them — so for the many one- and two-row groups a click changed
+  // nothing at all, which reads as "the accordion cannot be closed" (reported
+  // 2026-09-17). Now a click always has a visible effect.
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const open = manualOpen ?? running > 0;
 
   return (
     <div className="grid">
-      <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 py-1.5 pr-3 text-left hover:bg-kumo-elevated rounded-lg px-1">
+      <button
+        onClick={() => setManualOpen(!open)}
+        className="flex items-center gap-2 py-1.5 pr-3 text-left hover:bg-kumo-elevated rounded-lg px-1"
+      >
         <RowIcon icon={JudulIcon} />
         <span className="text-sm text-kumo-subtle truncate">
           {judul.text} · <span className={err ? "text-red-400" : undefined}>{err ? `${err} gagal` : running ? "berjalan" : "selesai"}</span>
         </span>
         <span className="ml-auto shrink-0 flex items-center gap-2">
           {running ? <Pulse /> : null}
+          <span className="text-xs text-kumo-subtle">{open ? "sembunyikan" : `lihat ${parts.length} langkah`}</span>
           <Chevron open={open} />
         </span>
       </button>
-      <ChildRail>
-        <div className="grid gap-1 py-1">
-          {tampil.map((part, i) => (
-            <ToolRow key={part.toolCallId ?? i} part={part} duration={duration} approval={approvalById.get(part.toolCallId)} />
-          ))}
-          {!open && parts.length > 2 ? (
-            <button onClick={() => setOpen(true)} className="text-left text-sm text-kumo-brand hover:underline py-1">
-              +{parts.length - 2} langkah lagi
-            </button>
-          ) : null}
-        </div>
-      </ChildRail>
+      {open ? (
+        <ChildRail>
+          <div className="grid gap-1 py-1">
+            {parts.map((part, i) => (
+              <ToolRow key={part.toolCallId ?? i} part={part} duration={duration} approval={approvalById.get(part.toolCallId)} />
+            ))}
+          </div>
+        </ChildRail>
+      ) : null}
     </div>
   );
 }
@@ -1068,6 +1210,7 @@ function ChangedFiles({ detail }: { detail: ThreadDetail }) {
   const files = detail.files;
   const totalAdd = files.reduce((n, f) => n + (f.linesAdded ?? 0), 0);
   const totalDel = files.reduce((n, f) => n + (f.linesRemoved ?? 0), 0);
+  const root = detail.rootPath ?? null;
 
   return (
     <div className="border-t border-kumo-line shrink-0">
@@ -1082,7 +1225,7 @@ function ChangedFiles({ detail }: { detail: ThreadDetail }) {
       {open ? (
         <div className="mx-auto w-full max-w-3xl px-6 pb-3 grid gap-1 max-h-64 overflow-y-auto">
           {files.map((f) => (
-            <FileRow key={f.id} file={f} />
+            <FileRow key={f.id} file={f} root={root} />
           ))}
         </div>
       ) : null}
@@ -1090,7 +1233,14 @@ function ChangedFiles({ detail }: { detail: ThreadDetail }) {
   );
 }
 
-function FileRow({ file }: { file: ThreadFile }) {
+/** Absolute path of a workspace-relative file, or null when the root is unknown. */
+function absolutePathOf(root: string | null, rel: string): string | null {
+  if (!root) return null;
+  const trimmed = root.replace(/[/\\]+$/, "");
+  return `${trimmed}/${rel}`;
+}
+
+function FileRow({ file, root }: { file: ThreadFile; root: string | null }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"diff" | "content">("diff");
   const target = file.route ? ROUTE_TO_TAB[file.route] : undefined;
@@ -1098,6 +1248,21 @@ function FileRow({ file }: { file: ThreadFile }) {
   const projectId = window.location.pathname.split("/")[2];
   const diff = file.diffJson ?? null;
   const canPreview = file.op !== "delete";
+  const abs = file.op === "delete" ? null : absolutePathOf(root, file.path);
+
+  /** Open with the OS default app / reveal in the file manager. Desktop only:
+   *  a web build has no such channel, and the tab link stays the way to look. */
+  async function openWithOs(mode: "open" | "reveal") {
+    if (!abs || !inDesktopShell()) return;
+    try {
+      const mod = await import("@tauri-apps/plugin-opener");
+      if (mode === "open") await mod.openPath(abs);
+      else await mod.revealItemInDir(abs);
+    } catch {
+      /* the OS refused (no handler for the type, permission) — the file is still
+         reachable from its tab or from the workspace panel */
+    }
+  }
 
   return (
     <div className="grid">
@@ -1120,9 +1285,19 @@ function FileRow({ file }: { file: ThreadFile }) {
         ) : null}
         {file.source !== "tool" ? <span className="text-kumo-subtle shrink-0">({file.source})</span> : null}
         {target && projectId ? (
-          <a href={`/projects/${projectId}/${target.tab}`} className="text-kumo-brand shrink-0 hover:underline">
+          <a href={`/projects/${projectId}/${target.tab}`} className="text-kumo-brand shrink-0 hover:underline" title={`Buka di tab ${target.label}`}>
             {target.label}
           </a>
+        ) : null}
+        {abs && inDesktopShell() ? (
+          <>
+            <button onClick={() => void openWithOs("open")} className="text-kumo-brand shrink-0 hover:underline" title={`Buka ${file.path} dengan aplikasi default`}>
+              Buka
+            </button>
+            <button onClick={() => void openWithOs("reveal")} className="text-kumo-subtle shrink-0 hover:underline hover:text-kumo-default" title="Tampilkan di Finder">
+              Finder
+            </button>
+          </>
         ) : null}
       </div>
       {open ? (

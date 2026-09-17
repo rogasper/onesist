@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import { and, asc, desc, eq, max, sql } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
-import type { FileOp, PermissionMode, ThreadMode } from "./types";
+import { MAX_STEPS_DEFAULT, type FileOp, type PermissionMode, type ThreadMode } from "./types";
 
 export type ThreadRow = typeof chatThreads.$inferSelect;
 export type MessageRow = typeof chatMessages.$inferSelect;
@@ -55,7 +55,7 @@ export function createThread(input: {
     providerId: input.providerId ?? null,
     model: input.model ?? null,
     permissionMode: input.permissionMode ?? "ask",
-    maxSteps: input.maxSteps ?? 30,
+    maxSteps: input.maxSteps ?? MAX_STEPS_DEFAULT,
     tokensUsed: 0,
     archived: false,
     createdAt: now,

@@ -348,8 +348,9 @@ export const chatThreads = sqliteTable(
     permissionMode: text("permission_mode").notNull().default("ask"),
     /** Summary of old messages once the context budget is exceeded (FR-B8 layer 2). */
     summary: text("summary"),
-    /** Step limit per turn. Default 30, clamped 5..500 (FR-L7). */
-    maxSteps: integer("max_steps").notNull().default(30),
+    /** Step limit per turn (FR-L7). Default 60, clamped 5..500; the ceiling is
+     *  reported in the transcript when reached, and the notice can raise it. */
+    maxSteps: integer("max_steps").notNull().default(60),
     tokensUsed: integer("tokens_used").notNull().default(0),
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").default("datetime('now')"),

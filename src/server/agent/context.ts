@@ -50,13 +50,27 @@ export function estimateTokens(messages: ModelMessage[]): number {
   return Math.ceil(chars / 4);
 }
 
-/** Layer 1: trim reasoning and old tool calls. Called every step via
- *  `prepareStep`, so it must be cheap and must not do I/O. */
+/** Layer 1: trim reasoning and empty messages. Called every step via
+ *  `prepareStep`, so it must be cheap and must not do I/O.
+ *
+ *  It deliberately does **NOT** prune tool calls/results by age any more. The
+ *  previous policy (`before-last-3-messages`) meant that after three steps the
+ *  model could no longer see what any earlier tool had returned — measured on a
+ *  five-step history: 5 tool results in, 2 out. In a real run that produced the
+ *  classic amnesia loop: read the FSD → forget it → read it again → forget →
+ *  … 30 steps, 266k input tokens, no file written (reported 2026-09-17, with
+ *  33× `skill_read` and 33× `list_dir` in a single turn).
+ *
+ *  Size is bounded elsewhere, and that is the honest division of labour: every
+ *  tool output is truncated at the tool boundary (FR-B10), and layer 2
+ *  summarizes the oldest messages once the context passes the threshold (FR-B8).
+ *  A summarizer keeps the *meaning* of old steps; age-based pruning threw away
+ *  the *content* the agent was still working from. */
 export function pruneForStep(messages: ModelMessage[]): ModelMessage[] {
   return pruneMessages({
     messages,
     reasoning: "all",
-    toolCalls: `before-last-${Math.max(2, KEEP_RECENT_MESSAGES / 2)}-messages` as `before-last-${number}-messages`,
+    toolCalls: "none",
     emptyMessages: "remove",
   });
 }

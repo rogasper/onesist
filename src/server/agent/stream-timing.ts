@@ -18,6 +18,11 @@ export interface StreamTiming {
   toolEnd: Map<string, number>;
   /** FATAL error text (provider failure), already sanitized. */
   fatalError: string | null;
+  /** Finish reason of the LAST step ("stop" | "tool-calls" | ...). `tool-calls`
+   *  on the final step while the step budget is exhausted means the loop was cut
+   *  off mid-task — the marker the transcript needs to explain why the agent
+   *  stopped (FR-B11). */
+  lastFinishReason: string | null;
   /** Observe one part; safe to call for any part kind. */
   observe: (part: any) => void;
   /** Duration of a tool in ms, when both endpoints were seen. */
@@ -41,6 +46,7 @@ export function createStreamTiming(opts: { onFatalError?: (error: unknown) => vo
   let reasoningStart: number | null = null;
   let reasoningEnd: number | null = null;
   let fatalError: string | null = null;
+  let lastFinishReason: string | null = null;
 
   return {
     get reasoningMs() {
@@ -53,6 +59,9 @@ export function createStreamTiming(opts: { onFatalError?: (error: unknown) => vo
     },
     set fatalError(value: string | null) {
       fatalError = value;
+    },
+    get lastFinishReason() {
+      return lastFinishReason;
     },
     toolStart,
     toolEnd,
@@ -68,6 +77,12 @@ export function createStreamTiming(opts: { onFatalError?: (error: unknown) => vo
           } catch {
             fatalError = "Kegagalan provider.";
           }
+          break;
+        case "finish":
+        case "finish-step":
+          // Both exist in the AI SDK stream; whichever arrives last wins, and
+          // for the final step they agree.
+          if (typeof part.finishReason === "string") lastFinishReason = part.finishReason;
           break;
         case "reasoning-start":
           if (reasoningStart == null) reasoningStart = now;

@@ -200,6 +200,18 @@ export function useProviders() {
     return body.result;
   }, []);
 
+  /** Test a configuration that has NOT been saved yet. Nothing is written, so
+   *  pressing Test can no longer act as a hidden "apply" — and the test is
+   *  available exactly when it matters most: before committing the config. */
+  const testDraft = useCallback(async (draft: Partial<ProviderDraft>): Promise<ProviderTestResult> => {
+    const body = await api<{ result: ProviderTestResult }>("/api/providers/test-draft", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    return body.result;
+  }, []);
+
   const getModels = useCallback(async (id: string) => {
     return api<{ models: ProviderModelInfo[]; supported: boolean; message?: string }>(`/api/providers/${id}/models`);
   }, []);
@@ -214,7 +226,7 @@ export function useProviders() {
     });
   }, []);
 
-  return { providers, presets, loading, error, refresh, createProvider, updateProvider, deleteProvider, testProvider, getModels, getModelsForDraft };
+  return { providers, presets, loading, error, refresh, createProvider, updateProvider, deleteProvider, testProvider, testDraft, getModels, getModelsForDraft };
 }
 
 /** Client-side fingerprint, used to judge whether the last test result still

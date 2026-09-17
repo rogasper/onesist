@@ -28,7 +28,7 @@ import {
 } from "~/server/agent/config";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
-import { finishRun, getRunForThread, listPendingApprovals, resolveApproval, stopRun } from "~/server/agent/run-registry";
+import { finishRun, getRun, getRunForThread, listPendingApprovals, resolveApproval, stopRun } from "~/server/agent/run-registry";
 import {
   addTokens,
   appendMessage,
@@ -58,6 +58,7 @@ import {
   upsertThreadFile,
 } from "~/server/agent/store";
 import { createStreamTiming, tapStream } from "~/server/agent/stream-timing";
+import { withStreamHeartbeat } from "~/server/agent/stream-heartbeat";
 import { getApprovalDecision } from "~/server/agent/run-registry";
 import { resolveChatActions } from "~/server/agent/actions";
 import { resolveSkills, skillSummaries } from "~/server/agent/skills";
@@ -195,6 +196,9 @@ router.get("chat/threads/:id", async (ctx) => {
   const root = projectRootOf(thread.projectId);
   return json({
     thread: publicThread(thread),
+    // The workspace root, so the UI can open a changed file with the OS
+    // (open in default app / show in Finder) without asking the server again.
+    rootPath: root,
     messages: toUIMessages(messages),
     files: listThreadFiles(thread.id),
     toolCalls: listToolCalls(thread.id).map((t) => ({
@@ -285,6 +289,20 @@ router.get("chat/search", async (ctx) => {
 // ── Send message → UI message stream ───────────────────────────────────────
 
 router.post("chat/threads/:id/messages", async (ctx) => {
+  try {
+    return await handleSendMessage(ctx);
+  } catch (err) {
+    // An API call must never answer with an HTML error page: the client's fetch
+    // wrapper expects JSON, and a rendered error page reaches the user as
+    // "Something went wrong!" with no cause. Observed while probing a duplicate
+    // message id (the primary key is the message id, so re-sending one throws).
+    const message = redactSecrets(err);
+    console.error("[chat] unhandled error in send-message route:", message);
+    return json({ error: message }, 500);
+  }
+});
+
+async function handleSendMessage(ctx: any): Promise<Response> {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
 
@@ -306,6 +324,23 @@ router.post("chat/threads/:id/messages", async (ctx) => {
   const body = await ctx.body();
   const uiMessages = (Array.isArray(body.messages) ? body.messages : []) as UIMessage[];
   if (!uiMessages.length) return json({ error: "messages kosong." }, 400);
+
+  /**
+   * Transcript markers must never reach the model.
+   *
+   * Notices ("konteks diringkas", "batas langkah tercapai") are stored with
+   * `role: "system"` so they survive a reload, and the composer sends the whole
+   * stored history back on the next turn — which made the AI SDK reject the
+   * request outright: "Invalid prompt: System messages are not allowed in the
+   * prompt or messages fields" (reported 2026-09-17, right after the step-limit
+   * notice appeared). Dropping them here rather than in the UI is deliberate:
+   * `allowSystemInMessages: false` in the agent exists so a client cannot inject
+   * a role, so the guard belongs on this side of the wire.
+   *
+   * The summary that actually matters is NOT one of these messages — it lives in
+   * `chat_threads.summary` and is part of the system prompt (FR-B8).
+   */
+  const modelMessages = uiMessages.filter((m) => m?.role !== "system");
 
   // The user message is persisted BEFORE the run starts, so it survives even if
   // the run fails or the app closes midway.
@@ -343,6 +378,9 @@ router.post("chat/threads/:id/messages", async (ctx) => {
 
   const runId = makeRunId();
   let errorText: string | null = null;
+  /** Highest step number the loop reported (FR-B11). */
+  let lastStepCount = 0;
+  const stepBudget = normalizeMaxSteps(current.maxSteps);
 
   // Changed-file ledger (FR-C3, FR-C4) and duration measurement (FR-B5).
   // Both MUST be attached here: without `onFileChange` the files do get
@@ -383,10 +421,10 @@ router.post("chat/threads/:id/messages", async (ctx) => {
       root,
       provider,
       permissionMode: current.permissionMode as any,
-      maxSteps: normalizeMaxSteps(current.maxSteps),
+      maxSteps: stepBudget,
       mode: current.mode as any,
       system,
-      messages: uiMessages,
+      messages: modelMessages,
       summary: current.summary,
       onFileChange,
       // FR-C12: remember what the agent has seen so a later external edit can be
@@ -419,8 +457,11 @@ router.post("chat/threads/:id/messages", async (ctx) => {
           ],
         });
       },
-      onStepFinish: () => {
-        /* step counting already handled by run-registry */
+      onStepFinish: ({ stepCount }) => {
+        /* Step counting lives in run-registry; this records the LAST count so
+         * the route can tell whether the turn ended because of the step ceiling
+         * (FR-B11). */
+        lastStepCount = stepCount;
       },
     });
   } catch (err) {
@@ -432,6 +473,12 @@ router.post("chat/threads/:id/messages", async (ctx) => {
 
   // Client disconnected: do not leave the run hanging as `running`.
   ctx.request.signal.addEventListener("abort", () => {
+    // Logged, not just recorded in the DB: "the run just died" was a report with
+    // no trace anywhere (the sidecar's output is not visible in the terminal),
+    // so the moment the connection drops is exactly what has to appear in
+    // server.err.log — with the step it happened at.
+    const langkah = getRun(runId)?.stepCount ?? 0;
+    console.error(`[chat] klien memutuskan koneksi di tengah run ${runId} (thread ${current.id}, langkah ${langkah})`);
     finishRun(runId, "stopped", "Koneksi klien terputus.");
   });
 
@@ -506,6 +553,26 @@ router.post("chat/threads/:id/messages", async (ctx) => {
             });
           }
         }
+
+        // FR-B11: if the loop stopped because the step budget ran out, SAY SO in
+        // the transcript. Without this the agent simply stops mid-task and the
+        // only visible evidence is a long list of tool calls — measured case:
+        // 30 steps of skill_read/list_dir/todo_write, no file written, no error,
+        // status "done". A `tool-calls` finish reason on the last step means the
+        // model still wanted to continue.
+        const hitStepLimit = !isAborted && !errorText && lastStepCount >= stepBudget && timing.lastFinishReason === "tool-calls";
+        if (hitStepLimit) {
+          try {
+            appendMessage({
+              threadId: current.id,
+              role: "system",
+              kind: "stepLimitNotice",
+              parts: [{ type: "data-notice", data: { kind: "stepLimit", steps: lastStepCount } }],
+            });
+          } catch (err) {
+            console.error("[chat] failed to record step-limit notice:", err);
+          }
+        }
       } catch (err) {
         // Never fail silently: this is what used to make replies vanish from
         // history without a trace.
@@ -516,8 +583,19 @@ router.post("chat/threads/:id/messages", async (ctx) => {
     },
   });
 
-  return createUIMessageStreamResponse({ stream });
-});
+  // Heartbeat: without bytes on the wire, Bun's default 10 s idle timeout closes
+  // the connection while the model is still thinking — the run then shows up as
+  // "klien memutuskan koneksi" with the panel saying "Load failed" (measured
+  // 2026-09-17). The wrapper injects SSE comments (`: ping`) into the RESPONSE
+  // BYTES, i.e. after the SDK serialised its chunks; the payload is untouched.
+  const streamResponse = createUIMessageStreamResponse({ stream });
+  if (!streamResponse.body) return streamResponse;
+  return new Response(withStreamHeartbeat(streamResponse.body), {
+    status: streamResponse.status,
+    statusText: streamResponse.statusText,
+    headers: streamResponse.headers,
+  });
+}
 
 
 // ── File attachments ───────────────────────────────────────────────────────

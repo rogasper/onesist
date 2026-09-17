@@ -46,7 +46,12 @@ router.get("events", async (ctx) => {
         handlers[event] = handler;
       }
       send("connected", { message: "SSE connected" });
-      const keepAlive = setInterval(() => send("keepalive", { ts: Date.now() }), 15000);
+      // 5 s, not 15 s: the HTTP server (Bun.serve) closes a connection that has
+      // carried no bytes for its 10 s idle window, and a keepalive slower than
+      // that means every stream dies and silently reconnects — losing whatever
+      // `file:changed` fired in the gap (measured 2026-09-17: a 15 s keepalive
+      // connection died at 12 s).
+      const keepAlive = setInterval(() => send("keepalive", { ts: Date.now() }), 5000);
       cleanup = () => {
         if (isCleanedUp) return;
         isCleanedUp = true;

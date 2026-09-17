@@ -18,6 +18,8 @@
     "updater:default",
     "process:default",
     "notification:default",
+    "opener:allow-open-path",
+    "opener:allow-reveal-item-in-dir",
     "shell:allow-execute",
     "dialog:allow-open",
     "dialog:allow-save",

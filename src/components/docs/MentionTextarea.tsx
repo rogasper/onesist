@@ -53,6 +53,68 @@ function triggerPattern(char: string): RegExp {
   return new RegExp(`(?:^|\\s)${escaped}([^\\s${escaped}]*)$`);
 }
 
+/** Splits the text into plain runs and trigger tokens, for the highlight layer.
+ *
+ *  A token starts at a trigger character sitting on a word boundary and runs to
+ *  the next whitespace or to another trigger character (so `@a/b $x` cannot
+ *  swallow each other). Plain scan rather than a built regex: the character set
+ *  is dynamic, and escaping it correctly is the kind of thing that breaks
+ *  silently on the first unusual character.
+ *
+ *  `sigil` is kept separate from `rest` so the marker can be drawn as a badge —
+ *  and every character of the original text stays in the output, which is what
+ *  keeps the mirror layer the same width as the real textarea (otherwise the
+ *  caret drifts). */
+type Token = { text: string; token: false } | { text: string; token: true; sigil: string; rest: string };
+
+function tokenize(text: string, chars: string[]): Token[] {
+  const isTrigger = (ch: string) => chars.includes(ch);
+  const isSpace = (ch: string) => /\s/.test(ch);
+  const out: Token[] = [];
+  let plainFrom = 0;
+  let i = 0;
+  while (i < text.length) {
+    const atBoundary = i === 0 || isSpace(text[i - 1]);
+    if (atBoundary && isTrigger(text[i])) {
+      let j = i + 1;
+      while (j < text.length && !isSpace(text[j]) && !isTrigger(text[j])) j += 1;
+      // A lone trigger character is punctuation, not a token.
+      if (j > i + 1) {
+        if (i > plainFrom) out.push({ text: text.slice(plainFrom, i), token: false });
+        out.push({ text: text.slice(i, j), token: true, sigil: text[i], rest: text.slice(i + 1, j) });
+        plainFrom = j;
+        i = j;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  if (plainFrom < text.length) out.push({ text: text.slice(plainFrom), token: false });
+  return out;
+}
+
+/** Colour per trigger: files, skills and commands are three different things and
+ *  must not look alike (the reference the user pointed at does the same: one
+ *  colour for the file chip, another for the skill chip). Background-only
+ *  styling — no padding — so the token keeps the exact width of its text. */
+function tokenClass(sigil: string): string {
+  if (sigil === "$") return "bg-violet-400/15";
+  if (sigil === "/") return "bg-amber-400/15";
+  return "bg-sky-400/15";
+}
+
+function sigilClass(sigil: string): string {
+  if (sigil === "$") return "text-violet-400";
+  if (sigil === "/") return "text-amber-400";
+  return "text-sky-400";
+}
+
+function restClass(sigil: string): string {
+  if (sigil === "$") return "text-violet-300";
+  if (sigil === "/") return "text-amber-300";
+  return "text-sky-300";
+}
+
 export function MentionTextarea({
   value,
   onChange,
@@ -68,6 +130,7 @@ export function MentionTextarea({
   maxHeightPx,
 }: MentionTextareaProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const [dropActive, setDropActive] = useState(false);
@@ -193,17 +256,65 @@ export function MentionTextarea({
 
   const isSkillTrigger = active?.char === "$";
 
+  // Trigger tokens are drawn by a mirror layer BEHIND the textarea: a textarea
+  // cannot style part of its own text, so the real glyphs stay in the field
+  // (transparent fill) and an identically-styled copy paints them, with the
+  // tokens wrapped. The copy reuses the caller's own `className`, which is what
+  // keeps padding/font/line-height — and therefore the caret — aligned.
+  const segments = useMemo(() => tokenize(value, activeTriggers.map((t) => t.char)), [value, activeTriggers]);
+
+  useEffect(() => {
+    const ta = taRef.current;
+    const bd = backdropRef.current;
+    if (!ta || !bd) return;
+    bd.scrollTop = ta.scrollTop;
+    bd.scrollLeft = ta.scrollLeft;
+  }, [value]);
+
   return (
     <div className="relative h-full">
+      {value ? (
+        <div
+          ref={backdropRef}
+          aria-hidden
+          className={`${className ?? ""} absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pointer-events-none select-none`}
+        >
+          {segments.map((seg, i) =>
+            seg.token ? (
+              // Sigil drawn as a badge, the rest in the same family colour, with a
+              // faint background across the whole token. Backgrounds only: any
+              // padding here would make the mirror wider than the real text.
+              <span key={i} className={`rounded ${tokenClass(seg.sigil)}`}>
+                <span className={`font-semibold ${sigilClass(seg.sigil)}`}>{seg.sigil}</span>
+                <span className={restClass(seg.sigil)}>{seg.rest}</span>
+              </span>
+            ) : (
+              <span key={i}>{seg.text}</span>
+            ),
+          )}
+          {/* Trailing newline so a last empty line keeps its height in the copy. */}
+          {"\n"}
+        </div>
+      ) : null}
       <textarea
         ref={taRef}
         value={value}
         rows={rows}
         disabled={disabled}
+        // The glyphs are painted by the mirror layer; the field keeps the caret,
+        // the selection and the real text for anything that reads the DOM.
+        style={value ? { WebkitTextFillColor: "transparent" } : undefined}
         onChange={(e) => onChange(e.target.value)}
         onInput={detectTrigger}
         onKeyDown={handleKeyDown}
-        onScroll={() => setOpenTrigger(null)}
+        onScroll={(e) => {
+          setOpenTrigger(null);
+          const el = e.currentTarget;
+          if (backdropRef.current) {
+            backdropRef.current.scrollTop = el.scrollTop;
+            backdropRef.current.scrollLeft = el.scrollLeft;
+          }
+        }}
         onDragOver={(e) => {
           if (!onFilesDropped) return;
           e.preventDefault();
