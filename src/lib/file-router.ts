@@ -365,11 +365,11 @@ export interface FileSearchResult {
   matches?: FileContentMatch[];
 }
 
-const IGNORED_DIRS = new Set([
+export const IGNORED_DIRS = new Set([
   "node_modules", ".git", "dist", "binaries", "target", ".gemini", ".cache", "coverage", ".next", ".turbo",
 ]);
 
-const TEXT_EXTS = new Set([
+export const TEXT_EXTS = new Set([
   ".md", ".json", ".dbml", ".sql", ".html", ".txt", ".yaml", ".yml", ".ts", ".tsx", ".js", ".jsx", ".csv", ".excalidraw",
 ]);
 

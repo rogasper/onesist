@@ -39,10 +39,14 @@ interface FileTreeProps {
   /** Disable rows whose file fails this predicate (e.g. non-md). */
   isDisabled?: (file: TreeFile) => boolean;
   onFileClick: (file: TreeFile) => void;
-  onFileContextMenu: (e: React.MouseEvent, file: TreeFile) => void;
+  /** Optional so a read-only browser (the chat workspace panel) can reuse the
+   *  tree without wiring a context menu it has no actions for. */
+  onFileContextMenu?: (e: React.MouseEvent, file: TreeFile) => void;
   onDirContextMenu?: (e: React.MouseEvent, dir: string) => void;
-  /** Called when an inline rename commits (Enter/blur). newName is raw user input. */
-  onRename: (path: string, newName: string) => void;
+  /** Called when an inline rename commits (Enter/blur). newName is raw user input.
+   *  Optional for the same reason as `onFileContextMenu`: without it rows are
+   *  simply not renamable. */
+  onRename?: (path: string, newName: string) => void;
 }
 
 function buildFileTree(rootDir: string, entries: TreeFile[]): TreeNode[] {
@@ -230,7 +234,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
                 initial={f.name}
                 onCommit={(name) => {
                   setRenaming(null);
-                  onRename(f.path, name);
+                  onRename?.(f.path, name);
                 }}
               />
             </div>
@@ -241,7 +245,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
               active={isActive}
               disabled={disabled}
               onClick={() => !disabled && onFileClick(f)}
-              onContextMenu={(e) => onFileContextMenu(e, f)}
+              onContextMenu={(e) => onFileContextMenu?.(e, f)}
             >
               <span className="whitespace-nowrap" title={f.name}>{f.name}</span>
             </FileRow>
@@ -296,7 +300,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
                     active={activePath === f.path}
                     disabled={disabled}
                     onClick={() => !disabled && onFileClick(f)}
-                    onContextMenu={(e) => onFileContextMenu(e, f)}
+                    onContextMenu={(e) => onFileContextMenu?.(e, f)}
                   >
                     <span className="truncate">{f.name}</span>
                   </FileRow>
@@ -341,7 +345,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
                       initial={f.name}
                       onCommit={(name) => {
                         setRenaming(null);
-                        onRename(f.path, name);
+                        onRename?.(f.path, name);
                       }}
                     />
                   </div>
@@ -351,7 +355,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
                     active={isActive}
                     disabled={disabled}
                     onClick={() => !disabled && onFileClick(f)}
-                    onContextMenu={(e) => onFileContextMenu(e, f)}
+                    onContextMenu={(e) => onFileContextMenu?.(e, f)}
                   >
                     <span className="whitespace-nowrap" title={f.name}>{f.name}</span>
                   </FileRow>

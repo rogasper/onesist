@@ -20,6 +20,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.54",
+    "@ai-sdk/openai": "4.0.67",
+    "@ai-sdk/openai-compatible": "3.0.49",
+    "@ai-sdk/react": "4.0.105",
     "@cloudflare/kumo": "^2.8.0",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.1",
@@ -47,6 +51,7 @@
     "@xterm/addon-webgl": "^0.20.0-beta.291",
     "@xterm/xterm": "^6.1.0-beta.292",
     "@xyflow/react": "^12.11.2",
+    "ai": "7.0.102",
     "better-sqlite3": "^13.0.3",
     "docx": "^9.7.1",
     "drizzle-orm": "^0.45.2",

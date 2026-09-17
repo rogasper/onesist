@@ -7,7 +7,131 @@ const dbPath = process.env.SA_DB_PATH
   ? path.resolve(process.env.SA_DB_PATH)
   : path.resolve(process.cwd(), "data.db");
 
+/**
+ * Tables created at runtime, separate from drizzle migrations.
+ *
+ * Why this exists: `migrate()` can stop halfway, and its failure used to be
+ * swallowed by a `catch {}`. On a pre-existing `data.db`, `__drizzle_migrations`
+ * held only 0000–0003 while the journal had 7 entries — because the
+ * `ALTER TABLE ... ADD COLUMN` statements below used to run BEFORE `migrate()`,
+ * then `migrate()` tried to add the same columns and failed with
+ * "duplicate column name". Since drizzle aborts the whole sequence on the
+ * first failure, 0004, 0005, and **0006 (CREATE TABLE)** were never
+ * applied.
+ *
+ * The app still looked healthy because the runtime ALTERs papered over the
+ * missing columns — but ALTER cannot create tables. So new tables only appeared
+ * on empty DBs, and on old DBs the feature failed with "no such table".
+ *
+ * The statements below must stay in sync with
+ * `migrations/0006_thin_warbound.sql`. All are `IF NOT EXISTS`, so they are safe
+ * to run repeatedly, and safe both for fresh DBs (drizzle already made them)
+ * and old DBs (drizzle skipped them).
+ */
+const RUNTIME_TABLES = [
+  `CREATE TABLE IF NOT EXISTS llm_providers (
+    id text PRIMARY KEY NOT NULL, name text NOT NULL, preset text DEFAULT 'custom' NOT NULL,
+    api_style text DEFAULT 'completions' NOT NULL, endpoint text, api_key text,
+    auth_method text DEFAULT 'bearer' NOT NULL, model text, models_json text, custom_headers_json text,
+    proxy_url text, skip_tls_verify integer DEFAULT false NOT NULL, enable_thinking integer DEFAULT false NOT NULL,
+    effort_capability_json text, max_output_tokens integer, context_window integer,
+    cli_agent text, cli_path text, cli_env_json text, is_default integer DEFAULT false NOT NULL,
+    last_test_ok integer, last_tested_at text, last_test_latency_ms integer, last_test_error_category text,
+    source text DEFAULT 'user' NOT NULL,
+    created_at text DEFAULT (datetime('now')), updated_at text DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_threads (
+    id text PRIMARY KEY NOT NULL, project_id text NOT NULL, title text,
+    mode text DEFAULT 'agent' NOT NULL, provider_id text, model text,
+    permission_mode text DEFAULT 'ask' NOT NULL, summary text,
+    max_steps integer DEFAULT 30 NOT NULL, tokens_used integer DEFAULT 0 NOT NULL,
+    archived integer DEFAULT false NOT NULL,
+    created_at text DEFAULT (datetime('now')), updated_at text DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_messages (
+    id text PRIMARY KEY NOT NULL, thread_id text NOT NULL, seq integer NOT NULL, role text NOT NULL,
+    content_json text, tool_calls_json text, tool_call_id text, kind text, provider_id text, model text,
+    input_tokens integer, output_tokens integer, reasoning_ms integer, status text DEFAULT 'ok' NOT NULL, error text,
+    created_at text DEFAULT (datetime('now')),
+    FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_tool_calls (
+    id text PRIMARY KEY NOT NULL, thread_id text NOT NULL, message_id text, tool_call_id text NOT NULL,
+    name text NOT NULL, args_json text, result_preview text, is_error integer DEFAULT false NOT NULL,
+    diff_json text, approval text, started_at text, ended_at text,
+    FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_thread_files (
+    id text PRIMARY KEY NOT NULL, thread_id text NOT NULL, path text NOT NULL, route text,
+    op text NOT NULL, source text DEFAULT 'tool' NOT NULL, lines_added integer, lines_removed integer,
+    diff_json text,
+    first_seen_at text DEFAULT (datetime('now')), last_seen_at text DEFAULT (datetime('now')),
+    FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_runs (
+    id text PRIMARY KEY NOT NULL, thread_id text NOT NULL, status text DEFAULT 'running' NOT NULL,
+    step_count integer DEFAULT 0 NOT NULL, error text,
+    started_at text DEFAULT (datetime('now')), finished_at text,
+    FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_thread_reads (
+    id text PRIMARY KEY NOT NULL, thread_id text NOT NULL, path text NOT NULL, hash text NOT NULL,
+    read_at text DEFAULT (datetime('now')),
+    FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS app_settings (
+    key text PRIMARY KEY NOT NULL, value text NOT NULL, updated_at text DEFAULT (datetime('now'))
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_chat_threads_project ON chat_threads (project_id)",
+  "CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_seq ON chat_messages (thread_id, seq)",
+  "CREATE INDEX IF NOT EXISTS idx_chat_tool_calls_thread ON chat_tool_calls (thread_id, tool_call_id)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_thread_files_thread_path ON chat_thread_files (thread_id, path)",
+  "CREATE INDEX IF NOT EXISTS idx_chat_runs_thread ON chat_runs (thread_id)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_thread_reads_thread_path ON chat_thread_reads (thread_id, path)",
+];
+
+
+/**
+ * Runs drizzle migrations WITHOUT silently swallowing their failure.
+ *
+ * This block used to be `catch {}`. As a result, on old DBs whose
+ * `__drizzle_migrations` lagged behind, `migrate()` failed on an old migration
+ * (the column already existed thanks to `applyMigrations`), the whole sequence
+ * stopped, and later migrations — including the ones creating new tables —
+ * never ran. The symptom only surfaced much later as a confusing
+ * "no such table".
+ *
+ * Failure here is NOT fatal: `applyMigrations()` already handles tables and
+ * columns idempotently. So it is reported once so an out-of-sync journal
+ * becomes visible, not hidden.
+ */
+let migrationWarningShown = false;
+function runDrizzleMigrations(run: () => void) {
+  try {
+    run();
+  } catch (err: any) {
+    if (migrationWarningShown) return;
+    migrationWarningShown = true;
+    const pesan = err?.message ?? String(err);
+    console.warn(
+      `[db] migrasi drizzle tidak selesai: ${pesan}\n` +
+        `     Ini normal pada DB lama yang __drizzle_migrations-nya tertinggal (mis. hanya 0000-0003 sementara journal sudah 0007).\n` +
+        `     Skema tetap benar karena applyMigrations() di client.ts menangani tabel & kolom secara idempoten.\n` +
+        `     Untuk merapikan journal-nya, lihat catatan di plan/agent-chat/spike/RESULTS.md.`,
+    );
+  }
+}
+
 function applyMigrations(runSql: (sql: string) => unknown) {
+  // Tables first: the `ALTER TABLE` below would fail on DBs that don't have
+  // the tables yet, and the chat columns only make sense once the tables exist.
+  for (const sql of RUNTIME_TABLES) {
+    try {
+      runSql(sql);
+    } catch {}
+  }
+
   const statements = [
     // projects columns
     "ALTER TABLE projects ADD COLUMN root_path TEXT",
@@ -39,6 +163,9 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE fsd_sessions ADD COLUMN generated_from_hash TEXT",
     "ALTER TABLE fsd_sessions ADD COLUMN conversion_status TEXT",
     "ALTER TABLE fsd_sessions ADD COLUMN conversion_error TEXT",
+    // chat columns added after 0006 — see migrations/0007_*.sql
+    "ALTER TABLE chat_messages ADD COLUMN reasoning_ms INTEGER",
+    "ALTER TABLE chat_thread_files ADD COLUMN diff_json TEXT",
   ];
   for (const sql of statements) {
     try { runSql(sql); } catch {}
@@ -68,9 +195,20 @@ if (isBun) {
   rawSqlite = sqlite;
   sqlite.run("PRAGMA journal_mode = WAL");
   sqlite.run("PRAGMA foreign_keys = ON");
-  applyMigrations((sql) => sqlite.run(sql));
   db = drizzle(sqlite, { schema });
-  try { migrate(db, { migrationsFolder: migrationsDir }); } catch {}
+  // ORDER MATTERS: drizzle FIRST, the runtime path AFTER.
+  //
+  // It used to be reversed, and that caused two different breakages:
+  //  - Old DBs: the runtime path added columns first, so migration
+  //    0004 failed with "duplicate column", drizzle cancelled the ENTIRE sequence,
+  //    and 0006 (CREATE TABLE) never ran.
+  //  - Fresh DBs: the runtime path created the chat tables first, so migration
+  //    0006 failed with "table already exists", drizzle ROLLED BACK the entire sequence
+  //    INCLUDING 0000 (projects), then seedIfEmpty() killed the process.
+  // Flipping the order lets drizzle work on a clean DB, and the runtime path
+  // becomes the idempotent safety net for old DBs.
+  runDrizzleMigrations(() => migrate(db, { migrationsFolder: migrationsDir }));
+  applyMigrations((sql) => sqlite.run(sql));
 } else {
   const BetterSqlite3 = (await import("better-sqlite3")).default;
   const { drizzle } = await import("drizzle-orm/better-sqlite3");
@@ -79,9 +217,10 @@ if (isBun) {
   rawSqlite = sqlite;
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
-  applyMigrations((sql) => sqlite.exec(sql));
   db = drizzle(sqlite, { schema });
-  try { migrate(db, { migrationsFolder: migrationsDir }); } catch {}
+  // See the ordering note in the Bun branch above.
+  runDrizzleMigrations(() => migrate(db, { migrationsFolder: migrationsDir }));
+  applyMigrations((sql) => sqlite.exec(sql));
 }
 
 /// Checkpoint the WAL journal so it doesn't grow without bound during

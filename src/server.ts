@@ -9,8 +9,29 @@ import { spawnSync } from "node:child_process";
 import { db } from "~/server/db/client";
 import { projects } from "~/server/db/schema";
 import { resolveNodeExe } from "~/lib/resolve-node";
+import { recoverInterruptedRuns } from "~/server/agent/run-registry";
 
-seedIfEmpty();
+// Wrapped: a seeding failure (e.g. schema not ready yet) must NOT kill the
+// process. A sidecar that dies at start leaves the desktop app hanging on
+// "Loading..." with no explanation, and that is far harder to diagnose than
+// a single log line.
+try {
+  seedIfEmpty();
+} catch (err: any) {
+  console.error(`[db] seed failed (app keeps running): ${err?.message ?? err}`);
+}
+
+// Runs still `running` come from a previous session that died mid-flight
+// — this process just started, so it cannot possibly be running them. Marking
+// them `interrupted` keeps the UI from showing an agent that only seems to be
+// still working.
+//
+// The import is STATIC, not `await import()`. See the note below: dynamic
+// imports in this file break the compiled sidecar.
+try {
+  const n = recoverInterruptedRuns();
+  if (n > 0) console.log(`[agent] ${n} run(s) marked interrupted (app exited while a run was in progress)`);
+} catch {}
 
 // Register every project root so the file watcher emits SSE file:changed
 // events for project files (input/fsd etc.). Without this, the watcher only

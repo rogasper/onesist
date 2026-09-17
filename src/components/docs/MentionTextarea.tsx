@@ -13,13 +13,37 @@ interface MentionTextareaProps {
   rows?: number;
   className?: string;
   placeholder?: string;
+  /** Called when Enter is pressed without Shift while the mention popup is CLOSED.
+   *  Without this the chat composer cannot use this component: Enter must
+   *  send the message, while Enter when picking a file must insert the
+   *  file name. */
+  onSubmit?: () => void;
+  /** Called when files are dropped onto the textarea (attachment). */
+  onFilesDropped?: (files: File[]) => void;
+  disabled?: boolean;
+  /** Grow the field with its content up to the CSS `max-height`, instead of
+   *  scrolling inside a fixed box. Opt-in: callers that size the textarea
+   *  themselves (`h-full` inside a resizable pane) must not get this. */
+  autoGrow?: boolean;
 }
 
-export function MentionTextarea({ value, onChange, files, rows = 9, className, placeholder }: MentionTextareaProps) {
+export function MentionTextarea({
+  value,
+  onChange,
+  files,
+  rows = 9,
+  className,
+  placeholder,
+  onSubmit,
+  onFilesDropped,
+  disabled,
+  autoGrow,
+}: MentionTextareaProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
+  const [dropActive, setDropActive] = useState(false);
 
   const filtered = useMemo(() => {
     if (!open) return [];
@@ -33,6 +57,14 @@ export function MentionTextarea({ value, onChange, files, rows = 9, className, p
   useEffect(() => {
     setHighlight(0);
   }, [query, open]);
+
+  useEffect(() => {
+    if (!autoGrow) return;
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [autoGrow, value]);
 
   const detectTrigger = () => {
     const ta = taRef.current;
@@ -66,21 +98,42 @@ export function MentionTextarea({ value, onChange, files, rows = 9, className, p
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!open || filtered.length === 0) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlight((h) => (h + 1) % filtered.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlight((h) => (h - 1 + filtered.length) % filtered.length);
-    } else if (e.key === "Enter" || e.key === "Tab") {
-      e.preventDefault();
-      const sel = filtered[highlight];
-      if (sel) insertMention(sel.path);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setOpen(false);
+    if (open && filtered.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlight((h) => (h + 1) % filtered.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlight((h) => (h - 1 + filtered.length) % filtered.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const sel = filtered[highlight];
+        if (sel) insertMention(sel.path);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+        return;
+      }
     }
+    if (onSubmit && e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSubmit();
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
+    if (!onFilesDropped) return;
+    const dropped = Array.from(e.dataTransfer?.files ?? []);
+    if (!dropped.length) return;
+    e.preventDefault();
+    setDropActive(false);
+    onFilesDropped(dropped);
   };
 
   return (
@@ -89,14 +142,22 @@ export function MentionTextarea({ value, onChange, files, rows = 9, className, p
         ref={taRef}
         value={value}
         rows={rows}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         onInput={detectTrigger}
         onKeyDown={handleKeyDown}
         onScroll={() => setOpen(false)}
+        onDragOver={(e) => {
+          if (!onFilesDropped) return;
+          e.preventDefault();
+          setDropActive(true);
+        }}
+        onDragLeave={() => setDropActive(false)}
+        onDrop={handleDrop}
         onBlur={() => {
           setTimeout(() => setOpen(false), 120);
         }}
-        className={className}
+        className={`${className ?? ""} ${dropActive ? "ring-2 ring-kumo-brand" : ""}`}
         placeholder={placeholder}
       />
       {open && filtered.length > 0 && (

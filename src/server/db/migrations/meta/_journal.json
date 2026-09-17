@@ -43,6 +43,34 @@
       "when": 1787200000000,
       "tag": "0005_handoff_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789541038907,
+      "tag": "0006_thin_warbound",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1789550871212,
+      "tag": "0007_talented_quasar",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789602044793,
+      "tag": "0008_daily_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789607744061,
+      "tag": "0009_large_dagger",
+      "breakpoints": true
     }
   ]
 }

@@ -18,3 +18,7 @@ plan
 # SIT confidential — jangan commit Excel
 docs/SIT - EHS FIF.xlsx
 .playwright-mcp/
+
+# Secret HMAC untuk approval tool agent (dibuat saat runtime, per instalasi).
+# Jangan pernah masuk repo: siapa pun yang memegangnya bisa memalsukan approval.
+agent-approval.secret

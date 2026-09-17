@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { Badge } from "@cloudflare/kumo";
-import { Cube, Terminal as TerminalIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
+import { Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
@@ -10,6 +10,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // the panel in the initial tree (display:none when closed) so opening it is a
 // style toggle, not a subtree insert. createXterm is still deferred until open.
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
+import { ChatPanel } from "~/components/chat/ChatPanel";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
@@ -50,6 +51,7 @@ function ProjectLayout() {
   const location = useLocation();
   const { project } = Route.useLoaderData() as any;
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [termRetryKey, setTermRetryKey] = useState(0);
   const [terminalRunning, setTerminalRunning] = useState(false);
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
@@ -168,6 +170,17 @@ function ProjectLayout() {
                 <kbd className="text-[10px] font-mono px-1 py-0.2 rounded bg-kumo-elevated text-kumo-subtle border border-kumo-line/60 ml-1">⌘P</kbd>
               </AppButton>
               <AppButton
+                onClick={() => setChatOpen((p) => !p)}
+                variant="chip"
+                size="sm"
+                active={chatOpen}
+                activeColor="brand"
+                icon={<ChatIcon size={12} />}
+                className="px-3"
+              >
+                Chat
+              </AppButton>
+              <AppButton
                 onClick={() => setTerminalOpen((p) => !p)}
                 variant="chip"
                 size="sm"
@@ -248,6 +261,8 @@ function ProjectLayout() {
           )}
         </div>
       </div>
+
+      <ChatPanel visible={chatOpen} onClose={() => setChatOpen(false)} projectId={project.id} />
 
       <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
         <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
