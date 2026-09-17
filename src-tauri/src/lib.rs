@@ -174,7 +174,32 @@ pub fn run() {
       });
 
       if status.running {
-        let url = format!("http://127.0.0.1:{}", status.port);
+        // Dev builds must load the Vite dev server (tauri.conf.json → build.devUrl),
+        // not the sidecar's static copy. The sidecar serves the last PRODUCTION build,
+        // and its asset hashes never line up with the live dev tree — which is why
+        // `bunx tauri dev` showed an unstyled page (CSS 404: the sidecar had an older
+        // index-*.css than the HTML it was serving) while `bunx tauri build` worked.
+        // `localhost`, not `127.0.0.1`: the Bun-backed Vite server listens on `[::1]`
+        // only, so an IPv4 literal never connects (blank window).
+        // Release builds keep the sidecar URL, which is the app's real server.
+        let dev_server = if cfg!(debug_assertions) {
+            let candidate = std::env::var("SA_DEV_SERVER_URL")
+                .unwrap_or_else(|_| "http://localhost:4321".to_string());
+            // This string becomes a webview URL — accept only http(s), and fall
+            // back to the default rather than letting a stray scheme through.
+            match candidate.parse::<url::Url>() {
+                Ok(u) if u.scheme() == "http" || u.scheme() == "https" => Some(candidate),
+                _ => {
+                    eprintln!("[window] SA_DEV_SERVER_URL ignored (only http/https allowed): {candidate}");
+                    Some("http://localhost:4321".to_string())
+                }
+            }
+        } else {
+            None
+        };
+        let base = dev_server.unwrap_or_else(|| format!("http://127.0.0.1:{}", status.port));
+        let url = format!("{}/", base.trim_end_matches('/'));
+        eprintln!("[window] main webview url = {url} (sidecar port {})", status.port);
         let window = tauri::WebviewWindowBuilder::new(
           app,
           "main",

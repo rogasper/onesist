@@ -1,12 +1,12 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Onesist",
-  "version": "0.1.40",
+  "version": "0.1.42",
   "identifier": "com.rogasper.onesist",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:4321",
-    "beforeDevCommand": "pkill -9 -f 'onesist-server' 2>/dev/null; pkill -9 -f 'terminal-server.ts' 2>/dev/null; bun run dev",
+    "beforeDevCommand": "pkill -9 -f '[o]nesist-server' 2>/dev/null; pkill -9 -f '[t]erminal-server.ts' 2>/dev/null; lsof -ti:4321 2>/dev/null | xargs -I{} kill -9 {} 2>/dev/null; bun run dev",
     "beforeBuildCommand": "bun run build:server && bun scripts/prepare-resources.mjs"
   },
   "app": {

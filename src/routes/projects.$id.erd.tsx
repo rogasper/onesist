@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Badge } from "@cloudflare/kumo";
 import { Cube, Database } from "@phosphor-icons/react";
 import { ErdCanvas } from "~/components/erd/ErdCanvas";
@@ -18,6 +18,20 @@ import { AppButton } from "~/components/ui/AppButton";
 export const Route = createFileRoute("/projects/$id/erd")({
   component: ErdPage,
 });
+
+// 32-bit FNV-1a: used only to notice "this text is byte-identical to what we
+// already parsed". A full re-parse is affordable (~6 ms for 86 tables), but a
+// layout of that result is not (~40 ms + a full canvas repaint), and the file
+// watcher refreshes an unchanged file whenever the stream reconnects or a
+// sibling ERD file changes.
+function textSignature(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${text.length}:${h}`;
+}
 
 function ErdPage() {
   const { id } = Route.useParams();
@@ -73,21 +87,45 @@ function ErdPage() {
     if (dbmlText !== null) setLocalText(dbmlText);
   }, [dbmlText]);
 
-  // Parse DBML
+  // Parse DBML — debounced, and skipped entirely when the text is unchanged.
+  // The editor calls onChange per keystroke, so without the debounce a 96 KB
+  // schema is re-parsed on every character typed.
+  const lastParsed = useRef<string | null>(null);
   useEffect(() => {
     if (!localText) return;
-    try {
-      setParsed(parseDbml(localText));
-    } catch {}
+    const signature = textSignature(localText);
+    if (signature === lastParsed.current) return;
+    const timer = setTimeout(() => {
+      try {
+        setParsed(parseDbml(localText));
+        lastParsed.current = signature;
+      } catch {}
+    }, 250);
+    return () => clearTimeout(timer);
   }, [localText]);
 
+  // Switching files means the previously selected table belongs to another
+  // schema — clearing it avoids carrying a stale selection (and its highlight)
+  // into the next diagram.
+  const selectedFileRef = useRef(selectedFile);
+  useEffect(() => {
+    if (selectedFileRef.current !== selectedFile) {
+      selectedFileRef.current = selectedFile;
+      setSelectedTable(null);
+    }
+  }, [selectedFile]);
+
   // Live file watch — silent auto-import for new project (Windows): any new erd file refreshes list + content
-  useFileWatch("erd", (path) => {
-    void refreshFiles();
-    if (path === selectedFile) void refreshContent();
-  });
+  const handleErdFileChanged = useCallback(
+    (path: string) => {
+      void refreshFiles();
+      if (path === selectedFile) void refreshContent();
+    },
+    [refreshFiles, refreshContent, selectedFile]
+  );
+  useFileWatch("erd", handleErdFileChanged);
   // Also watch master files at root (MASTER_ERD.md) which type is "master" not "erd"
-  useFileWatch("master", () => { void refreshFiles(); });
+  useFileWatch("master", refreshFiles);
 
   const handleDbmlChange = useCallback((newDbml: string) => setLocalText(newDbml), []);
   const handleTableUpdate = useCallback(

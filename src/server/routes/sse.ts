@@ -46,7 +46,13 @@ router.get("events", async (ctx) => {
         handlers[event] = handler;
       }
       send("connected", { message: "SSE connected" });
-      const keepAlive = setInterval(() => send("keepalive", { ts: Date.now() }), 15000);
+      // Must stay well under Bun.serve's 10 s idle window: a stream that carries
+      // no bytes for that long is closed by the server, the client's EventSource
+      // silently reconnects, and every reconnect replays the page's change handler
+      // (the ERD canvas re-reads its file and re-lays out on each one — measured
+      // 2026-09-17: a 15 s keepalive died at 12 s, so the diagram refreshed itself
+      // every ~12 s).
+      const keepAlive = setInterval(() => send("keepalive", { ts: Date.now() }), 5000);
       cleanup = () => {
         if (isCleanedUp) return;
         isCleanedUp = true;

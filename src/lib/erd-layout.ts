@@ -60,6 +60,10 @@ function collectNodes(g: Graph, tables: TableDef[], selectedTable?: string | nul
       id: String(t.name),
       type: "tableNode" as const,
       position: pos,
+      // Only the header drags the table — a drag that starts in the column list
+      // would otherwise make column names unselectable and shift the table by
+      // accident while the user is reading or copying from it.
+      dragHandle: ".erd-drag-handle",
       data: { ...t, selected: t.name === selectedTable },
     };
   });

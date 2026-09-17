@@ -15,6 +15,10 @@ plan
 .tanstack
 # ZCode CLI workspace state
 .zcode/
+# mimosa security-scan state + its local approval secret
+.mimosa/
+**/.mimosa/
+agent-approval.secret
 # SIT confidential — jangan commit Excel
 docs/SIT - EHS FIF.xlsx
 .playwright-mcp/

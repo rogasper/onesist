@@ -587,3 +587,13 @@ html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* ERD table rows (components/erd/TableNode). An 86-table schema holds ~700
+   column rows, and every pan/zoom frame used to lay out and paint all of them.
+   `content-visibility: auto` lets the browser skip rows that are off-screen,
+   which is what makes panning a large diagram cheap; the intrinsic size mirrors
+   the real row box (py-1.5 + 11px text = 26px) so geometry stays stable. */
+.erd-col-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
+}

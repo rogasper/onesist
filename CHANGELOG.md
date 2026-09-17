@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.1.42 — ERD canvas performance + dev window loads Vite
+
+### Perf — ERD canvas (86 tables / 702 columns)
+- **Viewport-only mounting** (`src/components/erd/ErdCanvas.tsx`): `onlyRenderVisibleElements` — hanya tabel di dalam viewport yang di-mount.
+- **`content-visibility: auto`** pada baris kolom (`src/styles.css` `.erd-col-row` + `TableNode.tsx`) — baris di luar layar dilewati layout/paint-nya, sehingga pan/zoom tidak lagi membayar ~700 baris tiap frame.
+- **Seleksi tidak lagi mahal**: layout (`src/lib/erd-layout.ts`) tidak bergantung pada tabel terpilih, node/edge hanya dibuat ulang bila hasilnya berubah, dan efek styling dibuat idempoten (sebelumnya memicu React #185 "Maximum update depth exceeded" pada schema 86 tabel).
+- **Transisi opacity inline & animasi dash edge dihapus** — keduanya memaksa style-recalc/repaint tiap frame saat viewport bergerak.
+- **`TableNode` di-memo** + tabel bisa digeser lewat header (`.erd-drag-handle`, `dragHandle` per node) tanpa membuat nama kolom tidak bisa diblok.
+- **Parse di-debounce + dedupe** (`src/routes/projects.$id.erd.tsx`) — file yang tidak berubah tidak di-parse ulang; ganti file tidak lagi membawa seleksi lama.
+
+### Fix — SSE stream putus tiap ~12 detik
+- **`keepAlive` 15s → 5s** (`src/server/routes/sse.ts`). `Bun.serve` menutup koneksi tanpa byte selama 10 detik, jadi stream mati sebelum keepalive-nya sendiri sempat terkirim; EventSource di WebView menyambung ulang diam-diam dan memutar ulang handler `file:changed` — inilah yang membuat halaman ERD seolah me-refresh sendiri terus-menerus (terukur: mati di 12.0s, setelah perbaikan hidup 45s).
+
+### Fix — `bunx tauri dev` memuat build lama (halaman tanpa CSS)
+- **Window dev memuat devUrl Vite**, bukan salinan statis sidecar (`src-tauri/src/lib.rs`, debug build; `SA_DEV_SERVER_URL` opsional, divalidasi http/https). Sebelumnya window selalu diarahkan ke port sidecar, sehingga HTML/CSS dari build produksi terakhir yang dilayani — hash aset tidak pernah cocok dengan kode dev dan halaman tampil tanpa CSS. Pakai `localhost`, bukan `127.0.0.1`: Vite (Bun) hanya listen di IPv6 `[::1]`.
+
+### Chore
+- `beforeDevCommand` (`src-tauri/tauri.conf.json`): pola `pkill` di-bracket (`'[o]nesist-server'`) supaya tidak mencocokkan shell-nya sendiri, plus pembersih port 4321.
+- `.gitignore`: state security-scan `.mimosa/` + `agent-approval.secret` (kredensial lokal).
+- **Bump `0.1.40 → 0.1.42`** (0.1.41 sudah dipakai di branch lain).
+
 ## v0.1.40 — Skills: query-writer (Oracle) for Spec & Task
 
 ### Feat — Skills

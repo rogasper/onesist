@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import type { TableDef } from "~/lib/dbml";
 
@@ -8,7 +9,13 @@ export type TableNodeData = TableDef & {
 
 type TableNodeType = Node<TableNodeData, "tableNode">;
 
-export function TableNode({ data }: NodeProps<TableNodeType>) {
+/**
+ * Memoised on purpose: a large schema renders 80+ of these (700+ column rows and
+ * two handles per row), and React Flow re-renders its node components whenever
+ * the canvas updates — e.g. while panning or zooming. Without the memo every
+ * wheel tick re-renders the whole graph.
+ */
+function TableNodeInner({ data }: NodeProps<TableNodeType>) {
   const { name, columns, indexes } = data;
 
   return (
@@ -16,7 +23,10 @@ export function TableNode({ data }: NodeProps<TableNodeType>) {
       className={`rounded-lg border-2 bg-kumo-base text-kumo-default text-xs leading-tight shadow-md ${
         data.selected ? "border-kumo-brand" : "border-kumo-line"
       }`}>
-      <div className="flex items-center gap-2 rounded-t-lg bg-kumo-elevated border-b border-kumo-line px-3 py-2 font-semibold text-sm">
+      {/* The header is the drag handle (see dragHandle on the canvas): grabbing a
+          table by its body would make column names unselectable and turn every
+          stray drag into a move. */}
+      <div className="erd-drag-handle flex items-center gap-2 rounded-t-lg bg-kumo-elevated border-b border-kumo-line px-3 py-2 font-semibold text-sm cursor-grab active:cursor-grabbing">
         <span className="truncate">{name}</span>
         <span className="ml-auto text-[10px] text-kumo-subtle font-normal">{columns.length} cols</span>
       </div>
@@ -25,7 +35,13 @@ export function TableNode({ data }: NodeProps<TableNodeType>) {
         {columns.map((col) => {
           const key = `${name}.${col.name}`;
           return (
-            <div key={key} className="flex items-center gap-2 px-3 py-1.5 relative hover:bg-kumo-elevated/50">
+            /* content-visibility lets the browser skip layout/paint for rows that
+               are off-screen — the difference between a cheap and an expensive pan
+               once a table has 40+ columns (the schema here has ~700 rows total). */
+            <div
+              key={key}
+              className="erd-col-row flex items-center gap-2 px-3 py-1.5 relative hover:bg-kumo-elevated/50"
+            >
               <Handle
                 type="source"
                 position={Position.Right}
@@ -66,3 +82,5 @@ export function TableNode({ data }: NodeProps<TableNodeType>) {
     </div>
   );
 }
+
+export const TableNode = memo(TableNodeInner);
