@@ -38,11 +38,11 @@ export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skipp
   const processedRelativeFiles = new Set<string>();
 
   for (const { rel: relDir, full: taskRoot } of existingRoots) {
-    // General: scan semua .md di root output/task (tidak hanya task_* prefix) —
-    // AI via fsd-analyzer kadang tulis tanpa prefix atau pakai H1 # Task \[FE]:
-    // Exclude README/index yang bukan task agar tidak noise di skippedFiles.
+    // General: scan every .md at the output/task root (not just the task_* prefix) —
+    // AI via fsd-analyzer sometimes writes without a prefix or uses H1 # Task \[FE]:
+    // Exclude README/index files that aren't tasks so skippedFiles stays noise-free.
     const rootFiles = fs.readdirSync(taskRoot).filter((f) => f.endsWith(".md") && !f.startsWith(".") && f.toLowerCase() !== "readme.md" && f.toLowerCase() !== "index.md");
-    // Prioritaskan file dengan prefix task_* agar dedupe stabil, tapi tetap parse sisanya
+    // Prioritize task_*-prefixed files so the dedupe stays stable, but still parse the rest
     rootFiles.sort((a, b) => {
       const aTask = /^tasks?_/i.test(a) || a === "task.md" || a === "MASTER_TASK.md" ? 0 : 1;
       const bTask = /^tasks?_/i.test(b) || b === "task.md" || b === "MASTER_TASK.md" ? 0 : 1;
@@ -217,7 +217,7 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
   // ones, so accept all of them (H2 only):
   //   A: "## Task FE-1: Title" — canonical; separator can be : ： — – -
   //   B: "## Task: Title"      — no ID → deterministic auto-number
-  //   B2:"## Task [FE]: Title" — bracket role (escaped \[FE] dari AI) -> auto-number
+  //   B2:"## Task [FE]: Title" — bracket role (escaped \[FE] from AI) -> auto-number
   //   C: "## FE-1: Title"      — code-like ID without the "Task" keyword
   const headingPatterns = [
     /^##\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]\s*(.*)$/i,
@@ -259,7 +259,7 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
     const sectionContent = lines.slice(i, sectionEnd).join("\n");
 
     // SP: prefer the task's own detail table, fall back to the summary spMap
-    // Toleran terhadap "0.5 SP (2 jam)" — cukup capture angka setelah pipe
+    // Tolerates "0.5 SP (2 jam)" — just capture the number after the pipe
     const spMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
     const sp = spMatch ? parseFloat(spMatch[1]) : (rawId ? (spMap[rawId] ?? null) : null);
 
@@ -278,15 +278,15 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
     });
   }
 
-  // Fallback general: AI via fsd-analyzer sering tulis root task sebagai
-  // H1 "# Task: ..." + sub-tasks H3 "### T1 — ..." (bukan H2 "## Task").
-  // Kasus nyata: output/task/task_tracking_leads_skip_duplicate_000.md
-  // punya "# Task: Skip Duplicate..." dan "### T1 — Edit duplicate check..."
-  // yang mengandung Goals/Scope/AC/Flow Logic. Tanpa ini file jadi skipped.
+  // General fallback: AI via fsd-analyzer often writes the root task as
+  // H1 "# Task: ..." + sub-task H3s "### T1 — ..." (not H2 "## Task").
+  // Real case: output/task/task_tracking_leads_skip_duplicate_000.md
+  // has "# Task: Skip Duplicate..." and "### T1 — Edit duplicate check..."
+  // carrying Goals/Scope/AC/Flow Logic. Without this the file ends up skipped.
   if (tasks.length === 0) {
-    // Coba ekstrak H3 sub-tasks (T1, T2, ...) — yang diharapkan jadi card
+    // Try extracting H3 sub-tasks (T1, T2, ...) — these are expected to become cards
     const fallbackTasks: ParsedTask[] = [];
-    // File-level SP fallback (tabel ringkas di atas Action List) — toleran "0.5 SP (2 jam)"
+    // File-level SP fallback (summary table above the Action List) — tolerates "0.5 SP (2 jam)"
     const fileSpMatch = content.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
     const fileSp = fileSpMatch ? parseFloat(fileSpMatch[1]) : null;
     const fileDevMatch = content.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
@@ -299,20 +299,20 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
       const rawSubCode = subMatch[1].trim();
       const subTitle = subMatch[2].trim();
       if (!subTitle) continue;
-      // Namespace dengan moduleName agar T1 di file berbeda tidak collision di dedupe byCode
+      // Namespace with moduleName so T1 in different files doesn't collide in the byCode dedupe
       const prefix = rawSubCode.toLowerCase();
       const code = prefix.startsWith(`${moduleName.toLowerCase()}-`) || prefix.startsWith(`${moduleName.toLowerCase()}_`) || prefix.startsWith(`${moduleName.toLowerCase()}.`)
         ? rawSubCode
         : `${moduleName}-${rawSubCode}`;
 
-      // Section dari H3 sampai H3/##/--- berikutnya atau EOF
+      // Section runs from the H3 to the next H3/##/--- or EOF
       let sectionEnd = lines.length;
       for (let j = i + 1; j < lines.length; j++) {
         if (lines[j].startsWith("### ") || lines[j].startsWith("## ") || lines[j].startsWith("---")) { sectionEnd = j; break; }
       }
       const sectionContent = lines.slice(i, sectionEnd).join("\n");
 
-      // SP: prefer section table, else **N SP**, else file-level — toleran "0.5 SP (2 jam)"
+      // SP: prefer section table, else **N SP**, else file-level — tolerates "0.5 SP (2 jam)"
       const spSectionMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
       const spStarMatch = sectionContent.match(/\*\*([\d.]+)\s*SP\*\*/);
       const sp = spSectionMatch ? parseFloat(spSectionMatch[1]) : (spStarMatch ? parseFloat(spStarMatch[1]) : (fileSp ?? null));
@@ -334,18 +334,18 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
     if (fallbackTasks.length > 0) {
       tasks.push(...fallbackTasks);
     } else {
-      // Single-task fallback: H1 "# Task: Title" tanpa Action List H3
-      // Tolerant terhadap bracket role: "# Task \[FE]: Title" dan "# Task [BE]: Title"
+      // Single-task fallback: H1 "# Task: Title" with no H3 Action List
+      // Tolerant of bracket roles: "# Task \[FE]: Title" and "# Task [BE]: Title"
       const h1Idx = lines.findIndex((l) => /^#\s+Task\b/i.test(l));
       if (h1Idx !== -1) {
         const h1 = lines[h1Idx];
-        // Strip prefix "# Task", optional bracket role "[FE]" / "\[FE]", dan separator
+        // Strip the "# Task" prefix, optional bracket role "[FE]" / "\[FE]", and separator
         let title = h1.replace(/^#\s+Task\s*(?:\\?\[?[A-Za-z0-9._-]+\]?\s*)?[:：—–-]?\s*/i, "").trim();
-        // Jika masih ada sisa bracket di depan (mis. "\[FE]:" tanpa spasi), bersihkan lagi
+        // If a bracket remnant is still left at the front (e.g. "\[FE]:" with no space), strip it again
         if (/^(\\?\[?[A-Za-z]+\]?\s*[:：—–-]\s*)/.test(title)) {
           title = title.replace(/^\\?\[?[A-Za-z]+\]?\s*[:：—–-]?\s*/i, "").trim();
         }
-        // RawId tidak dipakai untuk H1 single-task (code = moduleName), kecuali ada ID eksplisit setelah Task
+        // RawId is unused for H1 single-tasks (code = moduleName), unless an explicit ID follows Task
         const rawIdMatch = h1.match(/^#\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]/i);
         const rawId = rawIdMatch ? rawIdMatch[1].trim() : "";
         if (title) {

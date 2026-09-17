@@ -177,6 +177,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 
 ## Key Conventions
 
+- **Language:** source code is written in **English** — comments, identifiers, log lines, and internal error messages. What the *user* sees stays **Indonesian**: UI copy, and every string that reaches a user or the model, which includes `json({ error })` messages and tool `description:` fields. A comment-only change must never alter a string literal; if a user-facing string needs English, that is an i18n decision, not a language sweep.
 - **File paths:** Use `readFile(rootPath, relPath)` from file-router, not raw fs reads
 - **Database:** Use Drizzle queries through `db` instance from `server/db/client`. Runtime migrations add columns via `ALTER TABLE ... ADD COLUMN` in `client.ts`
 - **API layer:** All routes go through `handleApiRequest` → delegates to `handleProjects` for `/api/projects/*` routes

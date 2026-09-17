@@ -88,7 +88,7 @@ export function scanInstances(): InstanceInfo[] {
   }
 
   // Mark processes that belong to the CURRENT server tree (self + ancestors +
-  // descendants) so the UI can show them as "bagian dari server ini".
+  // descendants) so the UI can show them as "part of this server".
   const self = process.pid;
   const selfTree = new Set<number>([self]);
   let anc = byPid.get(self);
