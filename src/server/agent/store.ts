@@ -8,7 +8,7 @@
 import crypto from "node:crypto";
 import { and, asc, desc, eq, max } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls } from "~/server/db/schema";
+import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents } from "~/server/db/schema";
 import type { FileOp, PermissionMode, ThreadMode } from "./types";
 
 export type ThreadRow = typeof chatThreads.$inferSelect;
@@ -353,4 +353,67 @@ export function listThreadFiles(threadId: string) {
 
 export function listToolCalls(threadId: string): ToolCallRow[] {
   return db.select().from(chatToolCalls).where(eq(chatToolCalls.threadId, threadId)).all() as ToolCallRow[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subagents created through the UI (FR-G2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SubagentRow = typeof subagents.$inferSelect;
+
+export function getAppSubagents(): SubagentRow[] {
+  return db.select().from(subagents).orderBy(asc(subagents.name)).all() as SubagentRow[];
+}
+
+export function getAppSubagent(id: string): SubagentRow | undefined {
+  return db.select().from(subagents).where(eq(subagents.id, id)).get() as SubagentRow | undefined;
+}
+
+export function getAppSubagentByName(name: string): SubagentRow | undefined {
+  return db.select().from(subagents).where(eq(subagents.name, name)).get() as SubagentRow | undefined;
+}
+
+export function createAppSubagent(input: {
+  name: string;
+  description: string;
+  tools: string[];
+  instructions: string;
+  maxSteps?: number | null;
+}): SubagentRow {
+  const now = new Date().toISOString();
+  const row = {
+    id: newId("sub"),
+    name: input.name,
+    description: input.description,
+    toolsJson: JSON.stringify(input.tools),
+    instructions: input.instructions,
+    maxSteps: input.maxSteps ?? null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(subagents).values(row).run();
+  return getAppSubagent(row.id)!;
+}
+
+export function updateAppSubagent(
+  id: string,
+  patch: Partial<{ name: string; description: string; tools: string[]; instructions: string; maxSteps: number | null }>,
+): SubagentRow | undefined {
+  const existing = getAppSubagent(id);
+  if (!existing) return undefined;
+  const values: Partial<typeof subagents.$inferInsert> = { updatedAt: new Date().toISOString() };
+  if (patch.name !== undefined) values.name = patch.name;
+  if (patch.description !== undefined) values.description = patch.description;
+  if (patch.tools !== undefined) values.toolsJson = JSON.stringify(patch.tools);
+  if (patch.instructions !== undefined) values.instructions = patch.instructions;
+  if (patch.maxSteps !== undefined) values.maxSteps = patch.maxSteps;
+  db.update(subagents).set(values).where(eq(subagents.id, id)).run();
+  return getAppSubagent(id);
+}
+
+export function deleteAppSubagent(id: string): boolean {
+  const existing = getAppSubagent(id);
+  if (!existing) return false;
+  db.delete(subagents).where(eq(subagents.id, id)).run();
+  return true;
 }

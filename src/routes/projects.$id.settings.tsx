@@ -1,3 +1,4 @@
+import { SubagentsPanel } from "~/components/subagents/SubagentsPanel";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadProjectRouteData } from "~/lib/project-queries";
@@ -178,7 +179,11 @@ function SettingsPage() {
         </Section>
 
         {/* Terminal */}
-        <Section title="Terminal">
+        <Section title="Subagent">
+        <SubagentsPanel projectId={id} />
+      </Section>
+
+      <Section title="Terminal">
           <Field label="Font Size">
             <FilterSelect
               value={String(terminalPrefs.fontSize)}

@@ -254,6 +254,32 @@ export const appSettings = sqliteTable("app_settings", {
   updatedAt: text("updated_at").default("datetime('now')"),
 });
 
+/**
+ * Subagents created through the UI (FR-G2).
+ *
+ * App-level on purpose: a *project's* subagents belong in its own workspace as
+ * markdown files (`<project>/.agents/agents/`, FR-G1, shareable with the team),
+ * while these are the ones a user wants everywhere. A project file with the same
+ * name wins.
+ */
+export const subagents = sqliteTable(
+  "subagents",
+  {
+    id: text("id").primaryKey(),
+    /** Unique; the name the main agent calls it by. */
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    /** JSON array of READ-ONLY tool names; mutating ones are refused on write. */
+    toolsJson: text("tools_json"),
+    /** Markdown body: the subagent's instructions. */
+    instructions: text("instructions").notNull(),
+    maxSteps: integer("max_steps"),
+    createdAt: text("created_at").default("datetime('now')"),
+    updatedAt: text("updated_at").default("datetime('now')"),
+  },
+  (t) => [uniqueIndex("idx_subagents_name").on(t.name)],
+);
+
 /** BYOK provider configuration. Several rows may share the same `preset`
  *  (users reasonably hold multiple keys for the same provider). */
 export const llmProviders = sqliteTable("llm_providers", {

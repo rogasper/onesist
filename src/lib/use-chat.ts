@@ -307,6 +307,133 @@ export async function uploadAttachment(threadId: string, file: File): Promise<Up
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Agent memory (FR-H)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MemoryEntryView {
+  at: string;
+  text: string;
+}
+
+export interface MemoryFileView {
+  /** Relative for the project file, absolute for the global one (it lives
+   *  outside the workspace by design). */
+  path: string;
+  exists: boolean;
+  content: string;
+  entries: MemoryEntryView[];
+}
+
+export interface MemoryStateView {
+  project: MemoryFileView;
+  global: MemoryFileView;
+  limits: { promptChars: number; entryChars: number; entries: number };
+}
+
+/** Both memory files plus the operations the panel needs (FR-H5). Writes return
+ *  the fresh state, so the panel renders what was actually stored rather than
+ *  what it hoped was stored. */
+export function useChatMemory(projectId: string | undefined) {
+  const [memory, setMemory] = useState<MemoryStateView | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/chat/memory?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+      if (res.ok) setMemory((await res.json()) as MemoryStateView);
+    } catch {
+      /* the panel is optional context; failing to load must not break chat */
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const call = useCallback(
+    async (init: RequestInit & { url: string }) => {
+      const { url, ...rest } = init;
+      try {
+        const res = await fetch(url, { cache: "no-store", ...rest });
+        const text = await res.text();
+        const body = text ? JSON.parse(text) : null;
+        if (!res.ok) return { ok: false as const, error: body?.error ?? `HTTP ${res.status}` };
+        // Append/replace/delete all answer with the full state.
+        if (body?.project) setMemory(body as MemoryStateView);
+        return { ok: true as const };
+      } catch (err: any) {
+        return { ok: false as const, error: err?.message ?? "Gagal menyimpan." };
+      }
+    },
+    [],
+  );
+
+  const add = useCallback(
+    (scope: "project" | "global", text: string) =>
+      call({ url: `/api/chat/memory?projectId=${encodeURIComponent(projectId ?? "")}&scope=${scope}`, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) }),
+    [call, projectId],
+  );
+
+  const remove = useCallback(
+    (scope: "project" | "global", index: number) =>
+      call({ url: `/api/chat/memory?projectId=${encodeURIComponent(projectId ?? "")}&scope=${scope}&index=${index}`, method: "DELETE" }),
+    [call, projectId],
+  );
+
+  const replace = useCallback(
+    (scope: "project" | "global", content: string) =>
+      call({ url: `/api/chat/memory?projectId=${encodeURIComponent(projectId ?? "")}&scope=${scope}`, method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }) }),
+    [call, projectId],
+  );
+
+  return { memory, loading, refresh, add, remove, replace };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Skills for the `$` trigger (FR-F4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ChatSkillOption {
+  name: string;
+  /** Truncated description for the popup; the prompt gets its own capped copy. */
+  description: string;
+  /** Which layer this skill came from — `project` wins a name collision (FR-F5). */
+  source: "project" | "claude" | "opencode" | "user" | "vendor";
+  references: number;
+}
+
+/** Skills for a project, resolved by the same layered lookup the agent's system
+ *  prompt uses — so the popup cannot show a different skill than the one in
+ *  effect. */
+export function useChatSkills(projectId: string | undefined) {
+  const [skills, setSkills] = useState<ChatSkillOption[]>([]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/chat/skills?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setSkills((data.skills ?? []) as ChatSkillOption[]);
+      } catch {
+        /* the skill list is a convenience — losing it must not break the composer */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  return { skills };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Composer actions (FR-C14)
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -3,15 +3,17 @@ import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { Button } from "@cloudflare/kumo";
-import { BookOpen, Brain, Check, Globe, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Terminal, Warning, Wrench, type Icon } from "@phosphor-icons/react";
+import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Terminal, Warning, Wrench, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
 import { ArtifactPreview } from "~/components/chat/ArtifactPreview";
 import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
+import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
 import {
   uploadAttachment,
   useChatActions,
+  useChatSkills,
   useMentionFiles,
   usePendingApprovals,
   useThreadTransport,
@@ -105,6 +107,7 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
   const [attachError, setAttachError] = useState<string | null>(null);
 
   const { files: mentionFiles } = useMentionFiles(projectId);
+  const { skills } = useChatSkills(projectId);
   const { actions, projectFile } = useChatActions(projectId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -246,6 +249,8 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
         }}
       />
 
+      <MemoryPanel projectId={projectId} />
+
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-6 py-6 grid gap-6">
           {!messages.length ? <EmptyState onPick={setInput} providerReady={!noProvider} /> : null}
@@ -327,6 +332,7 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
         attachError={attachError}
         actions={actions}
         actionFile={projectFile}
+        skills={skills}
       />
     </div>
   );
@@ -407,6 +413,7 @@ type Block =
   | { kind: "reasoning"; key: string; text: string }
   | { kind: "notice"; key: string; data: any }
   | { kind: "todos"; key: string; todos: TodoItem[] }
+  | { kind: "subagent"; key: string; part: any }
   | { kind: "tools"; key: string; parts: any[] };
 
 interface TodoItem {
@@ -444,6 +451,14 @@ function groupParts(parts: any[]): Block[] {
 
   parts.forEach((part, i) => {
     if (isToolUIPart(part) || isDynamicToolUIPart(part)) {
+      // A delegation is not an ordinary step: the row says WHICH subagent ran and
+      // what came back, so the user can tell "the agent read 30 files" from "the
+      // agent asked explorer to read 30 files" (FR-G5).
+      if ((getToolName(part) || "") === "task") {
+        flush();
+        blocks.push({ kind: "subagent", key: `sub-${part?.toolCallId ?? i}`, part });
+        return;
+      }
       const todos = todosOf(part);
       if (todos) {
         // The plan stands on its own, so it ends the surrounding tool group.
@@ -530,6 +545,7 @@ function MessageBlock({
           );
         if (b.kind === "notice") return <NoticeBlock key={b.key} data={b.data} />;
         if (b.kind === "todos") return <TodoPanel key={b.key} todos={b.todos} />;
+        if (b.kind === "subagent") return <SubagentBlock key={b.key} part={b.part} approval={approvalById.get(b.part?.toolCallId)} />;
         if (b.kind === "tools") return <ToolGroup key={b.key} parts={b.parts} duration={toolDuration} approvalById={approvalById} />;
         // Answer: no box and no background — the only block read in
         // sequence, so it must not compete with the surrounding chrome.
@@ -550,6 +566,60 @@ function MessageBlock({
           {reasoningMs ? <span>· berpikir {fmtDuration(reasoningMs)}</span> : null}
           {failed ? <span className="text-amber-400">· {metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** One subagent run (FR-G5). Shown as its own row — subagent name, the question it
+ *  was given, and the summary it returned — because this is the row that explains
+ *  why the main context did NOT grow: the reading happened somewhere else. */
+function SubagentBlock({ part, approval }: { part: any; approval?: string }) {
+  const [open, setOpen] = useState(false);
+  const state = toolState(part);
+  const name = String(part?.input?.subagent ?? "subagent");
+  const prompt = String(part?.input?.prompt ?? "");
+  const output = typeof part.output === "string" ? part.output : part.output ? JSON.stringify(part.output, null, 1) : "";
+  const tint =
+    state.tone === "err"
+      ? "ring-red-400/40 bg-red-400/10"
+      : state.tone === "ok"
+        ? "ring-green-400/40 bg-green-400/10"
+        : "ring-blue-400/40 bg-blue-400/10";
+
+  return (
+    <div className={`rounded-lg ring overflow-hidden ${tint}`}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-black/5"
+      >
+        <RowIcon icon={Lightning} />
+        <span className="text-sm font-medium text-kumo-default shrink-0">Subagent</span>
+        <span className="font-mono text-[0.8125rem] text-kumo-default shrink-0">{name}</span>
+        <span className="text-sm text-kumo-subtle truncate min-w-0 flex-1">{prompt}</span>
+        <span className="text-sm text-kumo-subtle shrink-0">
+          {state.label}
+          {approval ? ` · ${approvalLabel(approval)}` : ""}
+        </span>
+        <span className="text-kumo-subtle shrink-0">{open ? "⌄" : "›"}</span>
+      </button>
+      {open ? (
+        <div className="border-t border-kumo-line/60 px-3 py-2 grid gap-2">
+          <div className="grid gap-0.5">
+            <span className="text-xs text-kumo-subtle">Yang diminta</span>
+            <p className="text-sm text-kumo-default whitespace-pre-wrap">{prompt || "(kosong)"}</p>
+          </div>
+          {output ? (
+            <div className="grid gap-0.5">
+              <span className="text-xs text-kumo-subtle">Ringkasan yang dikembalikan</span>
+              <pre className={`${MONO} text-kumo-default whitespace-pre-wrap max-h-72 overflow-y-auto`}>{output.slice(0, 6000)}</pre>
+            </div>
+          ) : null}
+          {part.errorText ? <InlineAlert>{part.errorText}</InlineAlert> : null}
+          <p className="text-xs text-kumo-subtle">
+            Subagent berjalan di konteks terpisah dan hanya bisa membaca — isi berkas yang dibacanya tidak masuk ke percakapan ini.
+          </p>
+        </div>
       ) : null}
     </div>
   );

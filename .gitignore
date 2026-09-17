@@ -22,3 +22,7 @@ docs/SIT - EHS FIF.xlsx
 # Secret HMAC untuk approval tool agent (dibuat saat runtime, per instalasi).
 # Jangan pernah masuk repo: siapa pun yang memegangnya bisa memalsukan approval.
 agent-approval.secret
+
+# Memory global milik user (dibuat saat runtime, di sebelah data.db).
+# Di mode dev letaknya di root repo — catatan pribadi, jangan ikut ter-commit.
+memory.md

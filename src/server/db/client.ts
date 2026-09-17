@@ -89,6 +89,12 @@ const RUNTIME_TABLES = [
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_thread_files_thread_path ON chat_thread_files (thread_id, path)",
   "CREATE INDEX IF NOT EXISTS idx_chat_runs_thread ON chat_runs (thread_id)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_thread_reads_thread_path ON chat_thread_reads (thread_id, path)",
+  `CREATE TABLE IF NOT EXISTS subagents (
+    id text PRIMARY KEY NOT NULL, name text NOT NULL, description text NOT NULL,
+    tools_json text, instructions text NOT NULL, max_steps integer,
+    created_at text DEFAULT (datetime('now')), updated_at text DEFAULT (datetime('now'))
+  )`,
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_subagents_name ON subagents (name)",
 ];
 
 

@@ -20,6 +20,8 @@ import { z } from "zod";
 import { tool, type ToolSet } from "./ai";
 import { IGNORED_DIRS, TEXT_EXTS, detectRoute, readFile, searchProjectFiles } from "~/lib/file-router";
 import { diffStat, resolveInRoot, type DiffStat } from "./paths";
+import { readSkill } from "./skills";
+import { appendMemory } from "./memory";
 import type { ChangeSource, FileOp } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,6 +51,11 @@ export interface ToolContext {
   threadId: string;
   /** Called on every successful write — fills the change ledger (FR-C4). */
   onFileChange?: (change: FileChange) => void;
+  /** Runs a subagent in a separate context (FR-G3). Wired by `agent.ts`, which
+   *  owns the model and the concurrency limit. */
+  subagentRunner?: (input: { name: string; prompt: string }) => Promise<
+    { ok: true; text: string; steps: number; toolsUsed: string[] } | { ok: false; error: string }
+  >;
   /** Called on every successful `read_file`, with the hash the agent saw.
    *  This is what makes "the file changed under the agent" detectable (FR-C12). */
   onFileRead?: (info: { path: string; hash: string }) => void;
@@ -67,6 +74,8 @@ const LIMITS = {
   bashBytes: 8192,
   bashTimeoutMs: 120_000,
   fetchChars: 40_000,
+  skillChars: 200_000,
+  subagentChars: 12_000,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -475,6 +484,74 @@ export function buildTools(ctx: ToolContext): ToolSet {
     },
   });
 
+  // Memory is a WRITE that shapes every following turn's system prompt, so it
+  // goes through the approval flow like any other write (FR-E1) and is absent in
+  // readonly mode. That is deliberate: "remember this" quietly editing future
+  // behaviour without the user seeing it would be the wrong default.
+  const memoryWriteTool = includeMutating
+    ? tool({
+        description:
+          "Simpan satu catatan yang harus diingat di percakapan berikutnya — mis. konvensi format, keputusan project, atau preferensi user. " +
+          "Pakai HANYA ketika user meminta sesuatu diingat, atau ketika sebuah keputusan jelas berlaku untuk seterusnya. " +
+          "`scope: project` untuk konvensi project ini (ikut ter-commit), `scope: global` untuk preferensi user yang berlaku di semua project.",
+        inputSchema: z.object({
+          scope: z.enum(["project", "global"]).describe("project = konvensi project ini · global = preferensi user"),
+          text: z.string().describe("Satu catatan ringkas dan mandiri; boleh beberapa baris"),
+        }),
+        execute: async ({ scope, text }) => {
+          const entry = appendMemory(ctx.root, scope, text);
+          return `Catatan disimpan (${scope}, ${entry.at}):\n${entry.text}\n\nCatatan ini akan ikut ke system prompt pada turn berikutnya.`;
+        },
+      })
+    : null;
+
+  const skillReadTool = tool({
+    description:
+      "Baca isi sebuah skill (SKILL.md) beserta daftar berkas referensinya, atau satu berkas referensi tertentu. " +
+      "Pakai ini SEBELUM mengerjakan tugas yang formatnya diatur skill — mis. analisa FSD, pembuatan ERD, spec API, task, RTM, atau SIT. " +
+      "Panggil tanpa `file` untuk membaca SKILL.md; sebutkan `file` (mis. references/erd_format.md) untuk membaca bagian tertentu saja.",
+    inputSchema: z.object({
+      name: z.string().describe("Nama skill, mis. fsd-analyzer"),
+      file: z.string().optional().describe("Berkas di dalam skill, mis. references/erd_format.md"),
+    }),
+    execute: async ({ name, file }) => {
+      const result = readSkill(ctx.root, name, file);
+      if (!result.ok) throw new Error(result.error);
+      const heading = result.isFile
+        ? `${result.skill.name} — ${file}`
+        : `${result.skill.name} — SKILL.md`;
+      const listing = result.isFile
+        ? ""
+        : `\n\nBerkas referensi yang tersedia:\n${result.skill.files.length ? result.skill.files.map((f) => `- ${f}`).join("\n") : "(tidak ada)"}\n\n` +
+          `Baca bagian yang relevan lewat skill_read dengan menyebutkan \`file\`.`;
+      return truncate(`${heading}\n\n${result.content}${listing}`, LIMITS.skillChars);
+    },
+  });
+
+  // Delegation (FR-G3). NOT mutating: whatever the subagent does is read-only, by
+  // construction and by the SDK's own rule that subagents cannot ask for approval.
+  const taskTool = tool({
+    description:
+      "Jalankan subagent dengan konteks terpisah untuk satu pertanyaan sempit, lalu kembalikan ringkasannya. " +
+      "Pakai ini kalau jawabannya perlu membaca banyak berkas: konteksmu tidak ikut membengkak. " +
+      "Subagent hanya bisa membaca — tidak menulis, tidak menjalankan shell, dan tidak bisa bertanya ke user. " +
+      "Beberapa panggilan `task` dalam satu langkah boleh dijalankan bersamaan.",
+    inputSchema: z.object({
+      subagent: z.string().describe("Nama subagent, mis. explorer"),
+      prompt: z.string().describe("Pertanyaan atau tugas untuk subagent itu, sedetail mungkin"),
+    }),
+    execute: async ({ subagent, prompt }) => {
+      if (!ctx.subagentRunner) throw new Error("Subagent tidak tersedia pada run ini.");
+      const result = await ctx.subagentRunner({ name: subagent, prompt });
+      if (!result.ok) throw new Error(result.error);
+      const ringkas = result.text || "(subagent tidak mengembalikan teks)";
+      const meta = `
+
+— ${subagent}: ${result.steps} langkah${result.toolsUsed.length ? `, tool: ${result.toolsUsed.join(", ")}` : ""}`;
+      return truncate(`${ringkas}${meta}`, LIMITS.subagentChars);
+    },
+  });
+
   const tools: ToolSet = {
     read_file: readFileTool,
     list_dir: listDirTool,
@@ -482,7 +559,10 @@ export function buildTools(ctx: ToolContext): ToolSet {
     grep: grepTool,
     web_fetch: webFetchTool,
     todo_write: todoTool,
+    skill_read: skillReadTool,
+    task: taskTool,
   };
+  if (memoryWriteTool) tools.memory_write = memoryWriteTool;
   if (writeFileTool) tools.write_file = writeFileTool;
   if (editFileTool) tools.edit_file = editFileTool;
   if (bashTool) tools.bash = bashTool;
@@ -491,4 +571,4 @@ export function buildTools(ctx: ToolContext): ToolSet {
 
 /** Names of state-changing tools — used for permission gating (FR-E) and to
  *  make sure subagents never get them (FR-G6). */
-export const MUTATING_TOOLS = new Set(["write_file", "edit_file", "bash"]);
+export const MUTATING_TOOLS = new Set(["write_file", "edit_file", "bash", "memory_write"]);

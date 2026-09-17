@@ -20,6 +20,8 @@ import { buildLanguageModel, resolveMaxOutputTokens, type ProviderRow } from "./
 import { pruneForStep, resolveContextWindow, shouldCompact, summarizeOldest, type CompactionDecision } from "./context";
 import { awaitApproval, createRun, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun } from "./run-registry";
 import { MUTATING_TOOLS, buildTools, type FileChange, type TodoItem } from "./tools";
+import { SUBAGENT_LIMITS, findSubagent, withSubagentSlot, type SubagentInfo } from "./subagents";
+import { getAppSubagents } from "./store";
 import { isProtectedPath, type PermissionMode, type ThreadMode } from "./types";
 import { newId } from "./store";
 
@@ -73,6 +75,73 @@ function touchesProtectedPath(name: string, input: any): { protected: boolean; p
   return { protected: false, path: p };
 }
 
+/**
+ * Runs a subagent (FR-G3): the SAME loop, a separate context, a read-only tool
+ * whitelist, and fewer steps.
+ *
+ * "Separate context" is the whole point — the subagent gets its own instructions
+ * and its own prompt, never the parent's conversation, so the files it reads do
+ * not enter the parent's window. What comes back is a bounded body of text.
+ *
+ * There is no `toolApproval` here and there cannot be one (the AI SDK forbids
+ * approval inside a subagent), which is exactly why the whitelist excludes every
+ * state-changing tool.
+ */
+async function runSubagent(input: {
+  projectId: string;
+  root: string;
+  threadId: string;
+  abortSignal: AbortSignal;
+  model: LanguageModel;
+  maxOutputTokens: number;
+  name: string;
+  prompt: string;
+}): Promise<{ ok: true; text: string; steps: number; toolsUsed: string[] } | { ok: false; error: string }> {
+  const subagent = findSubagent(input.root, input.name, getAppSubagents());
+  if (!subagent) {
+    return { ok: false, error: `Subagent "${input.name}" tidak ditemukan. Lihat daftar subagent yang tersedia di system prompt.` };
+  }
+
+  // includeMutating: false already removes every write tool; intersecting with
+  // the whitelist narrows it to what this subagent declared.
+  const allTools = buildTools({
+    projectId: input.projectId,
+    root: input.root,
+    threadId: input.threadId,
+    includeMutating: false,
+  });
+  const tools: ToolSet = {};
+  for (const name of subagent.tools) {
+    if (allTools[name]) tools[name] = allTools[name];
+  }
+
+  const toolsUsed = new Set<string>();
+  const agent = new ToolLoopAgent({
+    model: input.model,
+    instructions: `${subagent.instructions}
+
+You are ${subagent.name}, running as a read-only subagent. You cannot change anything: you have no write tool, no shell, and no way to ask the user a question. Report what you find and stop.`,
+    allowSystemInMessages: false,
+    tools,
+    stopWhen: isStepCount(subagent.maxSteps),
+    onStepFinish: (event: any) => {
+      for (const call of event?.toolCalls ?? []) if (call?.toolName) toolsUsed.add(call.toolName);
+    },
+  });
+
+  try {
+    const result = await agent.generate({ prompt: input.prompt, maxOutputTokens: input.maxOutputTokens, abortSignal: input.abortSignal } as any);
+    return {
+      ok: true,
+      text: String(result.text ?? "").trim(),
+      steps: result.steps?.length ?? 0,
+      toolsUsed: [...toolsUsed],
+    };
+  } catch (err: any) {
+    return { ok: false, error: `Subagent ${subagent.name} gagal: ${err?.message ?? err}` };
+  }
+}
+
 export async function startTurn(input: TurnInput): Promise<AgentStream> {
   const run = createRun({ runId: input.runId, threadId: input.threadId, projectId: input.projectId });
 
@@ -89,6 +158,20 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
     includeMutating,
     onFileChange: input.onFileChange,
     onFileRead: input.onFileRead,
+    // Bounded concurrency (FR-G4): `task` calls that start together queue here.
+    subagentRunner: ({ name, prompt }) =>
+      withSubagentSlot(() =>
+        runSubagent({
+          projectId: input.projectId,
+          root: input.root,
+          threadId: input.threadId,
+          abortSignal: run.abort.signal,
+          model,
+          maxOutputTokens,
+          name,
+          prompt,
+        }),
+      ),
     onTodos: input.onTodos,
   });
 

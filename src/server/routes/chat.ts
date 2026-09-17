@@ -43,6 +43,12 @@ import {
   newId,
   recordThreadRead,
   recordToolCall,
+  getAppSubagents,
+  getAppSubagent,
+  createAppSubagent,
+  updateAppSubagent,
+  deleteAppSubagent,
+  getAppSubagentByName,
   setThreadSummary,
   toUIMessages,
   updateThread,
@@ -51,6 +57,17 @@ import {
 import { createStreamTiming, tapStream } from "~/server/agent/stream-timing";
 import { getApprovalDecision } from "~/server/agent/run-registry";
 import { resolveChatActions } from "~/server/agent/actions";
+import { resolveSkills, skillSummaries } from "~/server/agent/skills";
+import { SUBAGENT_LIMITS, SUBAGENT_TOOLS, parseSubagent, resolveSubagents, subagentSummaries } from "~/server/agent/subagents";
+import {
+  MEMORY_LIMITS,
+  appendMemory,
+  composeMemoryForPrompt,
+  deleteMemoryEntry,
+  readMemory,
+  writeMemoryContent,
+  type MemoryScope,
+} from "~/server/agent/memory";
 import { getSetting, normalizeAgentMaxSteps } from "~/server/agent/settings";
 import type { FileChange } from "~/server/agent/tools";
 import { normalizeMaxSteps } from "~/server/agent/types";
@@ -268,6 +285,16 @@ router.post("chat/threads/:id/messages", async (ctx) => {
     permissionMode: current.permissionMode as any,
     inventory: scanInventory(root),
     summary: current.summary,
+    // Progressive disclosure (FR-F2): the prompt carries name + description only.
+    // The body is fetched with `skill_read` when the task actually needs it.
+    skills: skillSummaries(resolveSkills(root)),
+    // Both scopes, project last (FR-H1..H3): the more specific one should be the
+    // final thing the model reads when the two disagree.
+    memory: composeMemoryForPrompt(root),
+    // Subagents are advertised by name + description only; the callable list is
+    // resolved again when `task` runs, so a definition added mid-conversation is
+    // usable without a restart.
+    subagents: subagentSummaries(resolveSubagents(root, getAppSubagents()).subagents),
   });
 
   const runId = makeRunId();
@@ -556,6 +583,161 @@ router.post("chat/runs/:id/approve", async (ctx) => {
 });
 
 router.get("chat/runs/:id", async (ctx) => json({ approvals: listPendingApprovals(ctx.params.id) }));
+
+// Agent memory for a project (FR-H1..H5). Read and written by the Memory panel;
+// injected into every turn's system prompt by the messages route.
+router.get("chat/memory", async (ctx) => {
+  const projectId = ctx.query.get("projectId");
+  if (!projectId) return json({ error: "projectId wajib." }, 400);
+  const root = projectRootOf(projectId);
+  if (!root) return json({ error: "Project tidak ditemukan atau belum punya root path." }, 404);
+  const state = readMemory(root);
+  return json({
+    // The project path is shown relative so the user can find it in the workspace;
+    // the global file deliberately lives outside the project.
+    project: { ...state.project, path: ".agents/ONESIST.md" },
+    global: state.global,
+    limits: MEMORY_LIMITS,
+  });
+});
+
+/** Shared validation for the three write shapes below. */
+function memoryTarget(ctx: any): { root: string; scope: MemoryScope } | { error: string; status: number } {
+  const projectId = ctx.query.get("projectId");
+  if (!projectId) return { error: "projectId wajib.", status: 400 };
+  const root = projectRootOf(projectId);
+  if (!root) return { error: "Project tidak ditemukan atau belum punya root path.", status: 404 };
+  const scope = ctx.query.get("scope");
+  if (scope !== "project" && scope !== "global") return { error: 'scope harus "project" atau "global".', status: 400 };
+  return { root, scope };
+}
+
+router.post("chat/memory", async (ctx) => {
+  const target = memoryTarget(ctx);
+  if ("error" in target) return json({ error: target.error }, target.status);
+  const body = await ctx.body();
+  const text = typeof body.text === "string" ? body.text : "";
+  if (!text.trim()) return json({ error: "text wajib." }, 400);
+  try {
+    const entry = appendMemory(target.root, target.scope, text);
+    return json({ entry, ...readMemory(target.root) }, 201);
+  } catch (err: any) {
+    return json({ error: err?.message ?? "Gagal menyimpan catatan." }, 400);
+  }
+});
+
+router.put("chat/memory", async (ctx) => {
+  const target = memoryTarget(ctx);
+  if ("error" in target) return json({ error: target.error }, target.status);
+  const body = await ctx.body();
+  if (typeof body.content !== "string") return json({ error: "content wajib." }, 400);
+  writeMemoryContent(target.root, target.scope, body.content);
+  return json(readMemory(target.root));
+});
+
+router.delete("chat/memory", async (ctx) => {
+  const target = memoryTarget(ctx);
+  if ("error" in target) return json({ error: target.error }, target.status);
+  const removed = deleteMemoryEntry(target.root, target.scope, Number(ctx.query.get("index")));
+  if (!removed) return json({ error: "Entri tidak ditemukan." }, 404);
+  return json(readMemory(target.root));
+});
+
+// Subagents for a project (FR-G1, FR-G2, FR-G7). The list is the resolved view:
+// project files beat app rows beat built-ins, and a definition that asks for a
+// mutating tool is returned in `rejected` with the reason instead of being
+// silently usable.
+router.get("chat/subagents", async (ctx) => {
+  const projectId = ctx.query.get("projectId");
+  if (!projectId) return json({ error: "projectId wajib." }, 400);
+  const root = projectRootOf(projectId);
+  if (!root) return json({ error: "Project tidak ditemukan atau belum punya root path." }, 404);
+  const resolved = resolveSubagents(root, getAppSubagents());
+  return json({
+    subagents: resolved.subagents.map((s) => ({
+      name: s.name,
+      description: s.description,
+      tools: s.tools,
+      source: s.source,
+      maxSteps: s.maxSteps,
+      /** Only app rows can be edited from the UI; the others are files/built-ins. */
+      id: s.source === "app" ? getAppSubagents().find((r) => r.name === s.name)?.id ?? null : null,
+    })),
+    rejected: resolved.rejected,
+    allowedTools: SUBAGENT_TOOLS,
+    limits: { maxSteps: SUBAGENT_LIMITS.maxSteps, concurrency: SUBAGENT_LIMITS.concurrency },
+  });
+});
+
+/** Shared validation for writes: the definition must survive the same parse the
+ *  runtime uses, so the UI cannot store something `task` would refuse. */
+function validateSubagentBody(body: any): { ok: true; value: { name: string; description: string; tools: string[]; instructions: string; maxSteps: number | null } } | { ok: false; error: string } {
+  const name = String(body.name ?? "").trim();
+  const description = String(body.description ?? "").trim();
+  const instructions = String(body.instructions ?? "").trim();
+  const tools = Array.isArray(body.tools) ? body.tools.map(String) : [];
+  if (!name || !description || !instructions) return { ok: false, error: "name, description, dan instructions wajib." };
+  const maxSteps = body.maxSteps == null || body.maxSteps === "" ? null : Number(body.maxSteps);
+  if (maxSteps !== null && (!Number.isFinite(maxSteps) || maxSteps < 1 || maxSteps > 30)) {
+    return { ok: false, error: "maxSteps harus antara 1 dan 30." };
+  }
+  return { ok: true, value: { name, description, tools, instructions, maxSteps } };
+}
+
+router.post("chat/subagents", async (ctx) => {
+  const body = await ctx.body();
+  const valid = validateSubagentBody(body);
+  if (!valid.ok) return json({ error: valid.error }, 400);
+  if (getAppSubagentByName(valid.value.name)) return json({ error: `Subagent "${valid.value.name}" sudah ada.` }, 409);
+  // Validate the whole definition (not just the fields) so a mutating tool is
+  // refused here rather than discovered later by a failing `task` call (FR-G7).
+  const parsed = parseSubagent(
+    `---\nname: ${valid.value.name}\ndescription: ${valid.value.description}\ntools: ${valid.value.tools.join(", ")}\n---\n\n${valid.value.instructions}`,
+  );
+  if (!parsed.ok) return json({ error: parsed.reason }, 400);
+  const row = createAppSubagent(valid.value);
+  return json({ subagent: row }, 201);
+});
+
+router.put("chat/subagents/:id", async (ctx) => {
+  const body = await ctx.body();
+  const existing = getAppSubagent(ctx.params.id);
+  if (!existing) return json({ error: "Subagent tidak ditemukan." }, 404);
+  const valid = validateSubagentBody({ ...existing, ...body });
+  if (!valid.ok) return json({ error: valid.error }, 400);
+  const duplicate = getAppSubagentByName(valid.value.name);
+  if (duplicate && duplicate.id !== existing.id) return json({ error: `Subagent "${valid.value.name}" sudah ada.` }, 409);
+  const parsed = parseSubagent(
+    `---\nname: ${valid.value.name}\ndescription: ${valid.value.description}\ntools: ${valid.value.tools.join(", ")}\n---\n\n${valid.value.instructions}`,
+  );
+  if (!parsed.ok) return json({ error: parsed.reason }, 400);
+  return json({ subagent: updateAppSubagent(existing.id, valid.value) });
+});
+
+router.delete("chat/subagents/:id", async (ctx) => {
+  const removed = deleteAppSubagent(ctx.params.id);
+  return removed ? json({ removed: true }) : json({ error: "Subagent tidak ditemukan." }, 404);
+});
+
+// Skills available to a project (FR-F1, FR-F4): the same layered resolution the
+// agent's system prompt uses, so the `$` popup and the prompt can never disagree
+// about which skill is in effect — including which layer won a name collision.
+router.get("chat/skills", async (ctx) => {
+  const projectId = ctx.query.get("projectId");
+  if (!projectId) return json({ error: "projectId wajib." }, 400);
+  const root = projectRootOf(projectId);
+  if (!root) return json({ error: "Project tidak ditemukan atau belum punya root path." }, 404);
+  const skills = resolveSkills(root);
+  return json({
+    skills: skills.map((s) => ({
+      name: s.name,
+      // Truncated for the popup; the agent gets its own capped copy in the prompt.
+      description: skillSummaries([s])[0].description,
+      source: s.source,
+      references: s.files.length,
+    })),
+  });
+});
 
 // Composer actions for a project (FR-C14): the built-in list merged with
 // `<project>/.agents/onesist-actions.json`. Resolution happens on the server so

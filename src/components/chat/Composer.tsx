@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@cloudflare/kumo";
 import { ArrowUp, CaretDown, Check, Info, ListChecks, Paperclip, ShieldCheck, Stop, X } from "@phosphor-icons/react";
-import { MentionTextarea, type MentionFile } from "~/components/docs/MentionTextarea";
+import { MentionTextarea, type MentionFile, type MentionTrigger } from "~/components/docs/MentionTextarea";
 import { ModelPicker } from "~/components/chat/ModelPicker";
-import type { ChatProviderOption, ProjectActionFile, ResolvedChatAction } from "~/lib/use-chat";
+import type { ChatProviderOption, ChatSkillOption, ProjectActionFile, ResolvedChatAction } from "~/lib/use-chat";
 
 /**
  * Chat composer (FR-B, FR-C10, FR-C11, ADR-001 D8).
@@ -74,6 +74,8 @@ interface Props {
   /** Ready-made jobs: built-ins merged with the project's own file (FR-C14). */
   actions: ResolvedChatAction[];
   actionFile: ProjectActionFile;
+  /** Skills for the `$` trigger (FR-F4). */
+  skills: ChatSkillOption[];
 }
 
 export function Composer(props: Props) {
@@ -85,6 +87,7 @@ export function Composer(props: Props) {
     onStop,
     disabled,
     mentions,
+    skills,
     providerReady,
     providers,
     providerId,
@@ -129,6 +132,30 @@ export function Composer(props: Props) {
     [],
   );
   const permLabel = permOptions.find((o) => o.value === permissionMode)?.label ?? "Izin";
+
+  /** Two triggers, one field: `@` for project files, `$` for skills (FR-F4).
+   *  Skills are listed by their resolved layer, so the popup shows exactly the
+   *  version the agent's system prompt describes — including which layer won. */
+  const mentionTriggers = useMemo<MentionTrigger[]>(
+    () => [
+      {
+        char: "@",
+        label: "Berkas project",
+        items: mentions.map((f) => ({ name: f.name, path: f.path })),
+      },
+      {
+        char: "$",
+        label: "Skill · menentukan format artefak",
+        items: skills.map((s) => ({
+          name: s.name,
+          path: s.name,
+          hint: s.description,
+          tag: skillSourceLabel(s.source),
+        })),
+      },
+    ],
+    [mentions, skills],
+  );
 
   return (
     <div className="border-t border-kumo-line shrink-0">
@@ -175,12 +202,14 @@ export function Composer(props: Props) {
             value={input}
             onChange={onInput}
             files={mentions}
+            triggers={mentionTriggers}
             rows={2}
             disabled={disabled}
             onSubmit={onSubmit}
             onFilesDropped={onAttach}
             autoGrow
-            placeholder={streaming ? "Agent sedang bekerja…" : "Tulis instruksi untuk agent, atau @ untuk menyebut berkas"}
+            maxHeightPx={176}
+            placeholder={streaming ? "Agent sedang bekerja…" : "Tulis instruksi untuk agent, @ untuk menyebut berkas, $ untuk skill"}
             className="block w-full resize-none overflow-y-auto min-h-[52px] max-h-44 text-sm leading-6 px-3.5 pt-2.5 pb-1.5 bg-transparent focus:outline-none text-kumo-default"
           />
 
@@ -324,7 +353,7 @@ export function Composer(props: Props) {
         </div>
 
         <p className="mt-1.5 text-xs text-kumo-subtle">
-          <span className="font-mono">@</span> menyebut berkas project · lampirkan atau seret berkas ke sini untuk dibaca agent
+          <span className="font-mono">@</span> berkas project · <span className="font-mono">$</span> skill · lampirkan atau seret berkas ke sini untuk dibaca agent
         </p>
       </div>
     </div>
@@ -359,4 +388,21 @@ function Segmented({
       ))}
     </div>
   );
+}
+
+/** Where a skill came from, in words the user can act on. The distinction
+ *  matters: `project` skills are that repository's own conventions, while the
+ *  others were added outside the project — including skills installed by a tool
+ *  like `npx skills add` into a global folder. */
+function skillSourceLabel(source: ChatSkillOption["source"]): string {
+  switch (source) {
+    case "project":
+      return "project";
+    case "vendor":
+      return "bawaan";
+    case "user":
+      return "global";
+    default:
+      return source;
+  }
 }

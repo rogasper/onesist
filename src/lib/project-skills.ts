@@ -35,7 +35,7 @@ function skillDir(projectRoot: string, name: string): string {
   return path.join(projectRoot, ".agents", "skills", name);
 }
 
-function vendorDir(name: string): string {
+export function vendorDir(name: string): string {
   // Desktop sidecar points here at the appData copy (see SA_VENDOR_SKILLS_DIR).
   const fromEnv = process.env.SA_VENDOR_SKILLS_DIR
     ? path.resolve(process.env.SA_VENDOR_SKILLS_DIR, name)

@@ -201,3 +201,15 @@ function renderHunks(ops: Op[]): string {
   }
   return out.join("\n");
 }
+
+/**
+ * Absolute path of the SQLite database.
+ *
+ * The desktop sidecar passes `SA_DB_PATH` (an appData path); web dev falls back
+ * to the repo root. Anything that needs "beside the database" — the approval
+ * secret, the global memory file — resolves through here so the rule lives in
+ * one place instead of being re-derived per feature.
+ */
+export function dbFilePath(): string {
+  return process.env.SA_DB_PATH ? path.resolve(process.env.SA_DB_PATH) : path.resolve(process.cwd(), "data.db");
+}

@@ -71,6 +71,13 @@
       "when": 1789607744061,
       "tag": "0009_large_dagger",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1789614578539,
+      "tag": "0010_clammy_lady_vermin",
+      "breakpoints": true
     }
   ]
 }
