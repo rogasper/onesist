@@ -46,11 +46,12 @@ router.get("events", async (ctx) => {
         handlers[event] = handler;
       }
       send("connected", { message: "SSE connected" });
-      // 5 s, not 15 s: the HTTP server (Bun.serve) closes a connection that has
-      // carried no bytes for its 10 s idle window, and a keepalive slower than
-      // that means every stream dies and silently reconnects — losing whatever
-      // `file:changed` fired in the gap (measured 2026-09-17: a 15 s keepalive
-      // connection died at 12 s).
+      // Must stay well under Bun.serve's 10 s idle window: a stream that carries
+      // no bytes for that long is closed by the server, the client's EventSource
+      // silently reconnects, and every reconnect replays the page's change handler
+      // (the ERD canvas re-reads its file and re-lays out on each one — measured
+      // 2026-09-17: a 15 s keepalive died at 12 s, so the diagram refreshed itself
+      // every ~12 s), losing whatever `file:changed` fired in the gap.
       const keepAlive = setInterval(() => send("keepalive", { ts: Date.now() }), 5000);
       cleanup = () => {
         if (isCleanedUp) return;

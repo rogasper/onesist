@@ -29,6 +29,16 @@ export const REQUIRED_SKILLS: SkillDef[] = [
     source: "https://github.com/julianobarbosa/claude-code-skills",
     dir: "markitdown",
   },
+  {
+    name: "diagram-svg",
+    source: "https://github.com/rogasper/onesist",
+    dir: "diagram-svg",
+  },
+  {
+    name: "query-writer",
+    source: "https://github.com/rogasper/onesist",
+    dir: "query-writer",
+  },
 ];
 
 function skillDir(projectRoot: string, name: string): string {

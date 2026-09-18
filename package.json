@@ -1,6 +1,6 @@
 {
   "name": "sa-dashboard",
-  "version": "0.1.41",
+  "version": "0.1.44",
   "description": "System Analyst Dashboard — ERD, API Spec, Wiki, FSD Analysis, Task Management",
   "license": "MIT",
   "private": true,

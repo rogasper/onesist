@@ -362,17 +362,22 @@ fn ensure_server_dir(app_data: &Path, resources: &Path) -> std::io::Result<PathB
 /// on first run so `SA_VENDOR_SKILLS_DIR` has real files to copy into projects.
 fn ensure_skills_dir(app_data: &Path, resources: &Path) -> std::io::Result<PathBuf> {
     let skills_dir = app_data.join("vendor-skills");
-    if !skills_dir.join("fsd-analyzer").join("SKILL.md").exists() {
-        if skills_dir.exists() {
-            fs::remove_dir_all(&skills_dir)?;
-        }
-        fs::create_dir_all(&skills_dir)?;
-        let src = resources.join("vendor-skills");
-        if src.exists() {
-            copy_dir_recursive(&src, &skills_dir)?;
-        } else {
-            eprintln!("[sidecar] resources/vendor-skills not found at {}", src.display());
-        }
+    // Refresh on EVERY launch, exactly like ensure_server_dir does for web assets.
+    // The old guard ("copy only while fsd-analyzer/SKILL.md is missing") made this a
+    // once-per-install operation: after the very first launch, a later release that
+    // ADDED a vendored skill (diagram-svg, query-writer) never delivered it to the
+    // appData copy. New projects then failed to install those skills — the banner
+    // reported "Vendored skill missing: vendor/skills/<name>/SKILL.md" and the
+    // project could not get past skill setup.
+    if skills_dir.exists() {
+        fs::remove_dir_all(&skills_dir)?;
+    }
+    fs::create_dir_all(&skills_dir)?;
+    let src = resources.join("vendor-skills");
+    if src.exists() {
+        copy_dir_recursive(&src, &skills_dir)?;
+    } else {
+        eprintln!("[sidecar] resources/vendor-skills not found at {}", src.display());
     }
     Ok(skills_dir)
 }

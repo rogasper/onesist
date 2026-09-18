@@ -20,7 +20,7 @@ flowchart TD
 
 ## Tahap 1 — Generate Technical Documentation
 
-Template tersedia di `templates/technical-documentation.md` (root project). Strukturnya: Cover → Approvals → Introduction (Purpose, Background, Objectives, References, Version History) → Project Scope (In/Out) → Effort Estimation → System Overview (diagram mermaid) → Requirement Detail (per FD: FE spec + BE spec + endpoint) → Lampiran ERD (diagram mermaid) → Data Specification.
+Template tersedia di `templates/technical-documentation.md` (root project). Strukturnya: Cover → Approvals → Introduction (Purpose, Background, Objectives, References, Version History) → Project Scope (In/Out) → Effort Estimation → System Overview (diagram mermaid **atau** ```diagram-svg/```svg premium) → Requirement Detail (per FD: FE spec + BE spec + endpoint) → Lampiran ERD (diagram mermaid **atau** ```diagram-svg/```svg) → Data Specification. Fence ```diagram-svg {"type":"pipeline"}``` / ```svg <svg>…``` direkomendasikan untuk SRS yang dikirim ke klien (vector di preview, rasterize tajam di DOCX via `src/lib/diagram-svg.ts` + `src/lib/docx-export.ts`); mermaid untuk sketch internal.
 
 ```
 Kamu adalah Senior System Analyst. Gunakan skill fsd-analyzer.
@@ -50,10 +50,10 @@ Ikuti template di templates/technical-documentation.md:
   - Satu sub-bagian per endpoint: ##### METHOD /path + tabel 2 kolom
     (Field | Value) berisi Type, Status, Description, Endpoint, Method,
     Request, Response, Table Related (+ Note/Validation/Logic jika perlu)
-- System Overview & Lampiran ERD: ganti blok placeholder mermaid dengan
-  diagram asli (flowchart bisnis + erDiagram dari tabel final).
-- Effort Estimation: turunkan dari story points di output/task, per modul/fase,
-  dinyatakan dalam person-days/weeks.
+ - System Overview & Lampiran ERD: ganti blok placeholder mermaid dengan
+   diagram asli. Untuk SRS klien, **gunakan ```diagram-svg {"type":"pipeline"}``` (FSD→Delivery) atau ```svg``` raw premium** — preview vector di `MarkdownViewer` (`src/components/diagram/DiagramSvgBlock.tsx`) dan export DOCX rasterize ke PNG tajam. Alternatif: flowchart bisnis + erDiagram mermaid untuk internal.
+ - Effort Estimation: turunkan dari story points di output/task, per modul/fase,
+   dinyatakan dalam person-days/weeks.
 
 Tulis hasil ke output/td/td_<timestamp>.md.
 Gunakan bahasa Indonesia untuk deskripsi, Inggris untuk istilah teknis.
@@ -74,7 +74,7 @@ Review di tab **Docs** (preview kiri) dan/atau baca file langsung. Periksa:
 1. **Metadata & cover** — nama project, customer, versi, tanggal benar.
 2. **Kelengkapan section** — semua section template terisi (yang tidak relevan ditandai N/A, bukan dihapus).
 3. **Requirement Detail** — setiap FD muncul terpisah dengan FE + BE spec + endpoint yang konsisten dengan Spec API.
-4. **Diagram** — System Overview (flowchart) dan Lampiran ERD (erDiagram) valid dan sesuai.
+4. **Diagram** — System Overview (flowchart) dan Lampiran ERD (erDiagram) valid dan sesuai. Untuk SRS klien, cek ```diagram-svg/```svg render vector dan DOCX tidak pecah (jangan pakai mermaid HTML labels untuk entrega klien).
 5. **Effort Estimation** — konsisten dengan story points / timeline di task.
 
 ### Revisi
@@ -95,7 +95,7 @@ Regenerate sampai:
 File hasil adalah Markdown biasa. Opsi distribusi:
 
 - **Buka & salin** dari tab Docs (atau editor apa pun) ke Confluence/Google Docs.
-- **Export DOCX** — tersedia di UI (tombol ekspor), tapi **eksperimental**; alternatif: gunakan tool konversi markdown→docx (mis. Pandoc: `pandoc output/td/td_x.md -o td.docx`) jika tombol tidak berfungsi.
+- **Export DOCX** — tombol **Export DOCX** di tab Docs kini menangani `mermaid` **dan** ```diagram-svg/```svg premium (rasterize canvas → PNG via `src/routes/projects.$id.docs.tsx` + `src/lib/diagram-svg.ts` → `src/lib/docx-export.ts`). Alternatif tetap: Pandoc `pandoc output/td/td_x.md -o td.docx` (tapi DOCX native lebih tajam untuk diagram vector).
 
 ---
 
@@ -105,9 +105,9 @@ File hasil adalah Markdown biasa. Opsi distribusi:
 - [ ] Metadata lengkap (customer, project, versi, author)
 - [ ] `output/td/td_<timestamp>.md` dibuat mengikuti template
 - [ ] Semua section terisi; placeholder terganti
-- [ ] Diagram mermaid valid (System Overview + Lampiran ERD)
+- [ ] Diagram valid (mermaid untuk internal, ```diagram-svg/```svg premium untuk klien — cek preview vector & DOCX)
 - [ ] Effort Estimation konsisten dengan task
-- [ ] TD direview & final
+- [ ] TD direview & final (prompt lihat [08 — Prompt Library](08-prompt-library.md) P9 + P12 untuk diagram premium)
 
 ---
 

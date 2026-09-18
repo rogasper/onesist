@@ -12,7 +12,7 @@ A short guide to start using Onesist with the agent-CLI approach.
 4. Fill in **Project Name** and choose a **Default Agent CLI** (opencode recommended).
 5. Click **Open Project**. The app will:
    - create the project in the database,
-   - check / install the **`fsd-analyzer`** and **`markitdown`** skills into `.agents/skills/`,
+   - check / install the **`fsd-analyzer`**, **`markitdown`**, **`diagram-svg`**, and **`query-writer`** skills into `.agents/skills/`,
    - take you to the project page.
 
 > If a red banner "Project skills failed to install" appears — click **Retry install**. Without these skills the agent cannot produce SA artifacts.
@@ -21,7 +21,7 @@ A short guide to start using Onesist with the agent-CLI approach.
 flowchart LR
   A[Projects page] -->|Open Project| B[Pick project root]
   B -->|name + agent| C[Open Project]
-  C -->|auto-install skills| D[.agents/skills/ fsd-analyzer + markitdown]
+  C -->|auto-install skills| D[.agents/skills/ 4 skills: fsd-analyzer + markitdown + diagram-svg + query-writer]
   D --> E[Proceed to FSD tab / Terminal]
 ```
 
@@ -46,10 +46,10 @@ And the **Terminal** button at the top right of the header → opens the agent-C
 
 In the embedded terminal (or `opencode run`), a good prompt includes:
 
-1. **Role & skill** — `You are a Senior System Analyst. Use the fsd-analyzer skill.`
+1. **Role & skill** — `You are a Senior System Analyst. Use the fsd-analyzer / markitdown / diagram-svg / query-writer skill.`
 2. **Files involved** — full paths relative to the project root, e.g. `input/fsd/sources/fdd_001.pdf`.
-3. **Action** — what to do (convert, split, generate, review, merge).
-4. **Clear output** — target file path + format (DBML, Markdown, YAML, HTML).
+3. **Action** — what to do (convert, split, generate, review, merge, create diagrams).
+4. **Clear output** — target file path + format (DBML, Markdown, YAML, HTML, or fences ```diagram-svg/```svg).
 5. **Constraints** — files that must **not** be changed (e.g. `DO NOT modify MASTER_ERD.md`).
 
 Example conversion prompt:
@@ -87,10 +87,11 @@ sequenceDiagram
 ## 5. Pre-work Checklist
 
 - [ ] Agent CLI (opencode) detected when opening the project
-- [ ] `fsd-analyzer` and `markitdown` skills installed in `.agents/skills/`
+- [ ] `fsd-analyzer`, `markitdown`, `diagram-svg`, and `query-writer` skills installed in `.agents/skills/`
 - [ ] Project root has an `input/fsd/sources/` folder (where source PDFs/files go)
 - [ ] (Recommended) `MASTER_ERD.md` and `MASTER_SPEC_API.md` created if a baseline exists
 - [ ] Embedded terminal opens and an agent session runs
+- [ ] (Optional) Test a ```diagram-svg {"type":"pipeline"}``` fence in any markdown — preview should render vector SVG and DOCX export should rasterize
 
 ---
 

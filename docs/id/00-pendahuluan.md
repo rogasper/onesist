@@ -23,7 +23,7 @@ Onesist adalah dashboard untuk **System Analyst** yang bekerja dengan dokumen ke
 Alur kerja di dokumentasi ini **tidak bergantung pada tombol-tombol UI**. Semua transformasi dilakukan dengan **memberi perintah (prompt) ke agent CLI** — biasanya **OpenCode** — yang:
 
 - berjalan **di dalam folder project** (cwd = project root),
-- memakai skill terpasang: **`fsd-analyzer`** (menghasilkan artefak SA) dan **`markitdown`** (konversi dokumen ke Markdown),
+- memakai skill terpasang: **`fsd-analyzer`** (artefak SA), **`markitdown`** (konversi dokumen), **`diagram-svg`** (diagram premium markdown-native), dan **`query-writer`** (SQL Oracle standar),
 - membaca/menulis file di `input/`, `output/`, dan `MASTER_*` secara langsung.
 
 Alasan pendekatan ini:
@@ -42,7 +42,7 @@ Tombol **Terminal** (di header project) membuka panel terminal yang berisi sesi 
 flowchart LR
   UI[Panel Terminal di dashboard] -->|WebSocket| WS[Terminal Server]
   WS -->|PTY spawn| CLI[Agent CLI: opencode / claude / codex]
-  CLI -->|cwd = project root| SK[Skills: fsd-analyzer, markitdown]
+  CLI -->|cwd = project root| SK[Skills: fsd-analyzer, markitdown, diagram-svg, query-writer]
   SK -->|baca/tulis file| FS[input/ output/ MASTER_*]
   FS -->|file watcher + SSE| UI2[Tab dashboard auto-refresh]
 ```
@@ -74,7 +74,7 @@ Atau bentuk umum (sesuai agent):
 ## 5. Prasyarat
 
 - **Agent CLI terpasang** di sistem (opencode disarankan) — dicek otomatis saat membuka project (tab project menampilkan peringatan jika skill gagal terpasang).
-- **Skills project terpasang** ke `.agents/skills/` (fsd-analyzer, markitdown) — auto-install saat project pertama dibuka.
+- **Skills project terpasang** ke `.agents/skills/` (fsd-analyzer, markitdown, diagram-svg, query-writer) — auto-install saat project pertama dibuka. `diagram-svg` & `query-writer` tetap pisah agar versioning modular — fsd-analyzer memanggilnya untuk Flow Logic / diagram.
 - **Project folder** berisi (atau akan berisi) `input/fsd/`, `output/`, dan opsional `MASTER_ERD.md` / `MASTER_SPEC_API.md`.
 
 ---

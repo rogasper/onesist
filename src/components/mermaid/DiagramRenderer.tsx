@@ -2,8 +2,10 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MermaidBlock } from "./MermaidBlock";
+import { DiagramSvgBlock } from "~/components/diagram/DiagramSvgBlock";
 
 (MermaidBlock as unknown as { displayName: string }).displayName = "MermaidBlock";
+(DiagramSvgBlock as unknown as { displayName: string }).displayName = "DiagramSvgBlock";
 
 export interface MarkdownViewerProps {
   content: string;
@@ -37,17 +39,19 @@ function languageOf(cls: any): string {
   return m ? m[1].toLowerCase() : "";
 }
 
-function isMermaid(cls: any): boolean {
-  return languageOf(cls) === "mermaid";
-}
-
-/** Elements from `codeRenderer` are left to stand alone — never wrapped in a
- *  `<pre>`, since the card already has its own frame. Flagged via
+/** Elements from `codeRenderer` and the diagram blocks stand alone — never
+ *  wrapped in a `<pre>`, since the card already has its own frame. Flagged via
  *  `displayName` because the `pre` wrapper only receives element children. */
 function isBareBlock(kid: React.ReactNode): boolean {
   if (!React.isValidElement(kid)) return false;
   const type = kid.type as any;
-  return type === MermaidBlock || type?.displayName === "MermaidBlock" || type?.displayName === BARE_CODE_BLOCK_DISPLAY_NAME;
+  return (
+    type === MermaidBlock ||
+    type === DiagramSvgBlock ||
+    type?.displayName === "MermaidBlock" ||
+    type?.displayName === "DiagramSvgBlock" ||
+    type?.displayName === BARE_CODE_BLOCK_DISPLAY_NAME
+  );
 }
 
 const BARE_CODE_BLOCK_DISPLAY_NAME = "BareCodeBlock";
@@ -58,6 +62,15 @@ export function MarkdownViewer({ content, className, codeRenderer }: MarkdownVie
       const lang = languageOf(cls);
       if (lang === "mermaid") {
         return <MermaidBlock code={toText(children, node)} />;
+      }
+      // Diagrams before `codeRenderer`: a ```diagram-svg / ```svg fence must
+      // render as a diagram in chat too, where the card renderer claims any
+      // block of 4 lines or more.
+      if (lang === "diagram-svg" || lang === "diagram_svg") {
+        return <DiagramSvgBlock code={toText(children, node)} lang="diagram-svg" />;
+      }
+      if (lang === "svg") {
+        return <DiagramSvgBlock code={toText(children, node)} lang="svg" />;
       }
       const rendered = codeRenderer?.(lang, toText(children, node));
       if (rendered != null) {

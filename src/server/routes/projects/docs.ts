@@ -69,6 +69,8 @@ router.post("projects/:id/docs/export", async ({ params, body }) => {
   const { proj } = getCtx(params.id);
   const contentMd = String(data.contentMd ?? "");
   const diagramPngs: string[] = Array.isArray(data.diagramPngs) ? data.diagramPngs.map((d: unknown) => String(d)) : [];
+  const diagramSvgPngs: string[] = Array.isArray((data as any).diagramSvgPngs) ? (data as any).diagramSvgPngs.map((d: unknown) => String(d)) : [];
+  const rawSvgPngs: string[] = Array.isArray((data as any).rawSvgPngs) ? (data as any).rawSvgPngs.map((d: unknown) => String(d)) : [];
   const meta: Record<string, string> = {
     customerName: String((data.meta as any)?.customerName ?? proj?.customerName ?? ""),
     projectName: String((data.meta as any)?.projectName ?? proj?.name ?? ""),
@@ -78,7 +80,7 @@ router.post("projects/:id/docs/export", async ({ params, body }) => {
   };
   if (!contentMd) return json({ error: "Missing contentMd" }, 400);
   const { buildDocx } = await import("~/lib/docx-export");
-  const buf = await buildDocx({ contentMd, diagramPngs, meta: meta as unknown as DocMeta });
+  const buf = await buildDocx({ contentMd, diagramPngs, diagramSvgPngs, rawSvgPngs, meta: meta as unknown as DocMeta });
   const safeName = (meta.projectName || "project").replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 40) || "project";
   const filename = `Technical-Documentation-${safeName}-${meta.version || "1.0.0"}.docx`;
   return new Response(new Uint8Array(buf), {

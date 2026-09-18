@@ -33,6 +33,8 @@ import {
   createC4SystemBox,
   createVpcFrame,
   createMicroserviceLane,
+  createPipelinePreset,
+  createSidecarPreset,
 } from "./ArchPresets";
 import { resolveTechIcon } from "~/lib/arch-icons/tech-keyword-map";
 import { getIconDataUrl } from "~/lib/arch-icons/registry";
@@ -581,6 +583,8 @@ export default function ExcalidrawInner({
       case "c4-system": rawElements = createC4SystemBox(centerX, centerY); break;
       case "vpc-frame": rawElements = createVpcFrame(centerX, centerY); break;
       case "micro-lane": rawElements = createMicroserviceLane(centerX, centerY); break;
+      case "pipeline": rawElements = createPipelinePreset(centerX, centerY); break;
+      case "sidecar": rawElements = createSidecarPreset(centerX, centerY); break;
       default: return;
     }
     let converted: any = convertToExcalidrawElements(rawElements as any) as any;
@@ -984,6 +988,14 @@ export default function ExcalidrawInner({
                 </button>
                 <button onClick={() => insertArchPreset("micro-lane")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
                   <Layout size={14} className="text-slate-400" /> Microservice Lane
+                </button>
+                <div className="my-1 border-t border-kumo-line" />
+                <div className="px-2 py-1 text-[10px] font-semibold tracking-wide uppercase text-kumo-subtle">Premium Diagrams</div>
+                <button onClick={() => insertArchPreset("pipeline")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <GitBranch size={14} className="text-sky-400" /> Pipeline — FSD → Delivery
+                </button>
+                <button onClick={() => insertArchPreset("sidecar")} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-left text-kumo-default hover:bg-kumo-line transition-colors">
+                  <Desktop size={14} className="text-amber-400" /> Tauri + Bun Sidecar
                 </button>
               </div>
             )}

@@ -9,7 +9,7 @@ Replace `<...>` placeholders with your project values.
 ## How to Run
 
 **In the embedded terminal** (Terminal panel in the project):
-- Type the prompt and press Enter. The agent runs in the project root with the `fsd-analyzer` / `markitdown` skills installed.
+- Type the prompt and press Enter. The agent runs in the project root with 4 skills installed (`fsd-analyzer`, `markitdown`, `diagram-svg`, `query-writer`).
 
 **From an OS terminal (alternative):**
 ```bash
@@ -288,9 +288,124 @@ Write to output/reports/consistency_<timestamp>.md.
 
 ---
 
+## P12 — Premium Diagrams Markdown-Native (diagram-svg)
+
+Use the **`diagram-svg`** skill — vector diagrams that **preview in markdown** and **export sharp to DOCX** (unlike mermaid HTML that breaks in DOCX).
+
+### Pipeline FSD → Delivery (for SRS / System Overview)
+
+```text
+You are a Senior System Analyst. Use the diagram-svg skill.
+
+Create a pipeline FSD → Delivery diagram for the SRS:
+
+```diagram-svg
+{
+  "type": "pipeline",
+  "title": "PIPELINE — FSD → DELIVERY (Artifact-Driven)",
+  "steps": [
+    { "label": "FSD PDF/DOCX", "sub": "input/fsd/", "badge": "MARKITDOWN" },
+    { "label": "Discovery", "sub": "Q & Assumption", "badge": "ALIGNED?" },
+    { "label": "ERD (DBML)", "sub": "output/erd/", "badge": "ERD" },
+    { "label": "Spec API", "sub": "output/spec/", "badge": "SPEC" },
+    { "label": "Tasks + Timeline", "sub": "output/task/", "badge": "TASK" }
+  ],
+  "footerNote": "File is the truth · UI is just a viewer"
+}
+```
+
+Insert the fence above into `output/td/td_<timestamp>.md` in the System Overview section
+(replacing the placeholder mermaid). Make sure the Docs tab preview renders vector and
+Export DOCX rasterizes cleanly. For custom colors, set bg/stroke per step
+(see vendor/skills/diagram-svg/references/style_tokens.md).
+```
+
+### Tauri + Bun Sidecar Architecture (for appendix / README)
+
+```text
+You are a Senior System Analyst. Use the diagram-svg skill.
+
+Create a desktop architecture diagram for the TD appendix:
+
+```diagram-svg
+{"type":"sidecar","title":"DESKTOP ARCHITECTURE — Tauri 2 + Bun Sidecar"}
+```
+
+Insert into `output/td/td_<timestamp>.md` in the System Overview / Appendix.
+```
+
+### Raw SVG bespoke (full control)
+
+```text
+Insert the following custom diagram into `output/td/td_<timestamp>.md`:
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="320" viewBox="0 0 900 320"><rect x="0" y="0" width="900" height="320" rx="16" fill="#f8fafc" stroke="#e2e8f0"/><text x="450" y="160" text-anchor="middle" font-size="14" fill="#0f172a">Custom diagram — edit freely</text></svg>
+```
+
+Make sure the fence contains <svg and viewBox so preview & DOCX succeed.
+See full templates at vendor/skills/diagram-svg/references/diagram_template.md.
+```
+
+### Validation
+
+```bash
+python vendor/skills/diagram-svg/scripts/validate_diagrams.py output/td/td_<timestamp>.md
+# checks JSON validity, type pipeline/sidecar, svg has viewBox
+```
+
+See `vendor/skills/diagram-svg/SKILL.md` for details.
+
+---
+
+## P13 — Oracle SQL Standard (query-writer)
+
+Use the standalone **`query-writer`** skill — can be used without an FSD, or automatically called by `fsd-analyzer` for Flow Logic / Task SQL. Rules at `vendor/skills/query-writer/rules/query_rules.md` (order `FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → FETCH`, 8-step checklist).
+
+### Create a standard query
+
+```text
+You are a Senior System Analyst. Use the query-writer skill.
+
+Create an Oracle query for: <requirement, e.g. list customers with order count & total amount, filter by date, paging>
+
+Follow order FROM → JOIN → WHERE → GROUP BY → HAVING → SELECT → ORDER BY → FETCH:
+- Explicit columns (no SELECT *), clear aliases
+- Date range via >= / < (DB UTC → WIB)
+- Prefix mst_ / trn_ / tmp_ per convention
+- Validate with the 8-step checklist in rules/query_rules.md before answering
+
+Show final SQL in a ```sql block and briefly explain GROUP BY & WHERE.
+DO NOT modify other files.
+```
+
+### Fix an existing query
+
+```text
+Use the query-writer skill. Fix the following query to pass the 8-step checklist:
+
+```sql
+<old query>
+```
+
+Write the result to <path if needed, e.g. output/reports/query_fix.md>.
+```
+
+### Validation
+
+```bash
+# read the rules manually
+cat vendor/skills/query-writer/rules/query_rules.md
+# or ask the agent: "check this query against the query-writer 8-step checklist"
+```
+
+See `vendor/skills/query-writer/SKILL.md` and mirror `vendor/skills/fsd-analyzer/references/query_rules.md`.
+
+---
+
 ## General Prompt Notes
 
-- **Always state the role + skill**: `You are a Senior System Analyst. Use the fsd-analyzer skill.`
+- **Always state the role + skill**: `You are a Senior System Analyst. Use the fsd-analyzer / markitdown / diagram-svg / query-writer skill.` (pick the relevant one; Flow Logic SQL can use `query-writer` alone)
 - **State full file paths** (relative to the project root) — not just names.
 - **State the output path + format** — the agent should not guess.
 - **Add constraints**: `DO NOT modify other files.` / `DO NOT modify MASTER_* without instruction.`

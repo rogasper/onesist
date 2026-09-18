@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.1.44 — Fix: skill diagram-svg & query-writer tidak pernah sampai ke aplikasi
+
+### Fix — dua skill baru selalu gagal terinstal (project baru tidak bisa lanjut)
+- **`src-tauri/src/sidecar.rs` — `ensure_skills_dir()` disegarkan setiap kali aplikasi dibuka.** Sebelumnya fungsi ini hanya menyalin `resources/vendor-skills` ke appData **satu kali seumur instalasi** (penjaganya: "kalau `fsd-analyzer/SKILL.md` belum ada"). Akibatnya, begitu aplikasi pernah dijalankan, penambahan skill baru di rilis berikutnya tidak pernah ikut tersalin: salinan di appData tetap berisi `fsd-analyzer` + `markitdown` saja. Installer lalu melaporkan `Vendored skill missing: vendor/skills/<nama>/SKILL.md` untuk `diagram-svg` dan `query-writer` — 2 dari 4 skill gagal, dan project baru tidak bisa melewati langkah setup skill. Sekarang perilakunya sama seperti `ensure_server_dir`: direktori dibersihkan lalu disalin ulang tiap launch.
+
+### Fix — project duplikat saat percobaan diulang
+- **`src/server/routes/projects/index.ts` — `POST /api/projects` kini idempoten per folder.** Setiap percobaan membuka folder mengirim POST baru dan tiap POST menyisipkan baris baru, jadi folder yang sama menumpuk menjadi beberapa project identik ketika langkah setup skill gagal dan diulang. Sekarang folder yang sudah terdaftar (dibandingkan lewat `path.resolve`, mengabaikan garis miring di akhir) mengembalikan baris yang sudah ada.
+
+### Verifikasi
+- Route API asli di server uji, dengan salinan database aplikasi dan `SA_VENDOR_SKILLS_DIR` menunjuk ke salinan appData asli: POST folder yang sama dua kali mengembalikan **id yang sama** (1 baris di DB), lalu `POST /skills/install` mencapai `ready` dengan keempat skill (`fsd-analyzer`, `markitdown`, `diagram-svg`, `query-writer`) terpasang dan `SKILL.md` benar-benar ada di `.agents/skills/` project.
+- Salinan appData yang basi juga sudah disinkronkan langsung, sehingga aplikasi yang sedang berjalan bisa menginstal tanpa menunggu rilis.
+- **Bump `0.1.43 → 0.1.44`**.
+
+## v0.1.43 — Fix: hapus project + banner skills yang macet
+
+### Fix — Project tidak bisa dihapus
+- **`src/server/routes/projects/index.ts`** — hapus project gagal total begitu project punya baris anak. Penyebabnya snapshot/endpoint anak dihapus memakai **id project**, padahal kolomnya menunjuk ke id baris induknya (`erd_snapshots.erd_id → erds.id`, `api_snapshots`/`api_endpoints.spec_id → api_specs.id`, `wiki_snapshots.page_id → wiki_pages.id`, `task_snapshots.task_id → tasks.id`). Penghapusan itu tidak mengenai apa pun, lalu penghapusan baris induk melanggar foreign key (`PRAGMA foreign_keys = ON`) sehingga seluruh request gagal — tidak ada project yang bisa dihapus selama ada baris anak. Sekarang id anak dikumpulkan dulu, baru dihapus berdasarkan id tersebut.
+
+### Fix — Banner "Installing required project skills" tidak pernah selesai
+- **`src/server/routes/projects/skills.ts`** — `skillsStatus` di DB bisa tertinggal bernilai `installing` (mis. app ditutup saat install berjalan) dan tidak pernah dibersihkan; route install lalu menolak setiap percobaan dengan 409 "Installation already in progress", jadi bannernya macet permanen. Status sekarang dihitung dari keadaan disk dan `installing` hanya dilaporkan selama install benar-benar berjalan di proses ini (penanda in-memory per project), sehingga retry selalu bisa dan kegagalan tampil sebagai `failed` beserta pesannya, bukan menggantung.
+
+### Verifikasi
+- Route API asli dijalankan pada server uji dengan **salinan database aplikasi**: `DELETE` untuk project berisi anak (36 spec + 105 task, dan 1 spec + 21 task) menjawab HTTP 200 dan baris bersih; `GET /skills` menjawab `pending` ketika kolom DB dipaksa `installing`; alur install selesai `ready` dengan `fsd-analyzer`, `markitdown`, `diagram-svg`, `query-writer` terpasang.
+- **Bump `0.1.42 → 0.1.43`**.
+
+## v0.1.42 — ERD canvas performance + dev window loads Vite
+
+### Perf — ERD canvas (86 tables / 702 columns)
+- **Viewport-only mounting** (`src/components/erd/ErdCanvas.tsx`): `onlyRenderVisibleElements` — hanya tabel di dalam viewport yang di-mount.
+- **`content-visibility: auto`** pada baris kolom (`src/styles.css` `.erd-col-row` + `TableNode.tsx`) — baris di luar layar dilewati layout/paint-nya, sehingga pan/zoom tidak lagi membayar ~700 baris tiap frame.
+- **Seleksi tidak lagi mahal**: layout (`src/lib/erd-layout.ts`) tidak bergantung pada tabel terpilih, node/edge hanya dibuat ulang bila hasilnya berubah, dan efek styling dibuat idempoten (sebelumnya memicu React #185 "Maximum update depth exceeded" pada schema 86 tabel).
+- **Transisi opacity inline & animasi dash edge dihapus** — keduanya memaksa style-recalc/repaint tiap frame saat viewport bergerak.
+- **`TableNode` di-memo** + tabel bisa digeser lewat header (`.erd-drag-handle`, `dragHandle` per node) tanpa membuat nama kolom tidak bisa diblok.
+- **Parse di-debounce + dedupe** (`src/routes/projects.$id.erd.tsx`) — file yang tidak berubah tidak di-parse ulang; ganti file tidak lagi membawa seleksi lama.
+
+### Fix — SSE stream putus tiap ~12 detik
+- **`keepAlive` 15s → 5s** (`src/server/routes/sse.ts`). `Bun.serve` menutup koneksi tanpa byte selama 10 detik, jadi stream mati sebelum keepalive-nya sendiri sempat terkirim; EventSource di WebView menyambung ulang diam-diam dan memutar ulang handler `file:changed` — inilah yang membuat halaman ERD seolah me-refresh sendiri terus-menerus (terukur: mati di 12.0s, setelah perbaikan hidup 45s).
+
+### Fix — `bunx tauri dev` memuat build lama (halaman tanpa CSS)
+- **Window dev memuat devUrl Vite**, bukan salinan statis sidecar (`src-tauri/src/lib.rs`, debug build; `SA_DEV_SERVER_URL` opsional, divalidasi http/https). Sebelumnya window selalu diarahkan ke port sidecar, sehingga HTML/CSS dari build produksi terakhir yang dilayani — hash aset tidak pernah cocok dengan kode dev dan halaman tampil tanpa CSS. Pakai `localhost`, bukan `127.0.0.1`: Vite (Bun) hanya listen di IPv6 `[::1]`.
+
+### Chore
+- `beforeDevCommand` (`src-tauri/tauri.conf.json`): pola `pkill` di-bracket (`'[o]nesist-server'`) supaya tidak mencocokkan shell-nya sendiri, plus pembersih port 4321.
+- `.gitignore`: state security-scan `.mimosa/` + `agent-approval.secret` (kredensial lokal).
+- **Bump `0.1.40 → 0.1.42`** (0.1.41 sudah dipakai di branch lain).
+
 ## v0.1.41 — Pi agent + Task H1/H3 general fallback
 
 ### Feat — Agent
@@ -12,6 +58,26 @@
 - **H2 kanonik** — pattern `## Task \[FE]:` dengan escaped bracket sebagai auto-number.
 - **SP/AC toleran** — `Story Point` regex toleran `0.5 SP (2 jam)` (capture angka saja), `Acceptance Criteria` heading `#{2,}` agar `## Acceptance Criteria` (H2) ke-capture, bullet `[-*]` agar `* [ ]` dan `- [ ]` keduanya ke-capture.
 - **Observability** — `POST /api/projects/:id/tasks/import` return `skippedFiles` + `console.warn`, UI Tasks badge tooltip list file kosong.
+
+## v0.1.40 — Skills: query-writer (Oracle) for Spec & Task
+
+### Feat — Skills
+- **query-writer v1.0.0 (Oracle CRM Dashboard)** (`vendor/skills/query-writer/SKILL.md` + `rules/query_rules.md` 8-section: FROM→JOIN→WHERE→GROUP BY→HAVING→SELECT→ORDER BY→FETCH, per-clause rules, 8-step checklist, `FETCH FIRST / OFFSET FETCH NEXT`, `mst_/trn_/tmp_`, no `SELECT *`, tanggal range `>= / <` WIB)
+- **fsd-analyzer v1.4.0 → 1.5.0** — integrate query-writer: `references/query_writer.md` + `references/query_rules.md`, description/modes/trigger phrases/core responsibilities/output/quality gates updated; Spec Flow Logic & Task SQL base now enforce Oracle standard
+- **Sync** → `/Users/user/Documents/Work/fsd-analyzer` (SKILL.md + 2 refs, no new folder) + `src-tauri/vendor-skills/fsd-analyzer`
+- **Bump `0.1.39 → 0.1.40`**.
+
+## v0.1.39 — Theme: light parity with landing
+
+### Feat — Theme
+- **Light mode sync `landing (#fcfcfa / #6d7cff)`** (`src/styles.css:10` `html:not([data-mode=dark])` overrides `--color-kumo-brand #6d7cff`, `recessed #fcfcfa`, `elevated/base #fff` + `glass` white translucent gradients matching `landing/src/styles.css`, `src/lib/theme.ts:24` default `dark → light` + `WINDOW_BG light #fcfcfa` for Tauri)
+- **Bump `0.1.38 → 0.1.39`**.
+
+## v0.1.38 — Brand: real logo for Tauri + splash + web
+
+### Feat — Brand
+- **Logo `logo.png` (glossy blue glass) → `public/logo.png` + `logo-icon.png` + `logo-square.png` (1024)** — `src-tauri/icons` regenerated via `tauri icon` (all sizes, icon.png 512, icns/ico), `src/routes/__root.tsx:38` sidebar header `OS` badge → `<img src="/logo-icon.png">`, `public/splash.html:26` white rounded `logo-wrap` with `img src="logo-icon.png"` (relative, 72→padding 6, transparent fallback), `dist/client/logo*.png` verified 860k/710k/516k.
+- **Bump `0.1.36 → 0.1.38`** for icon change.
 
 ## v0.1.36 — Fix splash logo broken on Windows
 
