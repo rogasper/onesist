@@ -108,12 +108,32 @@ router.delete("projects/:id", async ({ params }) => {
   const id = params.id;
   const existing = db.select().from(projects).where(eq(projects.id, id)).get();
   if (!existing) return notFound();
-  // Delete child entities in FK order (snapshots/endpoints before parents)
-  db.delete(erdSnapshots).where(eq(erdSnapshots.erdId, id)).run();
-  db.delete(apiSnapshots).where(eq(apiSnapshots.specId, id)).run();
-  db.delete(apiEndpoints).where(eq(apiEndpoints.specId, id)).run();
-  db.delete(wikiSnapshots).where(eq(wikiSnapshots.pageId, id)).run();
-  db.delete(taskSnapshots).where(eq(taskSnapshots.taskId, id)).run();
+  // Children of the project's own rows go first, and they are keyed by the PARENT
+  // ROW id, not by the project id: erd_snapshots.erd_id -> erds.id,
+  // api_snapshots/api_endpoints.spec_id -> api_specs.id, wiki_snapshots.page_id ->
+  // wiki_pages.id, task_snapshots.task_id -> tasks.id. Deleting them by the project
+  // id matched nothing, so with `PRAGMA foreign_keys = ON` the follow-up parent
+  // delete violated the FK and the whole request failed — the project could not be
+  // deleted at all. Collect the real ids first, then delete children by them.
+  const ownedErdIds = db.select({ id: erds.id }).from(erds).where(eq(erds.projectId, id)).all();
+  const ownedSpecIds = db.select({ id: apiSpecs.id }).from(apiSpecs).where(eq(apiSpecs.projectId, id)).all();
+  const ownedPageIds = db.select({ id: wikiPages.id }).from(wikiPages).where(eq(wikiPages.projectId, id)).all();
+  const ownedTaskIds = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, id)).all();
+
+  for (const row of ownedErdIds) {
+    db.delete(erdSnapshots).where(eq(erdSnapshots.erdId, row.id)).run();
+  }
+  for (const row of ownedSpecIds) {
+    db.delete(apiSnapshots).where(eq(apiSnapshots.specId, row.id)).run();
+    db.delete(apiEndpoints).where(eq(apiEndpoints.specId, row.id)).run();
+  }
+  for (const row of ownedPageIds) {
+    db.delete(wikiSnapshots).where(eq(wikiSnapshots.pageId, row.id)).run();
+  }
+  for (const row of ownedTaskIds) {
+    db.delete(taskSnapshots).where(eq(taskSnapshots.taskId, row.id)).run();
+  }
+
   db.delete(rtmLinks).where(eq(rtmLinks.projectId, id)).run();
   db.delete(testCases).where(eq(testCases.projectId, id)).run();
   db.delete(designSolutions).where(eq(designSolutions.projectId, id)).run();

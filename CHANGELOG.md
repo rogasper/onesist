@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.43 — Fix: hapus project + banner skills yang macet
+
+### Fix — Project tidak bisa dihapus
+- **`src/server/routes/projects/index.ts`** — hapus project gagal total begitu project punya baris anak. Penyebabnya snapshot/endpoint anak dihapus memakai **id project**, padahal kolomnya menunjuk ke id baris induknya (`erd_snapshots.erd_id → erds.id`, `api_snapshots`/`api_endpoints.spec_id → api_specs.id`, `wiki_snapshots.page_id → wiki_pages.id`, `task_snapshots.task_id → tasks.id`). Penghapusan itu tidak mengenai apa pun, lalu penghapusan baris induk melanggar foreign key (`PRAGMA foreign_keys = ON`) sehingga seluruh request gagal — tidak ada project yang bisa dihapus selama ada baris anak. Sekarang id anak dikumpulkan dulu, baru dihapus berdasarkan id tersebut.
+
+### Fix — Banner "Installing required project skills" tidak pernah selesai
+- **`src/server/routes/projects/skills.ts`** — `skillsStatus` di DB bisa tertinggal bernilai `installing` (mis. app ditutup saat install berjalan) dan tidak pernah dibersihkan; route install lalu menolak setiap percobaan dengan 409 "Installation already in progress", jadi bannernya macet permanen. Status sekarang dihitung dari keadaan disk dan `installing` hanya dilaporkan selama install benar-benar berjalan di proses ini (penanda in-memory per project), sehingga retry selalu bisa dan kegagalan tampil sebagai `failed` beserta pesannya, bukan menggantung.
+
+### Verifikasi
+- Route API asli dijalankan pada server uji dengan **salinan database aplikasi**: `DELETE` untuk project berisi anak (36 spec + 105 task, dan 1 spec + 21 task) menjawab HTTP 200 dan baris bersih; `GET /skills` menjawab `pending` ketika kolom DB dipaksa `installing`; alur install selesai `ready` dengan `fsd-analyzer`, `markitdown`, `diagram-svg`, `query-writer` terpasang.
+- **Bump `0.1.42 → 0.1.43`**.
+
 ## v0.1.42 — ERD canvas performance + dev window loads Vite
 
 ### Perf — ERD canvas (86 tables / 702 columns)
