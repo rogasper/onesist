@@ -39,6 +39,10 @@ export interface ThreadFile {
   linesRemoved: number | null;
   /** Diff computed at write time (FR-C3), in unified diff format. */
   diffJson: string | null;
+  /** The assistant message that wrote this file, so the transcript can show a
+   *  turn's artifacts under its own answer (UJI-MANUAL C9b). Null for rows
+   *  recorded before the ledger tracked turns. */
+  messageId: string | null;
   firstSeenAt: string | null;
   lastSeenAt: string | null;
 }

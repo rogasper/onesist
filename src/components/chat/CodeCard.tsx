@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { ArrowSquareOut, Check, Copy } from "@phosphor-icons/react";
 
 /**
@@ -46,6 +47,7 @@ export function isCardWorthyCode(lang: string, code: string): boolean {
 
 export function CodeCard({ lang, code, projectId }: CodeCardProps) {
   const [copied, setCopied] = useState(false);
+  const navigate = useNavigate();
   const target = ROUTE_FOR_LANG[lang];
   const lines = code ? code.replace(/\n$/, "").split("\n") : [];
   const shown = lines.slice(0, 24);
@@ -78,13 +80,15 @@ export function CodeCard({ lang, code, projectId }: CodeCardProps) {
             {copied ? "Tersalin" : "Salin"}
           </button>
           {target && projectId ? (
-            <a
-              href={`/projects/${projectId}/${target.path}`}
+            // Router navigation rather than `<a href>`: a full page load would
+            // abort the turn that is still streaming behind this answer.
+            <button
+              onClick={() => navigate({ to: `/projects/$id/${target.path}` as any, params: { id: projectId } } as any)}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-kumo-brand hover:bg-kumo-tint"
             >
               <ArrowSquareOut size={12} />
               Buka di {target.label}
-            </a>
+            </button>
           ) : null}
         </span>
       </div>

@@ -1,3 +1,4 @@
+import { relTime } from "~/lib/rel-time";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
@@ -23,15 +24,9 @@ function humanBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Missing timestamp means "never" here, not "just now" (shared `relTime`). */
 function whenLabel(iso: string | null): string {
-  if (!iso) return "belum pernah";
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return "belum pernah";
-  const min = Math.floor(ms / 60_000);
-  if (min < 1) return "baru saja";
-  if (min < 60) return `${min} menit lalu`;
-  const jam = Math.floor(min / 60);
-  return jam < 24 ? `${jam} jam lalu` : `${Math.floor(jam / 24)} hari lalu`;
+  return relTime(iso, "belum pernah");
 }
 
 export function IndexPanel({ projectId }: { projectId: string }) {

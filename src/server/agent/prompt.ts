@@ -181,6 +181,10 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
       `sebelum \`grep\`/\`glob\`: hasilnya sudah berindeks, berkelompok per berkas, dan membawa nomor baris — jadi kamu tidak perlu membaca berkas utuh. ` +
       `\`grep\` tetap tepat untuk pencarian yang sangat spesifik atau saat index belum memuat berkas terbaru.`,
     `- Buat folder per modul saat menulis artefak (mis. output/erd/<modul>/erd.dbml) dengan mkdir -p lewat bash.`,
+    `- **Berkas besar ditulis bertahap.** Batas token keluaran provider memotong satu jawaban; kalau potongan itu jatuh di tengah isi ` +
+      `\`write_file\`, toolnya TIDAK dijalankan sama sekali dan berkasnya tidak pernah ada. Jadi: tulis kerangka + satu bagian dulu, ` +
+      `lalu tambahkan bagian berikutnya dengan \`edit_file\` (ganti penanda di akhir berkas), atau pecah berkasnya per modul. ` +
+      `Jangan pernah mengirim satu dokumen puluhan ribu karakter dalam satu panggilan tool.`,
     `- Untuk tugas berbilang langkah, tulis rencananya lewat todo_write lalu perbarui seiring berjalan.`,
     "",
     permissionSection(input.permissionMode, input.mode),

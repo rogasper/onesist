@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
@@ -6,7 +8,7 @@ import { Button } from "@cloudflare/kumo";
 import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Terminal, Warning, Wrench, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
-import { ArtifactPreview } from "~/components/chat/ArtifactPreview";
+import { FileCard } from "~/components/chat/FileCard";
 import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
@@ -53,23 +55,7 @@ interface Props {
   onOpenProviders: () => void;
 }
 
-const ROUTE_TO_TAB: Record<string, { tab: string; label: string }> = {
-  erd: { tab: "erd", label: "ERD" },
-  spec: { tab: "spec", label: "API Spec" },
-  task: { tab: "tasks", label: "Tasks" },
-  td: { tab: "docs", label: "Docs" },
-  rtm: { tab: "rtm", label: "Traceability" },
-  sit: { tab: "sit", label: "SIT" },
-  timeline: { tab: "tasks", label: "Timeline" },
-  fsd: { tab: "fsd", label: "FSD" },
-  sketch: { tab: "canvas", label: "Canvas" },
-};
-
 const MONO = "font-mono text-[0.8125rem]";
-
-/** Inside the Tauri shell? Same check the rest of the app uses; the OS actions
- *  below have no meaning in a browser build. */
-const inDesktopShell = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 /** Durations in readable units: 820 ms · 1.2 s · 1 min 5 s. */
 function fmtDuration(ms: number): string {
@@ -91,6 +77,7 @@ function isConnectionFailure(message: string): boolean {
 
 export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProviders }: Props) {
   const projectId = detail.thread.projectId;
+  const navigate = useNavigate();
   const transport = useThreadTransport(threadId);
   const initialMessages = useMemo(() => detail.messages as unknown as UIMessage[], []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -149,6 +136,21 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
   const { files: mentionFiles } = useMentionFiles(projectId, detail.rootPath ?? null);
   const { skills } = useChatSkills(projectId);
   const { actions, projectFile } = useChatActions(projectId);
+
+  /** Files grouped by the answer that wrote them, so each turn can show its own
+   *  section (UJI-MANUAL C9b). Rows with no `messageId` (written before the
+   *  ledger tracked turns) are not lost: they render in the thread-level section
+   *  above the composer. */
+  const filesByMessage = useMemo(() => {
+    const byMessage = new Map<string, ThreadFile[]>();
+    for (const f of detail.files) {
+      if (!f.messageId) continue;
+      const list = byMessage.get(f.messageId);
+      if (list) list.push(f);
+      else byMessage.set(f.messageId, [f]);
+    }
+    return byMessage;
+  }, [detail.files]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -329,9 +331,11 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
         changed={detail.files}
         onOpen={(filePath) => {
           // The panel does not render artifact viewers; it hands the file to its
-          // own tab, which already knows how to show it (FR-C7).
+          // own tab, which already knows how to show it (FR-C7). Router
+          // navigation, not `window.location.href` — a full page load would
+          // abort a run that is still streaming in this panel.
           const tab = tabForPath(filePath);
-          window.location.href = tab ? `/projects/${projectId}/${tab}` : `/projects/${projectId}/overview`;
+          navigate({ to: (tab ? `/projects/$id/${tab}` : "/projects/$id") as any, params: { id: projectId } } as any);
         }}
       />
 
@@ -348,6 +352,8 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
               streaming={streaming && mi === messages.length - 1}
               metadata={metadataById.get(m.id ?? "")}
               projectId={projectId}
+              files={filesByMessage.get(m.id ?? "")}
+              root={detail.rootPath ?? null}
               toolDuration={toolDuration}
               approvalById={approvalById}
               nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
@@ -366,7 +372,7 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
             <div className="flex items-center gap-3 rounded-xl ring ring-kumo-line bg-kumo-elevated px-3.5 py-3">
               <ListChecks size={16} className="text-kumo-brand shrink-0" />
               <span className="text-sm text-kumo-default flex-1 min-w-0">
-                Rencana ini belum dijalankan. Menyetujui akan mengubah mode percakapan ke <b>Kerjakan</b> dan langsung memulainya.
+                Rencana ini belum dijalankan. Menyetujui akan mengubah mode percakapan ke <span className="font-semibold">Kerjakan</span> dan langsung memulainya.
               </span>
               <Button variant="primary" onClick={() => void approvePlan()}>
                 Setujui &amp; jalankan
@@ -413,7 +419,7 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
 
       {detail.staleReads?.length ? <StaleReadsNotice reads={detail.staleReads} /> : null}
 
-      {detail.files.length ? <ChangedFiles detail={detail} /> : null}
+      <UnattributedFiles detail={detail} />
 
       <Composer
         projectId={projectId}
@@ -616,6 +622,8 @@ function MessageBlock({
   streaming,
   metadata,
   projectId,
+  files,
+  root,
   toolDuration,
   approvalById,
   nextStepLimit,
@@ -625,6 +633,9 @@ function MessageBlock({
   streaming: boolean;
   metadata?: Record<string, any>;
   projectId: string;
+  /** Files THIS turn wrote, from the ledger (UJI-MANUAL C9b). */
+  files?: ThreadFile[];
+  root: string | null;
   toolDuration: (toolCallId: string | undefined) => number | null;
   approvalById: Map<string, string>;
   /** Ceiling a step-limit notice would raise the thread to, and the action that
@@ -686,12 +697,16 @@ function MessageBlock({
           );
         }
         if (b.kind === "todos") return <TodoPanel key={b.key} todos={b.todos} />;
-        if (b.kind === "subagent") return <SubagentBlock key={b.key} part={b.part} approval={approvalById.get(b.part?.toolCallId)} />;
-        if (b.kind === "tools") return <ToolGroup key={b.key} parts={b.parts} duration={toolDuration} approvalById={approvalById} />;
+        if (b.kind === "subagent")
+          return <SubagentBlock key={b.key} part={b.part} approval={approvalById.get(b.part?.toolCallId)} turnEnded={!streaming} />;
+        if (b.kind === "tools")
+          return <ToolGroup key={b.key} parts={b.parts} duration={toolDuration} approvalById={approvalById} turnEnded={!streaming} />;
         // Answer: no box and no background — the only block read in
-        // sequence, so it must not compete with the surrounding chrome.
+        // sequence, so it must not compete with the surrounding chrome. The
+        // `chat-markdown` class supplies the hierarchy Tailwind's preflight
+        // removes (see styles.css).
         return (
-          <div key={b.key} className="text-sm leading-relaxed text-kumo-default">
+          <div key={b.key} className="chat-markdown text-sm leading-relaxed text-kumo-default min-w-0">
             <MarkdownViewer
               content={b.text}
               codeRenderer={(lang, code) => (isCardWorthyCode(lang, code) ? <CodeCard lang={lang} code={code} projectId={projectId} /> : null)}
@@ -699,6 +714,17 @@ function MessageBlock({
           </div>
         );
       })}
+
+      {/* The files this turn wrote, as their own section at the end of the
+          answer (UJI-MANUAL C9b) — before the token footer, which is the turn's
+          footnote and not part of its output. */}
+      {files?.length ? (
+        <div className="grid gap-2">
+          {files.map((f) => (
+            <FileCard key={f.id} file={f} root={root} projectId={projectId} />
+          ))}
+        </div>
+      ) : null}
 
       {inTok || outTok ? (
         <p className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex items-center gap-2">
@@ -715,18 +741,20 @@ function MessageBlock({
 /** One subagent run (FR-G5). Shown as its own row — subagent name, the question it
  *  was given, and the summary it returned — because this is the row that explains
  *  why the main context did NOT grow: the reading happened somewhere else. */
-function SubagentBlock({ part, approval }: { part: any; approval?: string }) {
+function SubagentBlock({ part, approval, turnEnded = false }: { part: any; approval?: string; turnEnded?: boolean }) {
   const [open, setOpen] = useState(false);
-  const state = toolState(part);
+  const state = toolState(part, turnEnded);
   const name = String(part?.input?.subagent ?? "subagent");
   const prompt = String(part?.input?.prompt ?? "");
   const output = typeof part.output === "string" ? part.output : part.output ? JSON.stringify(part.output, null, 1) : "";
   const tint =
     state.tone === "err"
       ? "ring-red-400/40 bg-red-400/10"
-      : state.tone === "ok"
-        ? "ring-green-400/40 bg-green-400/10"
-        : "ring-blue-400/40 bg-blue-400/10";
+      : state.tone === "warn"
+        ? "ring-amber-400/40 bg-amber-400/10"
+        : state.tone === "ok"
+          ? "ring-green-400/40 bg-green-400/10"
+          : "ring-blue-400/40 bg-blue-400/10";
 
   return (
     <div className={`rounded-lg ring overflow-hidden ${tint}`}>
@@ -803,6 +831,24 @@ function TodoPanel({ todos }: { todos: TodoItem[] }) {
 /** System-event marker in the transcript — for now context compaction
  *  (FR-B9), so the user knows when the agent starts losing early detail. */
 function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: number; onContinue?: () => void }) {
+  if (data?.kind === "truncated") {
+    // FR-A14/FR-B15: the provider cut the answer at the output ceiling. When it
+    // happens mid tool call the tool never runs — the row above would otherwise
+    // look like it is still working.
+    return (
+      <div className="rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-kumo-default grid gap-1.5">
+        <span>
+          <span className="font-semibold">Jawaban terpotong oleh batas token keluaran provider{data.outputTokens ? ` (${data.outputTokens.toLocaleString("id-ID")} token)` : ""}.</span>{" "}
+          Kalau potongan itu jatuh di tengah argumen sebuah tool, toolnya tidak pernah dijalankan — langkah di atas yang
+          masih terlihat "berjalan" berarti belum terjadi.
+        </span>
+        <span className="text-kumo-subtle">
+          Dua jalan keluar: naikkan <span className="font-semibold">Max output tokens</span> di pengaturan provider, atau minta agent menulis berkas besar
+          secara bertahap (kerangka dulu, lalu bagian berikutnya lewat <span className={MONO}>edit_file</span>).
+        </span>
+      </div>
+    );
+  }
   if (data?.kind === "stepLimit") {
     // FR-B11: reaching the step ceiling MUST be visible, otherwise the agent
     // simply stops mid-task and the transcript reads as "it gave up for no
@@ -811,7 +857,7 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
     return (
       <div className="rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-kumo-default grid gap-2">
         <span>
-          <b>Batas langkah tercapai{data.steps ? ` (${data.steps} langkah)` : ""}.</b> Agent berhenti karena kehabisan
+          <span className="font-semibold">Batas langkah tercapai{data.steps ? ` (${data.steps} langkah)` : ""}.</span> Agent berhenti karena kehabisan
           langkah, bukan karena tugasnya selesai. Periksa apa yang sudah dikerjakan di atas — riwayatnya tetap ada, jadi
           melanjutkan tidak mengulang dari awal.
         </span>
@@ -887,11 +933,20 @@ function Pulse() {
   );
 }
 
-function toolState(part: any): { tone: "run" | "ok" | "err"; label: string } {
+/** Visual state of a tool call.
+ *
+ *  `turnEnded` matters: a tool whose arguments were still streaming when the turn
+ *  ended never ran (measured 2026-09-18 — a `write_file` cut off by the output
+ *  token ceiling). Without it the row would say "berjalan" forever, in a
+ *  transcript that is not running anything — the user reads that as "stuck" and
+ *  has no way to tell it will never finish. */
+function toolState(part: any, turnEnded = false): { tone: "run" | "ok" | "err" | "warn"; label: string } {
   if (part.state === "output-error" || part.errorText) return { tone: "err", label: "gagal" };
   if (part.state === "output-available") return { tone: "ok", label: "selesai" };
-  if (part.state === "input-streaming" || part.state === "input-available") return { tone: "run", label: "berjalan" };
-  return { tone: "run", label: "menunggu" };
+  if (part.state === "input-streaming" || part.state === "input-available") {
+    return turnEnded ? { tone: "warn", label: "tidak selesai" } : { tone: "run", label: "berjalan" };
+  }
+  return turnEnded ? { tone: "warn", label: "tidak selesai" } : { tone: "run", label: "menunggu" };
 }
 
 type ToolKind = "terminal" | "tulis" | "baca" | "cari" | "web" | "rencana" | "lain";
@@ -1006,13 +1061,15 @@ function ToolRow({
   part,
   duration,
   approval,
+  turnEnded = false,
 }: {
   part: any;
   duration: (id: string | undefined) => number | null;
   approval?: string;
+  turnEnded?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const state = toolState(part);
+  const state = toolState(part, turnEnded);
   const name = getToolName(part) || "tool";
   const meta = KIND_META[toolKind(name)];
   const target = toolTarget(name, part.input);
@@ -1024,9 +1081,11 @@ function ToolRow({
   const tint =
     state.tone === "err"
       ? "ring-red-400/40 bg-red-400/10"
-      : state.tone === "ok"
-        ? "ring-green-400/40 bg-green-400/10"
-        : "ring-blue-400/40 bg-blue-400/10";
+      : state.tone === "warn"
+        ? "ring-amber-400/40 bg-amber-400/10"
+        : state.tone === "ok"
+          ? "ring-green-400/40 bg-green-400/10"
+          : "ring-blue-400/40 bg-blue-400/10";
 
   return (
     <div className={`rounded-lg ring overflow-hidden mr-3 ${tint}`}>
@@ -1072,13 +1131,17 @@ function ToolGroup({
   parts,
   duration,
   approvalById,
+  turnEnded = false,
 }: {
   parts: any[];
   duration: (id: string | undefined) => number | null;
   approvalById: Map<string, string>;
+  /** The turn this group belongs to has finished (see `toolState`). */
+  turnEnded?: boolean;
 }) {
-  const err = parts.map(toolState).filter((s) => s.tone === "err").length;
-  const running = parts.map(toolState).filter((s) => s.tone === "run").length;
+  const err = parts.map((p) => toolState(p, turnEnded)).filter((s) => s.tone === "err").length;
+  const incomplete = parts.map((p) => toolState(p, turnEnded)).filter((s) => s.tone === "warn").length;
+  const running = parts.map((p) => toolState(p, turnEnded)).filter((s) => s.tone === "run").length;
   const judul = groupTitle(parts);
   const JudulIcon = judul.icon;
 
@@ -1102,7 +1165,10 @@ function ToolGroup({
       >
         <RowIcon icon={JudulIcon} />
         <span className="text-sm text-kumo-subtle truncate">
-          {judul.text} · <span className={err ? "text-red-400" : undefined}>{err ? `${err} gagal` : running ? "berjalan" : "selesai"}</span>
+          {judul.text} ·{" "}
+          <span className={err ? "text-red-400" : incomplete ? "text-amber-400" : undefined}>
+            {err ? `${err} gagal` : incomplete ? `${incomplete} tidak selesai` : running ? "berjalan" : "selesai"}
+          </span>
         </span>
         <span className="ml-auto shrink-0 flex items-center gap-2">
           {running ? <Pulse /> : null}
@@ -1114,7 +1180,7 @@ function ToolGroup({
         <ChildRail>
           <div className="grid gap-1 py-1">
             {parts.map((part, i) => (
-              <ToolRow key={part.toolCallId ?? i} part={part} duration={duration} approval={approvalById.get(part.toolCallId)} />
+              <ToolRow key={part.toolCallId ?? i} part={part} duration={duration} approval={approvalById.get(part.toolCallId)} turnEnded={turnEnded} />
             ))}
           </div>
         </ChildRail>
@@ -1190,27 +1256,21 @@ function StaleReadsNotice({ reads }: { reads: { path: string; readAt: string | n
   );
 }
 
-/** Coarse relative time. The read timestamp is ISO; the only question the user
- *  has is "before or after my edit", so minutes and hours are enough. */
-function relTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return "baru saja";
-  const min = Math.floor(ms / 60_000);
-  if (min < 1) return "baru saja";
-  if (min < 60) return `${min} menit lalu`;
-  const jam = Math.floor(min / 60);
-  if (jam < 24) return `${jam} jam lalu`;
-  return `${Math.floor(jam / 24)} hari lalu`;
-}
-
-/** Changed files (FR-C3, FR-C4), read from the ledger in the DB. The diff
- *  was already computed at write time, so expanding a row touches no disk. */
-function ChangedFiles({ detail }: { detail: ThreadDetail }) {
+/** Files of this thread the ledger cannot attribute to a turn.
+ *
+ *  Files written from now on appear under the answer that wrote them (see
+ *  `FileCard`), so this section only carries rows recorded before the ledger knew
+ *  which turn wrote them — older conversations, or a turn whose message failed to
+ *  save. It renders the same cards, so a file is never listed twice and never
+ *  disappears: it is either attributed (in the transcript) or it is here.
+ */
+function UnattributedFiles({ detail }: { detail: ThreadDetail }) {
   const [open, setOpen] = useState(true);
-  const files = detail.files;
+  const files = detail.files.filter((f) => !f.messageId);
+  if (!files.length) return null;
+
   const totalAdd = files.reduce((n, f) => n + (f.linesAdded ?? 0), 0);
   const totalDel = files.reduce((n, f) => n + (f.linesRemoved ?? 0), 0);
-  const root = detail.rootPath ?? null;
 
   return (
     <div className="border-t border-kumo-line shrink-0">
@@ -1220,117 +1280,14 @@ function ChangedFiles({ detail }: { detail: ThreadDetail }) {
           <span className="text-sm font-medium text-kumo-default">{files.length} berkas berubah</span>
           <span className="text-sm text-green-400">+{totalAdd}</span>
           <span className="text-sm text-red-400">−{totalDel}</span>
+          <span className="text-xs text-kumo-subtle ml-1">dari sebelum berkas punya penanda jawaban</span>
         </button>
       </div>
       {open ? (
-        <div className="mx-auto w-full max-w-3xl px-6 pb-3 grid gap-1 max-h-64 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl px-6 pb-3 grid gap-2 max-h-72 overflow-y-auto">
           {files.map((f) => (
-            <FileRow key={f.id} file={f} root={root} />
+            <FileCard key={f.id} file={f} root={detail.rootPath ?? null} projectId={detail.thread.projectId} />
           ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Absolute path of a workspace-relative file, or null when the root is unknown. */
-function absolutePathOf(root: string | null, rel: string): string | null {
-  if (!root) return null;
-  const trimmed = root.replace(/[/\\]+$/, "");
-  return `${trimmed}/${rel}`;
-}
-
-function FileRow({ file, root }: { file: ThreadFile; root: string | null }) {
-  const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"diff" | "content">("diff");
-  const target = file.route ? ROUTE_TO_TAB[file.route] : undefined;
-  const opLabel = file.op === "create" ? "baru" : file.op === "update" ? "diubah" : file.op === "delete" ? "dihapus" : "dipindah";
-  const projectId = window.location.pathname.split("/")[2];
-  const diff = file.diffJson ?? null;
-  const canPreview = file.op !== "delete";
-  const abs = file.op === "delete" ? null : absolutePathOf(root, file.path);
-
-  /** Open with the OS default app / reveal in the file manager. Desktop only:
-   *  a web build has no such channel, and the tab link stays the way to look. */
-  async function openWithOs(mode: "open" | "reveal") {
-    if (!abs || !inDesktopShell()) return;
-    try {
-      const mod = await import("@tauri-apps/plugin-opener");
-      if (mode === "open") await mod.openPath(abs);
-      else await mod.revealItemInDir(abs);
-    } catch {
-      /* the OS refused (no handler for the type, permission) — the file is still
-         reachable from its tab or from the workspace panel */
-    }
-  }
-
-  return (
-    <div className="grid">
-      <div className="flex items-center gap-3 text-sm">
-        <button
-          onClick={() => (diff || canPreview) && setOpen((v) => !v)}
-          className={`w-16 shrink-0 text-left text-kumo-subtle ${diff || canPreview ? "hover:text-kumo-default" : "cursor-default"}`}
-          title={diff ? "Lihat perubahan atau isinya" : canPreview ? "Lihat isinya" : undefined}
-        >
-          {diff || canPreview ? (open ? "▾ " : "▸ ") : ""}
-          {opLabel}
-        </button>
-        <span className={`${MONO} text-kumo-default truncate flex-1`} title={file.path}>
-          {file.path}
-        </span>
-        {file.linesAdded || file.linesRemoved ? (
-          <span className="shrink-0">
-            <span className="text-green-400">+{file.linesAdded ?? 0}</span> <span className="text-red-400">−{file.linesRemoved ?? 0}</span>
-          </span>
-        ) : null}
-        {file.source !== "tool" ? <span className="text-kumo-subtle shrink-0">({file.source})</span> : null}
-        {target && projectId ? (
-          <a href={`/projects/${projectId}/${target.tab}`} className="text-kumo-brand shrink-0 hover:underline" title={`Buka di tab ${target.label}`}>
-            {target.label}
-          </a>
-        ) : null}
-        {abs && inDesktopShell() ? (
-          <>
-            <button onClick={() => void openWithOs("open")} className="text-kumo-brand shrink-0 hover:underline" title={`Buka ${file.path} dengan aplikasi default`}>
-              Buka
-            </button>
-            <button onClick={() => void openWithOs("reveal")} className="text-kumo-subtle shrink-0 hover:underline hover:text-kumo-default" title="Tampilkan di Finder">
-              Finder
-            </button>
-          </>
-        ) : null}
-      </div>
-      {open ? (
-        <div className="mt-1 mb-2 grid gap-1.5">
-          {/* Two views of the same file, never both at once: the panel is ~460px
-              wide, and stacking a diff under a preview buries the transcript. */}
-          <div className="flex rounded-lg ring ring-kumo-line p-0.5 w-fit">
-            {(diff ? (["diff", "content"] as const) : (["content"] as const)).map((v) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={`rounded-md px-2 py-0.5 text-xs ${view === v ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle hover:bg-kumo-elevated"}`}
-              >
-                {v === "diff" ? "Perubahan" : "Isi"}
-              </button>
-            ))}
-          </div>
-          {view === "diff" && diff ? (
-            <pre className={`${MONO} max-h-56 overflow-auto rounded-lg ring ring-kumo-line px-2.5 py-2 bg-kumo-base`}>
-              {diff.split("\n").map((line, i) => (
-                <div
-                  key={i}
-                  className={
-                    line.startsWith("+") ? "text-green-400" : line.startsWith("-") ? "text-red-400" : line.startsWith("@@") ? "text-kumo-brand" : "text-kumo-subtle"
-                  }
-                >
-                  {line || " "}
-                </div>
-              ))}
-            </pre>
-          ) : (
-            <ArtifactPreview path={file.path} route={file.route} projectId={projectId} />
-          )}
         </div>
       ) : null}
     </div>

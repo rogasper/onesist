@@ -17,7 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { loadProjectRouteData } from "~/lib/project-queries";
-import { usePageVisible } from "~/lib/use-file-data";
+import { usePageVisible, fileChangedPayload } from "~/lib/use-file-data";
 import { TaskList, type TaskViewMode, type TaskGroup } from "~/components/tasks/TaskList";
 import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
@@ -383,8 +383,7 @@ function TasksPage() {
         }
         es.addEventListener("file:changed", (e) => {
           try {
-            const msg = JSON.parse((e as MessageEvent).data);
-            const p: string = msg?.data?.path ?? "";
+            const p = fileChangedPayload(JSON.parse((e as MessageEvent).data)).path ?? "";
             if (!p.replace(/\\/g, "/").includes("output/task")) return;
             schedule();
           } catch {}

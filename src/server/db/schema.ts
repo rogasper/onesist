@@ -441,6 +441,13 @@ export const chatThreadFiles = sqliteTable(
      *  "changed files" card can show its changes after a restart, without
      *  re-reading the disk or depending on stream history. */
     diffJson: text("diff_json"),
+    /** Assistant message (turn) that wrote this file, stamped when the turn is
+     *  saved. The transcript shows a turn's files as its own section at the end
+     *  of the answer (UJI-MANUAL C9b), which needs per-turn attribution — the
+     *  ledger on its own only knows the thread. NULL for rows written before
+     *  this column existed, and for a turn whose message failed to save; those
+     *  fall back to the thread-level list. */
+    messageId: text("message_id"),
     firstSeenAt: text("first_seen_at").default("datetime('now')"),
     lastSeenAt: text("last_seen_at").default("datetime('now')"),
   },

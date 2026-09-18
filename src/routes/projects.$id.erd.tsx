@@ -61,11 +61,17 @@ function ErdPage() {
     return erdFiles.filter((f) => f.name.toLowerCase().includes(q));
   }, [erdFiles, fileSearch]);
 
-  // Auto-select first file if current is invalid
+  // Auto-select the file to draw. The list is newest-first, and a turn that
+  // writes `erd.dbml` + `erd.md` puts the MARKDOWN first — the canvas then fed
+  // a `.md` to the DBML parser and rendered nothing, which reads as "the file
+  // the agent just wrote is not here" (reported 2026-09-18, UJI-MANUAL C9).
+  // So: prefer a `.dbml` whenever the current selection is gone or was never
+  // set. A file the user picked by hand is left alone.
   useEffect(() => {
-    if (erdFiles.length > 0 && (!selectedFile || !erdFiles.some((f) => f.path === selectedFile))) {
-      setSelectedFile(erdFiles[0].path);
-    }
+    if (!erdFiles.length) return;
+    if (selectedFile && erdFiles.some((f) => f.path === selectedFile)) return;
+    const dbml = erdFiles.find((f) => f.ext === ".dbml");
+    setSelectedFile((dbml ?? erdFiles[0]).path);
   }, [erdFiles, selectedFile]);
 
   // Sync localText when content changes
@@ -81,10 +87,22 @@ function ErdPage() {
     } catch {}
   }, [localText]);
 
-  // Live file watch — silent auto-import for new project (Windows): any new erd file refreshes list + content
+  // Live file watch — the agent writing `output/erd/<modul>/erd.dbml` while
+  // this tab is open must show up without leaving and re-entering the tab
+  // (UJI-MANUAL C9). The hook filters by route, so only this tab's files arrive.
   useFileWatch("erd", (path) => {
     void refreshFiles();
-    if (path === selectedFile) void refreshContent();
+    const norm = path.replace(/\\/g, "/");
+    if (norm === selectedFile) {
+      void refreshContent();
+      return;
+    }
+    // A DBML the list does not know yet is the one the agent just created —
+    // show it. An update to some OTHER file must not steal the view away from
+    // what the user is reading, and nothing jumps while the DBML editor is open
+    // (that would replace text being typed).
+    const known = erdFiles.some((f) => f.path === norm);
+    if (/\.dbml$/i.test(norm) && !known && !showEditor) setSelectedFile(norm);
   });
   // Also watch master files at root (MASTER_ERD.md) which type is "master" not "erd"
   useFileWatch("master", () => { void refreshFiles(); });

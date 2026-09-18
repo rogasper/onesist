@@ -36,8 +36,6 @@ interface MentionTextareaProps {
    *  Without this the chat composer cannot use this component: Enter must
    *  send the message, while Enter when picking an item must insert it. */
   onSubmit?: () => void;
-  /** Called when files are dropped onto the textarea (attachment). */
-  onFilesDropped?: (files: File[]) => void;
   disabled?: boolean;
   /** Grow the field with its content up to the CSS `max-height`, instead of
    *  scrolling inside a fixed box. Opt-in: callers that size the textarea
@@ -124,7 +122,6 @@ export function MentionTextarea({
   className,
   placeholder,
   onSubmit,
-  onFilesDropped,
   disabled,
   autoGrow,
   maxHeightPx,
@@ -133,7 +130,6 @@ export function MentionTextarea({
   const backdropRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
-  const [dropActive, setDropActive] = useState(false);
   /** Index of the trigger whose popup is open, or null. */
   const [openTrigger, setOpenTrigger] = useState<number | null>(null);
 
@@ -245,15 +241,6 @@ export function MentionTextarea({
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLTextAreaElement>) => {
-    if (!onFilesDropped) return;
-    const dropped = Array.from(e.dataTransfer?.files ?? []);
-    if (!dropped.length) return;
-    e.preventDefault();
-    setDropActive(false);
-    onFilesDropped(dropped);
-  };
-
   const isSkillTrigger = active?.char === "$";
 
   // Trigger tokens are drawn by a mirror layer BEHIND the textarea: a textarea
@@ -315,17 +302,10 @@ export function MentionTextarea({
             backdropRef.current.scrollLeft = el.scrollLeft;
           }
         }}
-        onDragOver={(e) => {
-          if (!onFilesDropped) return;
-          e.preventDefault();
-          setDropActive(true);
-        }}
-        onDragLeave={() => setDropActive(false)}
-        onDrop={handleDrop}
         onBlur={() => {
           setTimeout(() => setOpenTrigger(null), 120);
         }}
-        className={`${className ?? ""} ${dropActive ? "ring-2 ring-kumo-brand" : ""}`}
+        className={className}
         placeholder={placeholder}
       />
       {open && active ? (

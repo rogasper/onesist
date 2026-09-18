@@ -32,6 +32,7 @@ import { finishRun, getRun, getRunForThread, listPendingApprovals, resolveApprov
 import {
   addTokens,
   appendMessage,
+  attributeThreadFilesToMessage,
   autoTitleFrom,
   createThread,
   deleteThread,
@@ -74,6 +75,8 @@ import {
 } from "~/server/agent/memory";
 import { estimateCost } from "~/server/agent/cost";
 import { getSetting, normalizeAgentMaxSteps } from "~/server/agent/settings";
+import { eventBus } from "~/server/realtime/events";
+import { detectRoute } from "~/lib/file-router";
 import type { FileChange } from "~/server/agent/tools";
 import { normalizeMaxSteps } from "~/server/agent/types";
 
@@ -380,6 +383,9 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   let errorText: string | null = null;
   /** Highest step number the loop reported (FR-B11). */
   let lastStepCount = 0;
+  /** Output tokens of the reply, kept in this scope so the truncation notice can
+   *  report the ceiling that was hit. */
+  let lastOutputTokens: number | null = null;
   const stepBudget = normalizeMaxSteps(current.maxSteps);
 
   // Changed-file ledger (FR-C3, FR-C4) and duration measurement (FR-B5).
@@ -505,6 +511,7 @@ async function handleSendMessage(ctx: any): Promise<Response> {
             const usage: any = await result.usage;
             inputTokens = usage?.inputTokens ?? null;
             outputTokens = usage?.outputTokens ?? null;
+            lastOutputTokens = outputTokens;
           } catch {
             /* usage unavailable — no reason to fail the save */
           }
@@ -522,6 +529,16 @@ async function handleSendMessage(ctx: any): Promise<Response> {
             error: errorText,
           }).id;
           if (inputTokens || outputTokens) addTokens(current.id, inputTokens ?? 0, outputTokens ?? 0);
+
+          // The files this turn wrote belong to the answer it just produced, so
+          // the transcript can show its own file section (UJI-MANUAL C9b). The
+          // paths come from the ledger's own write hook, so a file the tool
+          // reported is attributed even when the diff was empty (create).
+          try {
+            attributeThreadFilesToMessage({ threadId: current.id, paths: [...diffsByPath.keys()], messageId });
+          } catch (err) {
+            console.error("[chat] failed to attribute changed files to the turn:", err);
+          }
 
           // Tool calls & their durations (FR-B4, FR-B5). This table was previously
           // never written, so step durations and per-tool diffs had no data
@@ -571,6 +588,28 @@ async function handleSendMessage(ctx: any): Promise<Response> {
             });
           } catch (err) {
             console.error("[chat] failed to record step-limit notice:", err);
+          }
+        }
+
+        // Output budget reached (FR-A14, FR-B15). `finishReason: "length"` means
+        // the provider cut the answer at `maxOutputTokens` — and when that happens
+        // in the middle of a TOOL CALL's arguments, the tool never runs at all.
+        // Measured 2026-09-18: `write_file` for a large spec stopped at exactly
+        // 8192 output tokens (the configured ceiling), the file was never
+        // created, the tool row spun as "berjalan" forever, and the turn was
+        // recorded `done` with no error anywhere. Silence is the worst outcome
+        // here, so the transcript states what happened and what to do.
+        const truncated = !isAborted && !errorText && timing.lastFinishReason === "length";
+        if (truncated) {
+          try {
+            appendMessage({
+              threadId: current.id,
+              role: "system",
+              kind: "truncatedNotice",
+              parts: [{ type: "data-notice", data: { kind: "truncated", outputTokens: lastOutputTokens } }],
+            });
+          } catch (err) {
+            console.error("[chat] failed to record truncation notice:", err);
           }
         }
       } catch (err) {
@@ -646,11 +685,23 @@ router.post("chat/threads/:id/attachments", async (ctx) => {
       abs = path.join(dir, `${stem}-${n}${ext}`);
     }
     fs.writeFileSync(abs, buf);
+    announceWorkspaceWrite(rel, root);
     return json({ path: rel, name: path.basename(rel), size: buf.length }, 201);
   } catch (e: any) {
     return json({ error: `Gagal menyimpan lampiran: ${e?.message ?? e}` }, 500);
   }
 });
+
+/** Announce a file the APP itself wrote on the same bus the file watcher uses.
+ *
+ *  `input/uploads` is deliberately not one of the watched directories, so
+ *  without this the file a user just attached stays invisible to every surface
+ *  that refreshes from `file:changed` — the `@` popup, the workspace panel —
+ *  until some unrelated write happens to fire an event. Uploads resolve to
+ *  route "other", which no artifact tab filters on. */
+function announceWorkspaceWrite(relPath: string, projectRoot: string) {
+  eventBus.emitFileChanged(detectRoute(relPath), relPath, projectRoot);
+}
 
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 

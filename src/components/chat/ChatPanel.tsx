@@ -6,6 +6,7 @@ import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { relTime } from "~/lib/rel-time";
 
 /**
  * Chat panel docked on the right side (FR-B1).
@@ -40,12 +41,17 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
 
   const { detail, loading: detailLoading, refresh: refreshDetail } = useChatThread(activeId);
 
-  useEffect(() => {
-    if (!visible) return;
-    if (activeId) return;
-    if (threads.length) setActiveId(threads[0].id);
-  }, [visible, threads, activeId]);
+  // NO auto-select on open (changed 2026-09-18, UJI-MANUAL C10). It used to jump
+  // straight into the most recently updated thread, so reopening the app
+  // dropped the user back into yesterday's conversation when what they wanted
+  // was an empty chat. Now the panel starts on the start state (new conversation
+  // button + the three most recent threads) and the active thread is only ever
+  // set by an explicit choice. Within one app session, closing and reopening the
+  // panel keeps whatever was chosen, because the panel stays mounted (`hidden`).
 
+  // The selection must not outlive its thread: after a delete, or after
+  // switching to another project (whose thread list does not contain it), the
+  // panel goes back to the start state instead of showing a stale thread.
   useEffect(() => {
     if (activeId && !loading && !threads.some((t) => t.id === activeId)) setActiveId(null);
   }, [threads, activeId, loading]);
@@ -116,12 +122,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
 
         <div className="flex-1 min-h-0">
           {!activeId ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center">
-              <p className="text-sm text-kumo-subtle">Belum ada percakapan di project ini.</p>
-              <Button variant="secondary" onClick={handleNew} disabled={creating}>
-                Mulai percakapan
-              </Button>
-            </div>
+            <ThreadStartState threads={threads} loading={loading} creating={creating} onNew={handleNew} onPick={setActiveId} />
           ) : detailLoading && !detail ? (
             <p className="text-sm text-kumo-subtle px-4 py-3">Memuat percakapan…</p>
           ) : detail ? (
@@ -165,6 +166,73 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
       >
         Riwayat pesan dan daftar berkas yang berubah pada percakapan ini akan dihapus. Berkas di workspace project tidak ikut terhapus.
       </ConfirmDialog>
+    </div>
+  );
+}
+
+/** Start state of the panel: no conversation is active yet.
+ *
+ *  This is how the panel OPENS (see the note above the removed auto-select), so
+ *  it is not an error state and must not look like one: the way back into the
+ *  work is one click away in both directions — start a new conversation, or
+ *  continue one of the three most recent. The full list stays in the picker in
+ *  the header; three is how many fit before this stops being scannable. */
+function ThreadStartState({
+  threads,
+  loading,
+  creating,
+  onNew,
+  onPick,
+}: {
+  threads: ThreadSummary[];
+  loading: boolean;
+  creating: boolean;
+  onNew: () => void;
+  onPick: (id: string) => void;
+}) {
+  if (loading && !threads.length) {
+    return <p className="text-sm text-kumo-subtle px-4 py-3">Memuat percakapan…</p>;
+  }
+
+  const recent = threads.slice(0, 3);
+
+  // One column, one width, and spacing that groups what belongs together: the
+  // description sits with the action (gap-2), the "lanjutkan" list is a separate
+  // block with a wider gap (kumo `related-text-spacing`). The previous version
+  // used a single gap-3 for everything and a 320px list under a centered
+  // paragraph, so the block read as three unrelated things.
+  return (
+    <div className="h-full flex flex-col items-center justify-center px-6">
+      <div className="w-full max-w-sm grid gap-6 text-center">
+        <div className="grid gap-2 justify-items-center">
+          <p className="text-sm text-kumo-subtle">
+            {threads.length
+              ? "Pilih percakapan lama untuk dilanjutkan, atau mulai yang baru."
+              : "Belum ada percakapan di project ini."}
+          </p>
+          <Button variant="secondary" onClick={onNew} disabled={creating}>
+            Mulai percakapan
+          </Button>
+        </div>
+
+        {recent.length ? (
+          <div className="grid gap-0.5 text-left">
+            {/* Sentence case, no tracking, 12px: a section label is not a heading
+                (kumo `heading-case` / `font-tracking`). */}
+            <p className="px-3 pb-1 text-xs text-kumo-subtle">Lanjutkan</p>
+            {recent.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => onPick(t.id)}
+                className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-kumo-elevated"
+              >
+                <span className="text-sm text-kumo-default truncate min-w-0 flex-1">{t.title || "Percakapan baru"}</span>
+                <span className="text-xs text-kumo-subtle shrink-0 tabular-nums">{relTime(t.updatedAt)}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

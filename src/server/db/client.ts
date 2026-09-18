@@ -203,6 +203,9 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     // chat columns added after 0006 — see migrations/0007_*.sql
     "ALTER TABLE chat_messages ADD COLUMN reasoning_ms INTEGER",
     "ALTER TABLE chat_thread_files ADD COLUMN diff_json TEXT",
+    // Which assistant turn wrote a file (the transcript's per-answer file
+    // section, UJI-MANUAL C9b) — see migrations/0014_white_sentinel.sql.
+    "ALTER TABLE chat_thread_files ADD COLUMN message_id TEXT",
     // Fase 5.5: harga per juta token untuk perkiraan biaya (diisi user).
     "ALTER TABLE llm_providers ADD COLUMN input_price_per_mtok REAL",
     "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",

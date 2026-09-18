@@ -6,7 +6,7 @@
  * in-memory ring buffer lost on server restart.
  */
 import crypto from "node:crypto";
-import { and, asc, desc, eq, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
 import { MAX_STEPS_DEFAULT, type FileOp, type PermissionMode, type ThreadMode } from "./types";
@@ -447,6 +447,28 @@ export function upsertThreadFile(input: {
 }
 
 export const DIFF_STORE_LIMIT = 40_000;
+
+/**
+ * Stamp the files a turn touched with the assistant message that wrote them.
+ *
+ * The ledger is per thread (unique on thread+path, so a repeated write updates
+ * the row instead of piling up), which is right for the workspace view but not
+ * enough for the transcript: the file section belongs to the ANSWER that
+ * produced it (UJI-MANUAL C9b). Attribution happens here, at the end of the turn,
+ * rather than inside the write path — the assistant message id only exists once
+ * the turn is saved, and a turn is allowed to write the same file twice.
+ *
+ * Paths with no row (deleted in between, or never recorded) are simply skipped:
+ * attribution is presentation, and it must never fail a turn that really did
+ * write its files.
+ */
+export function attributeThreadFilesToMessage(input: { threadId: string; paths: string[]; messageId: string }): void {
+  if (!input.paths.length) return;
+  db.update(chatThreadFiles)
+    .set({ messageId: input.messageId })
+    .where(and(eq(chatThreadFiles.threadId, input.threadId), inArray(chatThreadFiles.path, input.paths)))
+    .run();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Files read by a thread (FR-C12)

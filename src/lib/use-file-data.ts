@@ -60,6 +60,28 @@ export function useFileContent(path: string | null, projectId?: string): { conte
   return { content, loading, refresh };
 }
 
+/**
+ * The `file:changed` payload, whichever shape it arrives in.
+ *
+ * The SSE route forwards the event-bus envelope verbatim —
+ * `{ type, data: { route, path, root }, timestamp }` — while the first version
+ * of `useFileWatch` read `route`/`path` off the TOP level. `data.route` was
+ * therefore always `undefined`, the route filter never matched, and every
+ * consumer of that hook was silently deaf: the ERD canvas (and the sketch
+ * canvas) only refreshed after leaving and re-entering the tab (reported
+ * 2026-09-18, UJI-MANUAL C9). `useFileChanged` had the unwrap right — this
+ * helper is that one definition, shared, and it still accepts a flat payload so
+ * neither caller depends on which side of the wire it is talking to.
+ *
+ * Pure and exported on purpose: the contract between the SSE route and the
+ * client is exactly the kind of thing a verification suite should pin down.
+ */
+export function fileChangedPayload(raw: unknown): { route?: string; path?: string; root?: string } {
+  const envelope = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
+  const inner = envelope.data && typeof envelope.data === "object" ? envelope.data : envelope;
+  return inner as { route?: string; path?: string; root?: string };
+}
+
 export function useFileWatch(routeType: string, onFileChanged?: (path: string) => void) {
   const handlerRef = useRef(onFileChanged);
   handlerRef.current = onFileChanged;
@@ -83,8 +105,8 @@ export function useFileWatch(routeType: string, onFileChanged?: (path: string) =
         }
         es.addEventListener("file:changed", (e) => {
           try {
-            const data = JSON.parse(e.data);
-            if (data.route === routeType) handlerRef.current?.(data.path);
+            const data = fileChangedPayload(JSON.parse(e.data));
+            if (data.route === routeType) handlerRef.current?.(data.path ?? "");
           } catch {}
         });
         // WebView/browser EventSource auto-reconnects forever; give up after
@@ -139,8 +161,7 @@ export function useFileChanged(onChange?: (data: { route?: string; path?: string
         }
         es.addEventListener("file:changed", (e) => {
           try {
-            const envelope = JSON.parse((e as MessageEvent).data);
-            handlerRef.current?.(envelope?.data ?? envelope ?? {});
+            handlerRef.current?.(fileChangedPayload(JSON.parse((e as MessageEvent).data)));
           } catch {
             /* malformed event: ignore */
           }

@@ -64,6 +64,85 @@
 .spec-markdown strong { color: #fefefe; font-weight: 500; }
 .spec-markdown blockquote { border-left: 2px solid #64b5f6; padding-left: 1rem; margin: 0.5rem 0; color: #d4d4d4; }
 
+/* Chat answer typography (Fase 5, laporan 2026-09-18: "kurang nyaman dibaca, tidak
+ * tahu mana penekannya, ada overflow-x"). Tailwind's preflight removes every
+ * heading/list/paragraph default, so without this an answer is one
+ * undifferentiated block of 14px text: headings look like sentences, lists lose
+ * their markers and spacing, and bold is nearly invisible.
+ *
+ * Rules: hierarchy comes from SIZE + WEIGHT + SPACING (never colour alone, so it
+ * survives both themes); every long token wraps inside the panel — a path or an
+ * unbroken code line must never push a horizontal scrollbar over the transcript;
+ * and `pre` scrolls on its own, because that is the only place a scrollbar
+ * belongs. */
+.chat-markdown {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.chat-markdown > *:first-child { margin-top: 0; }
+.chat-markdown > *:last-child { margin-bottom: 0; }
+.chat-markdown p { margin: 0.6rem 0; line-height: 1.7; }
+.chat-markdown h1 { font-size: 1.0625rem; font-weight: 600; margin: 1.3rem 0 0.55rem; }
+.chat-markdown h2 { font-size: 1rem; font-weight: 600; margin: 1.15rem 0 0.5rem; }
+.chat-markdown h3 { font-size: 0.9375rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+.chat-markdown h4 { font-size: 0.875rem; font-weight: 600; margin: 0.85rem 0 0.35rem; }
+.chat-markdown h1, .chat-markdown h2 {
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--color-kumo-line, #2a2a2a);
+}
+.chat-markdown ul, .chat-markdown ol { margin: 0.5rem 0; padding-left: 1.35rem; line-height: 1.7; }
+.chat-markdown ul { list-style: disc; }
+.chat-markdown ol { list-style: decimal; }
+.chat-markdown ul ul { list-style-type: circle; }
+.chat-markdown ol ol { list-style-type: lower-alpha; }
+.chat-markdown li { margin: 0.25rem 0; }
+.chat-markdown li > p { margin: 0.2rem 0; }
+/* `**tebal**` is the plan's only emphasis channel, so it must be unmistakable:
+   weight 600 plus the strongest readable tone. */
+.chat-markdown strong { font-weight: 600; color: var(--color-kumo-strong, currentColor); }
+.chat-markdown em { font-style: italic; }
+.chat-markdown code {
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  font-size: 0.8125rem;
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--color-kumo-elevated, #18181b) 85%, transparent);
+  border: 1px solid var(--color-kumo-line, #2a2a2a);
+  overflow-wrap: anywhere;
+}
+.chat-markdown pre {
+  margin: 0.6rem 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.5rem;
+  background: var(--color-kumo-base, #0f0f10);
+  border: 1px solid var(--color-kumo-line, #2a2a2a);
+  overflow-x: auto;
+  max-width: 100%;
+}
+.chat-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+.chat-markdown table { width: 100%; max-width: 100%; border-collapse: collapse; margin: 0.7rem 0; font-size: 0.875rem; }
+.chat-markdown th, .chat-markdown td {
+  border: 1px solid var(--color-kumo-line, #2a2a2a);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.chat-markdown th { background: color-mix(in srgb, var(--color-kumo-elevated, #18181b) 70%, transparent); font-weight: 600; }
+.chat-markdown blockquote {
+  margin: 0.6rem 0;
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--color-kumo-brand, #64b5f6);
+  color: var(--color-kumo-subtle, #a1a1aa);
+}
+.chat-markdown hr { border: none; border-top: 1px solid var(--color-kumo-line, #2a2a2a); margin: 1.25rem 0; }
+.chat-markdown a { color: var(--color-kumo-brand, #64b5f6); text-decoration: underline; text-underline-offset: 2px; }
+
 /* Docs preview — keep wide mermaid diagrams and tables inside the pane (no horizontal scroll). */
 .docs-preview { min-width: 0; overflow-x: hidden; }
 .docs-preview .mermaid-wrap { max-width: 100%; }

@@ -494,6 +494,16 @@ export function ProviderSettings({ open, onClose }: Props) {
                 placeholder="8192"
                 onChange={(e) => setDraft((d) => ({ ...d, maxOutputTokens: e.target.value ? Number(e.target.value) : null }))}
               />
+              {typeof draft.maxOutputTokens === "number" && draft.maxOutputTokens > 0 && draft.maxOutputTokens <= 8192 ? (
+                // Measured 2026-09-18: at 8192 the agent's attempt to write a full
+                // spec in ONE tool call was cut off mid-arguments — the file was
+                // never created and nothing reported an error. The ceiling is a
+                // real limit on how much the model can write in a single step.
+                <p className="mt-1.5 text-xs text-amber-400">
+                  Nilai ini membatasi panjang satu tulisan: berkas artefak besar (spec/ERD/docs) akan terpotong di tengah
+                  jalan dan toolnya tidak dijalankan. Naikkan (mis. 16384–32768) bila agent menulis dokumen panjang.
+                </p>
+              ) : null}
             </FieldRow>
 
             <FieldRow

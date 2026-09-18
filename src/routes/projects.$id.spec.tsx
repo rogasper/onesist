@@ -8,7 +8,7 @@ import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { parseMarkdownToModules } from "~/lib/spec-parser";
 import { SpecSidebar } from "~/components/spec/SpecSidebar";
 import { SpecViewer } from "~/components/spec/SpecViewer";
-import { useFileList, useFileContent, useFileWatch, usePageVisible } from "~/lib/use-file-data";
+import { useFileList, useFileContent, useFileWatch, usePageVisible, fileChangedPayload } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { PageHeader } from "~/components/ui/PageHeader";
@@ -166,8 +166,7 @@ function SpecPage() {
         }
         es.addEventListener("file:changed", (e) => {
           try {
-            const msg = JSON.parse((e as MessageEvent).data);
-            const p: string = msg?.data?.path ?? "";
+            const p = fileChangedPayload(JSON.parse((e as MessageEvent).data)).path ?? "";
             const norm = p.replace(/\\/g, "/");
             if (!norm.startsWith("output/spec") && norm !== "MASTER_SPEC_API.md") return;
             schedule();

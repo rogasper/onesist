@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@cloudflare/kumo";
 import { ArrowUp, CaretDown, Check, Info, ListChecks, Paperclip, ShieldCheck, Stop, X } from "@phosphor-icons/react";
 import { MentionTextarea, type MentionFile, type MentionTrigger } from "~/components/docs/MentionTextarea";
+import { useFileDropZone } from "~/lib/file-drop";
 import { ModelPicker } from "~/components/chat/ModelPicker";
 import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
 
@@ -9,8 +10,9 @@ import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption
  * Chat composer (FR-B, FR-C10, FR-C11, ADR-001 D8).
  *
  * Contents: the explicit context entry path (`@` files via MentionTextarea,
- * plus file attachments from disk), the selector for how far the agent may
- * act (Answer/Do + permission mode), the model picker, and the job status.
+ * plus file attachments — dragged in from Finder/Explorer, or picked with the
+ * clip button), the selector for how far the agent may act (Answer/Do +
+ * permission mode), the model picker, and the job status.
  *
  * Attachments are saved into the project workspace (see the attachment
  * route), then referenced as `@…` paths in the message — not inlined as
@@ -114,6 +116,10 @@ export function Composer(props: Props) {
   } = props;
 
   const fileRef = useRef<HTMLInputElement>(null);
+  // The drop target is the WHOLE composer box (see the JSX below): while
+  // dragging, the box highlights and the drop lands wherever it is released
+  // inside it — dropping on the toolbar row used to do nothing.
+  const drop = useFileDropZone(onAttach);
   const [showActions, setShowActions] = useState(false);
   const [permOpen, setPermOpen] = useState(false);
   const permRef = useRef<HTMLDivElement>(null);
@@ -226,8 +232,12 @@ export function Composer(props: Props) {
 
         {/* Unified composer box: textarea + its own toolbar row, so attach /
            mode / actions / permission / model / send read as one control
-           instead of a separate bar stacked above the text field. */}
-        <div className="@container/composer rounded-xl ring ring-kumo-line bg-kumo-elevated focus-within:ring-kumo-brand">
+           instead of a separate bar stacked above the text field. It is also
+           the drop target for files dragged in from Finder/Explorer. */}
+        <div
+          {...drop.dropProps}
+          className={`@container/composer rounded-xl ring bg-kumo-elevated focus-within:ring-kumo-brand ${drop.active ? "ring-2 ring-kumo-brand" : "ring-kumo-line"}`}
+        >
           <MentionTextarea
             value={input}
             onChange={onInput}
@@ -236,7 +246,6 @@ export function Composer(props: Props) {
             rows={2}
             disabled={disabled}
             onSubmit={onSubmit}
-            onFilesDropped={onAttach}
             autoGrow
             maxHeightPx={176}
             placeholder={streaming ? "Agent sedang bekerja…" : "Tulis instruksi · / perintah · @ berkas · $ skill"}

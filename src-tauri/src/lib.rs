@@ -53,6 +53,9 @@ fn open_project_window(
         .title("Onesist")
         .inner_size(1440.0, 900.0)
         .min_inner_size(800.0, 600.0)
+        // HTML5 file drops (composer attachments) instead of Tauri's own
+        // drag-drop events — see the note on the main window.
+        .disable_drag_drop_handler()
         .build()
         .map_err(|e| e.to_string())?;
     // Only main window uses close-to-tray; other windows close normally
@@ -131,6 +134,9 @@ pub fn run() {
           is_first_run = true;
           eprintln!("[splash] first run detected, showing splash");
           // Create splash before sidecar so user sees animation during wait_healthy (sampai selesai)
+          // The splash keeps Tauri's drag-drop handler on purpose: it has no
+          // page-side drop target, so swallowing a stray drop is safer there
+          // than letting WebKit navigate the window to a dropped file.
           match tauri::WebviewWindowBuilder::new(
             app,
             "splash",
@@ -185,6 +191,16 @@ pub fn run() {
         .title("Onesist")
         .inner_size(1440.0, 900.0)
         .min_inner_size(800.0, 600.0)
+        // Let the WEB PAGE handle OS file drags. By default Tauri installs its
+        // own drag-drop handler, which consumes the drop and emits
+        // `tauri://drag-drop` instead — so the DOM never sees `drop`, and
+        // dragging a file from Finder onto the chat composer did nothing
+        // (reported 2026-09-18, UJI-MANUAL C5). With the handler disabled wry
+        // falls through to the platform default, WebKit/WebView2 deliver a
+        // normal HTML5 drop, and the page gets a real `File` to upload. The
+        // page-side guard against a stray drop navigating the WebView lives in
+        // `src/lib/file-drop.ts` (`useGlobalDropGuard`).
+        .disable_drag_drop_handler()
         .build()?;
         // Restore position/size/maximized, but NEVER restore a hidden
         // (visible:false) state: a hidden-but-rendering WebView at full
@@ -381,6 +397,8 @@ fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
                 .title("Onesist")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(800.0, 600.0)
+                // Same reason as the main window: HTML5 drops, not Tauri's.
+                .disable_drag_drop_handler()
                 .build();
         }
         _ => {}
