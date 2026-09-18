@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.44 — Fix: skill diagram-svg & query-writer tidak pernah sampai ke aplikasi
+
+### Fix — dua skill baru selalu gagal terinstal (project baru tidak bisa lanjut)
+- **`src-tauri/src/sidecar.rs` — `ensure_skills_dir()` disegarkan setiap kali aplikasi dibuka.** Sebelumnya fungsi ini hanya menyalin `resources/vendor-skills` ke appData **satu kali seumur instalasi** (penjaganya: "kalau `fsd-analyzer/SKILL.md` belum ada"). Akibatnya, begitu aplikasi pernah dijalankan, penambahan skill baru di rilis berikutnya tidak pernah ikut tersalin: salinan di appData tetap berisi `fsd-analyzer` + `markitdown` saja. Installer lalu melaporkan `Vendored skill missing: vendor/skills/<nama>/SKILL.md` untuk `diagram-svg` dan `query-writer` — 2 dari 4 skill gagal, dan project baru tidak bisa melewati langkah setup skill. Sekarang perilakunya sama seperti `ensure_server_dir`: direktori dibersihkan lalu disalin ulang tiap launch.
+
+### Fix — project duplikat saat percobaan diulang
+- **`src/server/routes/projects/index.ts` — `POST /api/projects` kini idempoten per folder.** Setiap percobaan membuka folder mengirim POST baru dan tiap POST menyisipkan baris baru, jadi folder yang sama menumpuk menjadi beberapa project identik ketika langkah setup skill gagal dan diulang. Sekarang folder yang sudah terdaftar (dibandingkan lewat `path.resolve`, mengabaikan garis miring di akhir) mengembalikan baris yang sudah ada.
+
+### Verifikasi
+- Route API asli di server uji, dengan salinan database aplikasi dan `SA_VENDOR_SKILLS_DIR` menunjuk ke salinan appData asli: POST folder yang sama dua kali mengembalikan **id yang sama** (1 baris di DB), lalu `POST /skills/install` mencapai `ready` dengan keempat skill (`fsd-analyzer`, `markitdown`, `diagram-svg`, `query-writer`) terpasang dan `SKILL.md` benar-benar ada di `.agents/skills/` project.
+- Salinan appData yang basi juga sudah disinkronkan langsung, sehingga aplikasi yang sedang berjalan bisa menginstal tanpa menunggu rilis.
+- **Bump `0.1.43 → 0.1.44`**.
+
 ## v0.1.43 — Fix: hapus project + banner skills yang macet
 
 ### Fix — Project tidak bisa dihapus

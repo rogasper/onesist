@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { eq } from "drizzle-orm";
 import { json, notFound } from "../../http/response";
 import { Router } from "../../http/router";
@@ -50,6 +51,20 @@ router.post("projects", async ({ body }) => {
     ensureProjectStructure(rootPath);
   } else if (rootPath) {
     return json({ error: "Folder not found or not accessible" }, 400);
+  }
+
+  // Idempotent open. Every failed attempt in the skill-setup step used to send a
+  // fresh POST, and each one inserted another row for the same folder — a user who
+  // retried a few times ended up with several identical projects. Opening a folder
+  // that is already registered returns the existing row instead of a duplicate.
+  if (rootPath) {
+    const wanted = path.resolve(rootPath).replace(/[/\\]+$/, "");
+    const existing = db
+      .select()
+      .from(projects)
+      .all()
+      .find((p: typeof projects.$inferSelect) => p.rootPath && path.resolve(p.rootPath).replace(/[/\\]+$/, "") === wanted);
+    if (existing) return json(existing);
   }
 
   if (!name) name = "Untitled";
