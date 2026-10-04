@@ -210,9 +210,9 @@ jobs:
             if [ -n "$PREV_TAG" ]; then RANGE="${PREV_TAG}..${GITHUB_SHA}"; else RANGE=""; fi
             if [ -n "$RANGE" ]; then git log --format='- %s' "$RANGE"; else git log --format='- %s'; fi | sed 's/^/- /' > /tmp/release_notes.md
           fi
-          # macOS DMGs are unsigned, so Gatekeeper quarantines the download and
-          # refuses to open the app. Surface the one-line fix where users actually
-          # download it. Drop this block once releases are signed and notarized.
+          # macOS DMGs carry no Developer ID signature, so Gatekeeper quarantines
+          # the download and refuses to open the app. Surface the fix where users
+          # actually download it. Drop this block once releases are notarized.
           cat >> /tmp/release_notes.md <<'EOF'
 
           ---
@@ -222,6 +222,8 @@ jobs:
           ```
           xattr -cr /Applications/Onesist.app
           ```
+
+          Kalau macOS malah menawarkan **Open Anyway**, itu juga cukup: buka **System Settings → Privacy & Security**, lalu klik Open Anyway untuk Onesist.
 
           Detailnya di [#3](https://github.com/rogasper/onesist/issues/3).
           EOF
