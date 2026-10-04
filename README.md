@@ -71,7 +71,7 @@ Onesist ships as a native, lightweight desktop application for **macOS (Apple Si
 
 ### Installing the macOS Build
 
-Release `.dmg` files are not code-signed yet, so macOS quarantines the download and refuses to open the app with *"Onesist is damaged and can't be opened"* (or *"Apple could not verify … is free of malware"* on macOS 15 and newer). The build itself is fine — after dragging the app into `/Applications`, clear the quarantine flag once:
+Release `.dmg` files are not signed with an Apple Developer ID yet — they only carry an ad-hoc signature — so macOS quarantines the download and refuses to open the app with *"Onesist is damaged and can't be opened"* (or *"Apple could not verify … is free of malware"* on macOS 15 and newer). The build itself is fine — after dragging the app into `/Applications`, clear the quarantine flag once:
 
 ```bash
 xattr -cr /Applications/Onesist.app
