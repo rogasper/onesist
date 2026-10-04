@@ -33,12 +33,36 @@ import {
  *  - no "Templates"/"Scenario Prompt Templates" — format conventions in
  *    Onesist are carried by the skill (`fsd-analyzer`), not prompt templates
  *  - there is an Agent turn limit (FR-L7), which DBX also has and is equally useful
+ *
+ * A `variant="modal"` shell exists for callers that must not lose their own
+ * state while the user configures a provider (Open Project): it floats over the
+ * caller instead of covering the app, but keeps the same max-w-4xl content
+ * width, so the constraint above still holds.
  */
 const MONO = "font-mono text-[0.8125rem]";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** `page` covers the whole app (default); `modal` floats over the caller. */
+  variant?: "page" | "modal";
+  /** Called with the saved provider when the surface is run as a modal. */
+  onSaved?: (provider: ProviderSummary) => void;
+}
+
+/** The two views' shell: full-surface, or a bounded panel over the caller. */
+function Frame({ variant, onBackdropClick, children }: { variant: "page" | "modal"; onBackdropClick?: () => void; children: React.ReactNode }) {
+  if (variant === "page") {
+    return <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">{children}</div>;
+  }
+  return (
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-kumo-recessed opacity-80" onClick={onBackdropClick} />
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[85vh] w-[min(94vw,60rem)] flex flex-col rounded-xl bg-kumo-base overflow-hidden">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 const API_STYLES = [
@@ -230,7 +254,7 @@ function Toggle({ checked, onChange, label, description, disabled }: { checked: 
 
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
-export function ProviderSettings({ open, onClose }: Props) {
+export function ProviderSettings({ open, onClose, variant = "page", onSaved }: Props) {
   const { providers, presets, loading, error, refresh, createProvider, updateProvider, deleteProvider, testProvider, testDraft, getModelsForDraft } = useProviders();
 
   const [view, setView] = useState<"list" | "form">("list");
@@ -269,6 +293,19 @@ export function ProviderSettings({ open, onClose }: Props) {
     else if (current) setDraft(draftFrom(current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
+
+  // Modal only: Escape closes this surface rather than the dialog behind it,
+  // which would take the caller's half-filled form with it.
+  useEffect(() => {
+    if (!open || variant !== "modal") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [open, variant, onClose]);
 
   if (!open) return null;
 
@@ -311,8 +348,18 @@ export function ProviderSettings({ open, onClose }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      if (isNew) await createProvider(draft);
-      else if (current) await updateProvider(current.id, { ...draft, apiKey: draft.apiKey.trim() || undefined });
+      const saved = isNew
+        ? await createProvider(draft)
+        : current
+          ? await updateProvider(current.id, { ...draft, apiKey: draft.apiKey.trim() || undefined })
+          : null;
+      // Run as a modal, the surface hands the result back and closes: the caller
+      // can select it without re-reading the list.
+      if (saved && onSaved) {
+        onSaved(saved);
+        onClose();
+        return;
+      }
       setView("list");
       setSelected(null);
     } catch (err: any) {
@@ -381,7 +428,8 @@ export function ProviderSettings({ open, onClose }: Props) {
   // ── Form view (drill-in) ────────────────────────────────────────────────
   if (view === "form") {
     return (
-      <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">
+      // A draft lives here, so the backdrop never closes this view.
+      <Frame variant={variant}>
         <header className="flex items-center gap-3 px-8 py-4 border-b border-kumo-line shrink-0">
             <Button variant="ghost" onClick={backToList} icon={<ArrowLeft size={14} />}>
               Back
@@ -691,13 +739,14 @@ export function ProviderSettings({ open, onClose }: Props) {
             </Button>
           </div>
         </footer>
-      </div>
+      </Frame>
     );
   }
 
   // ── List view ────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">
+    // Nothing is unsaved in the list, so the backdrop may dismiss it.
+    <Frame variant={variant} onBackdropClick={onClose}>
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-4xl">
           <header className="flex items-center gap-4 px-8 py-6">
@@ -772,7 +821,7 @@ export function ProviderSettings({ open, onClose }: Props) {
           </Button>
         </div>
       </footer>
-    </div>
+    </Frame>
   );
 }
 

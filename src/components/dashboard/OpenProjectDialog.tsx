@@ -180,7 +180,9 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
 
   return (
     <>
-      <DialogRoot open={open} onOpenChange={onOpenChange}>
+      {/* While the provider modal is up it owns escape/outside-press, so the
+          half-filled form behind it is never dismissed by accident. */}
+      <DialogRoot open={open} onOpenChange={(next) => { if (providersOpen) return; onOpenChange(next); }}>
         <Dialog>
           <div className="p-5">
             <DialogTitle>Open Project</DialogTitle>
@@ -328,7 +330,12 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
       />
 
       <ProviderSettings
+        variant="modal"
         open={providersOpen}
+        // Selecting the fresh provider is enough: the project default is only
+        // written once the project is actually opened, so cancelling changes
+        // nothing app-wide.
+        onSaved={(p) => { if (p.usable) setProviderId(p.id); }}
         onClose={() => { setProvidersOpen(false); loadProviders(); }}
       />
     </>
