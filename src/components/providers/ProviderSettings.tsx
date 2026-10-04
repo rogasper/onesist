@@ -231,7 +231,7 @@ function Toggle({ checked, onChange, label, description, disabled }: { checked: 
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
 export function ProviderSettings({ open, onClose }: Props) {
-  const { providers, presets, loading, error, createProvider, updateProvider, deleteProvider, testProvider, testDraft, getModelsForDraft } = useProviders();
+  const { providers, presets, loading, error, refresh, createProvider, updateProvider, deleteProvider, testProvider, testDraft, getModelsForDraft } = useProviders();
 
   const [view, setView] = useState<"list" | "form">("list");
   const [selected, setSelected] = useState<string | "new" | null>(null);
@@ -253,7 +253,10 @@ export function ProviderSettings({ open, onClose }: Props) {
     if (!open) return;
     setView("list");
     setSelected(null);
-  }, [open]);
+    // Reopening should show what the server knows, not what it knew when this
+    // surface first mounted.
+    void refresh();
+  }, [open, refresh]);
 
   useEffect(() => {
     setSaveError(null);
@@ -271,6 +274,9 @@ export function ProviderSettings({ open, onClose }: Props) {
 
   const nameState = validateName(draft.name, providers, current?.id);
   const testIsCurrent = testedFingerprint !== null && testedFingerprint === draftFingerprint(draft);
+  /** True when the tested configuration is not the one stored on the server, so
+   *  its result is deliberately not remembered (FR-L5) and the footer says so. */
+  const testedConfigNotStored = isNew || (current ? draftFingerprint(draft) !== draftFingerprint(draftFrom(current)) : false);
 
   function openNew() {
     setSelected("new");
@@ -285,6 +291,20 @@ export function ProviderSettings({ open, onClose }: Props) {
   async function refreshList(): Promise<ProviderSummary[]> {
     const res = await fetch("/api/providers", { cache: "no-store" });
     return (await res.json()).providers as ProviderSummary[];
+  }
+
+  /**
+   * Leave the form for the list.
+   *
+   * Always re-reads the list, because a test writes the result to the server and
+   * the list carries it: without the refresh, a configuration proven working a
+   * second ago still read "belum diuji" (reported 2026-09-27) — the row was only
+   * as fresh as the last load of this surface.
+   */
+  function backToList() {
+    setView("list");
+    setSelected(null);
+    void refresh();
   }
 
   async function handleApply() {
@@ -320,7 +340,20 @@ export function ProviderSettings({ open, onClose }: Props) {
         setTestedFingerprint(fp);
         return;
       }
-      const result = await testProvider(current!.id, { ...draft, apiKey: draft.apiKey.trim() || undefined } as Partial<ProviderDraft>);
+      // Send the draft ONLY when it differs from the stored configuration.
+      // The server tests an explicit body but refuses to store its result
+      // (FR-L5: a "terhubung" must never be recorded for a config that is not
+      // the stored one) — and the form used to always send one, so testing an
+      // unchanged provider succeeded and was then forgotten: the list kept
+      // saying "belum diuji" (reported 2026-09-27). With no body the server
+      // tests the stored row and records the outcome, which is exactly what a
+      // test of an unchanged provider means. Equivalence uses the same
+      // fingerprint the form already shows as "config changed since the test".
+      const unchanged = draftFingerprint(draft) === draftFingerprint(draftFrom(current!));
+      const result = await testProvider(
+        current!.id,
+        unchanged ? undefined : ({ ...draft, apiKey: draft.apiKey.trim() || undefined } as Partial<ProviderDraft>),
+      );
       setTestResult(result);
       setTestedFingerprint(fp);
     } catch (err: any) {
@@ -350,9 +383,9 @@ export function ProviderSettings({ open, onClose }: Props) {
     return (
       <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">
         <header className="flex items-center gap-3 px-8 py-4 border-b border-kumo-line shrink-0">
-          <Button variant="ghost" onClick={() => setView("list")} icon={<ArrowLeft size={14} />}>
-            Back
-          </Button>
+            <Button variant="ghost" onClick={backToList} icon={<ArrowLeft size={14} />}>
+              Back
+            </Button>
           <span className="text-sm font-semibold text-kumo-default">{isNew ? "Konfigurasi baru" : current?.name}</span>
         </header>
 
@@ -625,6 +658,10 @@ export function ProviderSettings({ open, onClose }: Props) {
                   Terhubung
                   {typeof testResult.latencyMs === "number" ? ` · ${testResult.latencyMs} ms` : ""}
                   {testResult.modelUsed ? ` · ${testResult.modelUsed}` : ""}
+                  {/* A draft — or a config that differs from the stored one — is
+                      tested without being remembered, so say why the list will
+                      not show this result. */}
+                  {testedConfigNotStored ? <span className="text-kumo-subtle"> · belum disimpan — tekan Apply agar tersimpan</span> : null}
                 </>
               ) : (
                 <>
@@ -646,7 +683,7 @@ export function ProviderSettings({ open, onClose }: Props) {
             </Button>
           ) : null}
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="secondary" onClick={() => setView("list")}>
+            <Button variant="secondary" onClick={backToList}>
               Cancel
             </Button>
             <Button variant="primary" onClick={handleApply} disabled={readOnly || saving || nameState !== "valid"}>
