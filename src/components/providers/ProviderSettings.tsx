@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button } from "@cloudflare/kumo";
+import { Button, Dialog, DialogRoot } from "@cloudflare/kumo";
 import { ArrowLeft, Eye, EyeSlash, Plus, X } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import {
@@ -35,9 +35,9 @@ import {
  *  - there is an Agent turn limit (FR-L7), which DBX also has and is equally useful
  *
  * A `variant="modal"` shell exists for callers that must not lose their own
- * state while the user configures a provider (Open Project): it floats over the
- * caller instead of covering the app, but keeps the same max-w-4xl content
- * width, so the constraint above still holds.
+ * state while the user configures a provider (Open Project): the app's own
+ * dialog chrome, over the caller, wide enough that the constraint above still
+ * holds.
  */
 const MONO = "font-mono text-[0.8125rem]";
 
@@ -50,18 +50,20 @@ interface Props {
   onSaved?: (provider: ProviderSummary) => void;
 }
 
-/** The two views' shell: full-surface, or a bounded panel over the caller. */
-function Frame({ variant, onBackdropClick, children }: { variant: "page" | "modal"; onBackdropClick?: () => void; children: React.ReactNode }) {
+/** The two views' shell: full-surface, or the app's dialog chrome over the caller. */
+function Frame({ variant, onClose, dismissible, children }: { variant: "page" | "modal"; onClose?: () => void; dismissible?: boolean; children: React.ReactNode }) {
   if (variant === "page") {
     return <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">{children}</div>;
   }
   return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-kumo-recessed opacity-80" onClick={onBackdropClick} />
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[85vh] w-[min(94vw,60rem)] flex flex-col rounded-xl bg-kumo-base overflow-hidden">
-        {children}
-      </div>
-    </div>
+    // The shared Dialog (not a hand-rolled panel) is what puts this above the
+    // caller's own dialog and keeps the app's chrome; 56rem leaves the inner
+    // max-w-4xl form exactly the width it has in page mode.
+    <DialogRoot open onOpenChange={(next) => { if (!next) onClose?.(); }} disablePointerDismissal={!dismissible}>
+      <Dialog className="sm:w-[56rem]">
+        <div className="flex flex-col max-h-[85vh]">{children}</div>
+      </Dialog>
+    </DialogRoot>
   );
 }
 
@@ -294,19 +296,6 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
-  // Modal only: Escape closes this surface rather than the dialog behind it,
-  // which would take the caller's half-filled form with it.
-  useEffect(() => {
-    if (!open || variant !== "modal") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      onClose();
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [open, variant, onClose]);
-
   if (!open) return null;
 
   const nameState = validateName(draft.name, providers, current?.id);
@@ -428,8 +417,8 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
   // ── Form view (drill-in) ────────────────────────────────────────────────
   if (view === "form") {
     return (
-      // A draft lives here, so the backdrop never closes this view.
-      <Frame variant={variant}>
+      // A draft lives here, so an outside press never closes this view.
+      <Frame variant={variant} onClose={onClose}>
         <header className="flex items-center gap-3 px-8 py-4 border-b border-kumo-line shrink-0">
             <Button variant="ghost" onClick={backToList} icon={<ArrowLeft size={14} />}>
               Back
@@ -746,7 +735,7 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
   // ── List view ────────────────────────────────────────────────────────
   return (
     // Nothing is unsaved in the list, so the backdrop may dismiss it.
-    <Frame variant={variant} onBackdropClick={onClose}>
+    <Frame variant={variant} onClose={onClose} dismissible>
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-4xl">
           <header className="flex items-center gap-4 px-8 py-6">
