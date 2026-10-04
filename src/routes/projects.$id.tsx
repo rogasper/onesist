@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { Badge } from "@cloudflare/kumo";
-import { Cube, Terminal as TerminalIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
+import { Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
@@ -10,10 +10,12 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // the panel in the initial tree (display:none when closed) so opening it is a
 // style toggle, not a subtree insert. createXterm is still deferred until open.
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
+import { ChatPanel } from "~/components/chat/ChatPanel";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
-import { useSkillInstall } from "~/lib/use-skill-install";
+import { useSkillInstall, skillNotice } from "~/lib/use-skill-install";
+import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { FsdEditor, type EditorMode } from "~/components/fsd/FsdEditor";
 import { AppButton } from "~/components/ui/AppButton";
 import { ContextMenu } from "~/components/ui/ContextMenu";
@@ -50,6 +52,7 @@ function ProjectLayout() {
   const location = useLocation();
   const { project } = Route.useLoaderData() as any;
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [termRetryKey, setTermRetryKey] = useState(0);
   const [terminalRunning, setTerminalRunning] = useState(false);
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
@@ -142,6 +145,8 @@ function ProjectLayout() {
     return <ProjectNotFound />;
   }
 
+  const notice = skillNotice(skill.state);
+
   return (
     <div className="flex h-full">
       <div className="flex-1 min-w-0 flex flex-col">
@@ -166,6 +171,17 @@ function ProjectLayout() {
               >
                 Search
                 <kbd className="text-[10px] font-mono px-1 py-0.2 rounded bg-kumo-elevated text-kumo-subtle border border-kumo-line/60 ml-1">⌘P</kbd>
+              </AppButton>
+              <AppButton
+                onClick={() => setChatOpen((p) => !p)}
+                variant="chip"
+                size="sm"
+                active={chatOpen}
+                activeColor="brand"
+                icon={<ChatIcon size={12} />}
+                className="px-3"
+              >
+                Chat
               </AppButton>
               <AppButton
                 onClick={() => setTerminalOpen((p) => !p)}
@@ -211,43 +227,49 @@ function ProjectLayout() {
           ))}
         </div>
 
-        {skill.state.status !== "idle" && skill.state.status !== "ready" && (
+        {notice && (
           <div className={`mb-4 px-3 py-2 rounded border text-xs flex items-center gap-2 ${
-            skill.state.status === "failed"
+            notice.tone === "red"
               ? "border-red-500/30 bg-red-500/10 text-red-400"
-              : skill.state.status === "outdated"
+              : notice.tone === "blue"
                 ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
                 : "border-amber-500/30 bg-amber-500/10 text-amber-400"
           }`}>
             <span className={`w-2 h-2 rounded-full shrink-0 ${
-              skill.state.status === "outdated" ? "bg-blue-400" : "animate-pulse bg-amber-400"
+              notice.pulse
+                ? "animate-pulse bg-amber-400"
+                : notice.tone === "red"
+                  ? "bg-red-400"
+                  : notice.tone === "blue"
+                    ? "bg-blue-400"
+                    : "bg-amber-400"
             }`} />
-            <span>
-              {skill.state.status === "failed"
-                ? "Project skills failed to install — AI analysis is unavailable. "
-                : skill.state.status === "outdated"
-                  ? "Skill update available — a newer version of the project skills can be installed. "
-                  : "Installing required project skills (fsd-analyzer, markitdown)… "}
-            </span>
-            {(skill.state.status === "failed" || skill.state.status === "outdated") && (
+            <span>{notice.text} </span>
+            {notice.action && (
               <button
                 onClick={() => skill.start(project.id)}
                 className="ml-auto px-2 py-1 text-[10px] rounded border border-kumo-line text-kumo-default hover:bg-kumo-elevated transition-colors"
               >
-                {skill.state.status === "outdated" ? "Update now" : "Retry install"}
+                {notice.action}
               </button>
             )}
           </div>
         )}
 
         <div className="flex-1 min-h-0">
-          {activeTab === "overview" ? (
-            <OverviewContent project={project} openTabs={openTabs} setOpenTabs={setOpenTabs} activeTabPath={activeTabPath} setActiveTabPath={setActiveTabPath} onFileClick={handleFileClick} onTabClose={handleTabClose} />
-          ) : (
-            <Outlet />
-          )}
+          {/* Markdown rendered in any tab resolves workspace-relative image
+              paths (`input/assets/…`) through this project id. */}
+          <ProjectIdProvider projectId={project.id}>
+            {activeTab === "overview" ? (
+              <OverviewContent project={project} openTabs={openTabs} setOpenTabs={setOpenTabs} activeTabPath={activeTabPath} setActiveTabPath={setActiveTabPath} onFileClick={handleFileClick} onTabClose={handleTabClose} />
+            ) : (
+              <Outlet />
+            )}
+          </ProjectIdProvider>
         </div>
       </div>
+
+      <ChatPanel visible={chatOpen} onClose={() => setChatOpen(false)} projectId={project.id} />
 
       <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
         <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />

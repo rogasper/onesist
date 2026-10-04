@@ -143,7 +143,10 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
     }
     removed = stale.length + orphans.length;
   }
-  return json({ inserted, updated, removed, skipped: skippedFiles.length });
+  if (skippedFiles.length > 0) {
+    console.warn(`[tasks/import] ${skippedFiles.length} file(s) tanpa task terdeteksi (cek heading ## Task / ### T1):`, skippedFiles);
+  }
+  return json({ inserted, updated, removed, skipped: skippedFiles.length, skippedFiles });
 });
 
 // GET /api/projects/:id/tasks/:taskId

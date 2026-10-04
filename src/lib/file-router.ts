@@ -294,7 +294,7 @@ export function moveFile(rootPath: string, source: string, destinationDir: strin
 
 export function ensureProjectStructure(rootPath: string): void {
   const dirs = [
-    "input", "input/fsd", "input/figma",
+    "input", "input/fsd", "input/figma", "input/assets",
     "output", "output/spec", "output/erd", "output/task",
     "output/td", "output/timeline", "output/reports",
   ];
@@ -365,11 +365,11 @@ export interface FileSearchResult {
   matches?: FileContentMatch[];
 }
 
-const IGNORED_DIRS = new Set([
+export const IGNORED_DIRS = new Set([
   "node_modules", ".git", "dist", "binaries", "target", ".gemini", ".cache", "coverage", ".next", ".turbo",
 ]);
 
-const TEXT_EXTS = new Set([
+export const TEXT_EXTS = new Set([
   ".md", ".json", ".dbml", ".sql", ".html", ".txt", ".yaml", ".yml", ".ts", ".tsx", ".js", ".jsx", ".csv", ".excalidraw",
 ]);
 

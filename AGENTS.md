@@ -150,11 +150,13 @@ The API is split into route modules under `server/routes/`, composed by the entr
 | `/api/projects/:id/specs/import` | POST | Import specs from output/ folder |
 | `/api/projects/:id/tasks` | GET, POST, PUT, DELETE | Task CRUD |
 | `/api/projects/:id/tasks/import` | POST | Import tasks from output/task/ folder |
+| `/api/projects/:id/rtm/import/preview` | POST | Parse output/rtm/*.md without writing |
+| `/api/projects/:id/rtm/import/apply` | POST | Parse output/rtm/*.md and upsert into DB |
 | `/api/projects/:id/wiki` | GET, POST, PUT, DELETE | Wiki page CRUD |
 | `/api/projects/:id/fsd` | GET, POST, PUT, DELETE | FSD session CRUD |
 | `/api/projects/:id/fsd/scan` | POST | Scan input/fsd/ for new documents |
 | `/api/projects/:id/fsd/upload` | POST | Upload files to input/fsd/ |
-| `/api/projects/:id/fsd/upload-image` | POST | Upload editor images to input/fsd/images/ |
+| `/api/projects/:id/assets/upload` | POST | Upload editor images to input/assets/ (answers with the root-relative path the markdown stores) |
 | `/api/projects/:id/fsd/:id/check` | POST | Check FSD completeness |
 | `/api/projects/:id/fsd/:id/ready` | POST | Mark FSD as ready for analysis |
 | `/api/projects/:id/fsd/:id/convert` | POST | Convert uploaded file to Markdown |
@@ -177,6 +179,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 
 ## Key Conventions
 
+- **Language:** source code is written in **English** — comments, identifiers, log lines, and internal error messages. What the *user* sees stays **Indonesian**: UI copy, and every string that reaches a user or the model, which includes `json({ error })` messages and tool `description:` fields. A comment-only change must never alter a string literal; if a user-facing string needs English, that is an i18n decision, not a language sweep.
 - **File paths:** Use `readFile(rootPath, relPath)` from file-router, not raw fs reads
 - **Database:** Use Drizzle queries through `db` instance from `server/db/client`. Runtime migrations add columns via `ALTER TABLE ... ADD COLUMN` in `client.ts`
 - **API layer:** All routes go through `handleApiRequest` → delegates to `handleProjects` for `/api/projects/*` routes

@@ -1,4 +1,4 @@
-export type AgentCli = "opencode" | "claude" | "codex" | "antigravity";
+export type AgentCli = "opencode" | "claude" | "codex" | "antigravity" | "pi";
 
 export interface AgentCommandOpts {
   mode: "new" | "resume";
@@ -63,6 +63,17 @@ export function buildAgentCommand(cli: AgentCli, opts: AgentCommandOpts): string
       if (opts.model) parts.push("--model", quoteArg(opts.model));
       return parts.join(" ");
     }
+    case "pi": {
+      if (opts.prompt) {
+        return `pi --mode json ${quoteArg(opts.prompt)}`;
+      }
+      const parts = ["pi", "--mode", "json"];
+      if (opts.mode === "resume" && opts.sessionId) {
+        parts.push("--session", quoteArg(opts.sessionId));
+      }
+      if (opts.model) parts.push("--model", quoteArg(opts.model));
+      return parts.join(" ");
+    }
   }
 }
 
@@ -83,9 +94,10 @@ export const AGENT_LABELS: Record<AgentCli, string> = {
   claude: "Claude Code",
   codex: "Codex",
   antigravity: "Antigravity",
+  pi: "Pi",
 };
 
-export const AGENT_DETECT_ORDER: AgentCli[] = ["opencode", "claude", "codex", "antigravity"];
+export const AGENT_DETECT_ORDER: AgentCli[] = ["opencode", "claude", "codex", "antigravity", "pi"];
 
 const AGENT_LOGOS: Record<string, string> = {
   opencode: "/images/opencode.png",
@@ -96,6 +108,9 @@ const AGENT_LOGOS: Record<string, string> = {
   // latter, so both keys must resolve.
   antigravity: "/images/antigravity.png",
   agy: "/images/antigravity.png",
+  // Pi logo is SVG (prefers-color-scheme aware: black on light, white on dark)
+  // — works on both themes. PNG fallback also exists at /images/pi.png.
+  pi: "/images/pi.svg",
 };
 
 /** Static logo path for an agent CLI (by its `command`/default_agent value),

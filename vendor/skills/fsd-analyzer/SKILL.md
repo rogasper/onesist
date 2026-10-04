@@ -1,6 +1,6 @@
 ---
 name: fsd-analyzer
-version: 1.5.0
+version: 1.6.0
 description: Analyze Functional Specification Documents (FSD) and produce Markdown & visual artifacts — API specs (spec_api.md), ERD (erd.md + optional DBML for dbdiagram.io), UML diagrams (PlantUML for sequence, class, activity, state, component, use case), interactive visual sketches & UI wireframes (output/sketches/*.excalidraw.json and *.mmd for Onesist Canvas), developer task cards (task.md) with Story Points, HTML Gantt timeline charts, Requirement Traceability Matrix (RTM.md) tracing business requirements to design solutions and test cases, OpenAPI 3.0 (openapi.yaml), and comprehensive System Integration Test (SIT) documents from all project artifacts, plus Oracle-standard SQL base examples (query-writer) for Spec & Task. Also perform gap analysis (FSD vs existing ERD/API), cross-artifact consistency checks (ERD vs API vs tasks), and development timeline estimation with dependency tracking and critical path analysis. Use when the user provides or references an FSD, business requirements, asks to generate/compare technical specs, find gaps vs the current database or API, validate consistency between ERD and spec, convert requirements into developer-ready documentation, create sketches/wireframes/visual flows on canvas, estimate development timeline, assign tasks to developers, build a traceability matrix, generate an OpenAPI spec, produce SIT test cases for QC, or asks to create/fix SQL (query-writer) — even without the words "FSD" or "system analyst".
 ---
 
@@ -143,7 +143,7 @@ Respond using this skill when the user says things like:
 4. **ERD** — Tables, columns, indexes, FKs; add **DBML** fenced block for dbdiagram (see `references/erd_format.md`).
 5. **UML** — PlantUML diagrams: sequence (API flows), class (entity model), activity (business flow), state (entity lifecycle), component (architecture), use case (actor capabilities). All in ` ```plantuml ` fenced blocks (see `references/uml_format.md`).
 6. **Tasks** — Dev-ready cards with **Story Points** (see `references/task_format.md`). Each task includes Context (3-5 lines for agent injection), Deskripsi (ID), Goals, Scope, Out of scope, Acceptance Criteria **Given-When-Then** checklist (`[ ]` testable), Flow Logic (with optional Mermaid diagram for complex flows), QC Checklist. **Required:** `### Flow Logic (step by step)` with complete numbered steps. **Story Point** field (1 SP = 4 hours). **Dependency fields** (Depends On, Blocks, Critical Path, Risk). **Agentic handoff fields** (Files Scope, Spec Ref, ERD Ref, RTM Ref) — conceptual paths valid even without a repo (no `fs.existsSync` check). **SQL** is only **base query examples** in **` ```sql `** (not a replacement for flow). Request/response in **` ```json `** (valid, no `mailto:`). Order: summary table (12 rows) → Context → Deskripsi → Goals → Scope → Out of scope → Acceptance Criteria (Given-When-Then) → Flow Logic → SQL example → Request/Response → Notes → QC Checklist. Companion `tasks.json` + `prompts/{code}.prompt.md` (English) generated for external agent execution.
-7. **Frontend tasks** — FE-specific task cards with component breakdown, API integration mapping, UI states, acceptance criteria (see `references/frontend_task_format.md`).
+7. **Frontend tasks** — FE-specific task cards with component breakdown, API integration mapping, UI states, acceptance criteria (see `references/frontend_task_format.md`). Kalau workspace punya gambar desain di `input/assets/`, kartunya **merujuk gambar itu** (`![…](input/assets/…)`) di samping link Figma — dev FE/fullstack sering membacanya tanpa membuka Figma. Cek dulu berkasnya ada; jangan mengarang path.
 8. **Gap analysis** — Structured diff vs existing artifacts (`references/gap_analysis.md`). Include migration plan when DB changes found (see `references/migration_strategy.md`).
 9. **Consistency** — Cross-check artifacts (`references/consistency_check.md`).
 10. **Auth & security** — Document auth patterns, role-permission matrix, security requirements (see `references/auth_security.md`).
@@ -177,16 +177,17 @@ Respond using this skill when the user says things like:
 | Artifact | Typical filename |
 |----------|------------------|
 | **Master (recommended for rolling context)** | **`MASTER_ERD.md`**, **`MASTER_SPEC_API.md`** |
-| API spec (slice or snapshot) | `spec_api.md`, `spec_api_<feature>.md` |
-| ERD (slice or snapshot) | `erd.md`, `erd_now.md`, `erd_<feature>.md` |
-| Tasks (backend) | `task.md`, `task_<feature>.md` |
-| Tasks (frontend) | `task_fe.md`, `task_fe_<feature>.md` |
+| API spec (per halaman/module) | `output/spec/<module>/spec.md` (buat folder `output/spec/<module>/` dulu, `mkdir -p`) |
+| ERD (per halaman) | `output/erd/<module>/erd.dbml` + `output/erd/<module>/erd.md` (folder per halaman) |
+| Tasks (backend, per halaman) | `output/task/<module>/task.md` (folder per halaman) |
+| Tasks (frontend) | `output/task/<module>/task_fe.md` (folder per halaman) |
+| Design image (kalau ada) | `input/assets/*.png` (gambar yang di-insert ke dokumen; rujuk dari task FE dengan `![…](input/assets/…)`, relatif root project) |
 | Tasks (agent) | `output/task/tasks.json` + `output/task/prompts/{code}.prompt.md` (English, per-task) |
 | Handoff bundle | `handoff-{project}-v{version}-{date}.zip` (context + spec + erd + rtm + task + prompts) |
-| Timeline HTML | `timeline_<feature>.html` |
+| Timeline HTML | `output/timeline/<feature>/timeline.html` (folder per halaman) |
 | RTM | `output/rtm/RTM.md` (default) / `output/rtm/RTM_<scope>.md` (scoped) |
 | OpenAPI | `output/spec/openapi.yaml` |
-| **SIT** — per-TC file | `output/sit/TC01.md`, `TC02.md`, ..., `TC{nn}.md` |
+| **SIT** — per-TC file | `output/sit/<module>/TC01.md`, `TC02.md`, ..., `TC{nn}.md` (folder per halaman jika per module) |
 | **SIT** — summary | `output/sit/SIT_SUMMARY.md` |
 | **Query base** | ````sql```` in Spec Flow Logic & Task SQL base (Oracle, `FETCH FIRST / OFFSET`) |
 | Project context | `project_context.md` |
@@ -194,6 +195,7 @@ Respond using this skill when the user says things like:
 **Markdown first:** deliver in chat and/or Write tool — user may **copy-paste** to Sheets or Monday without committing files.
 **HTML timeline:** self-contained file, open directly in browser for visual Gantt chart.
 **SIT:** one markdown file per TC group (module/domain), plus one summary; export to Excel (XLSX) is the QC guide.
+**Folder per halaman (WAJIB):** Setiap halaman/module **wajib** buat folder terpisah (`mkdir -p output/<type>/<module>/`) sebelum tulis file. Tanpa folder, file tidak terbaca di dashboard (scan recursive tapi UI grouping butuh folder). Contoh: `output/spec/auth/spec.md`, `output/erd/auth/erd.dbml`, `output/task/auth/task.md`.
 
 ---
 

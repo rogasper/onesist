@@ -9,8 +9,41 @@ import { spawnSync } from "node:child_process";
 import { db } from "~/server/db/client";
 import { projects } from "~/server/db/schema";
 import { resolveNodeExe } from "~/lib/resolve-node";
+import { recoverInterruptedRuns } from "~/server/agent/run-registry";
+import { startIndexWatcher } from "~/server/agent/index/watch";
 
-seedIfEmpty();
+// Wrapped: a seeding failure (e.g. schema not ready yet) must NOT kill the
+// process. A sidecar that dies at start leaves the desktop app hanging on
+// "Loading..." with no explanation, and that is far harder to diagnose than
+// a single log line.
+try {
+  seedIfEmpty();
+} catch (err: any) {
+  console.error(`[db] seed failed (app keeps running): ${err?.message ?? err}`);
+}
+
+// Runs still `running` come from a previous session that died mid-flight
+// — this process just started, so it cannot possibly be running them. Marking
+// them `interrupted` keeps the UI from showing an agent that only seems to be
+// still working.
+//
+// The import is STATIC, not `await import()`. See the note below: dynamic
+// imports in this file break the compiled sidecar.
+try {
+  const n = recoverInterruptedRuns();
+  if (n > 0) console.log(`[agent] ${n} run(s) marked interrupted (app exited while a run was in progress)`);
+} catch {}
+
+// Incremental index refresh (FR-I6): subscribe to the file:changed bus the watcher
+// already emits, so an edit updates the index for that file only. Started once per
+// process; `startIndexWatcher` returns an unsubscribe used by the verification
+// suite, not by production.
+try {
+  startIndexWatcher();
+  console.log("[index] reindex inkremental aktif (mengikuti event file:changed)");
+} catch (err: any) {
+  console.warn(`[index] reindex inkremental tidak aktif: ${err?.message ?? err}`);
+}
 
 // Register every project root so the file watcher emits SSE file:changed
 // events for project files (input/fsd etc.). Without this, the watcher only

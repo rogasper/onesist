@@ -11,7 +11,7 @@ router.post("events/ticket", async () => {
 
 // Cap concurrent SSE streams so a leaky client (e.g. WKWebView silently
 // reconnecting on every hide) can't accumulate unbounded eventBus listeners +
-// keepAlive intervals per connection. Each stream registers 7 listeners.
+// keepAlive intervals per connection. Each stream registers 9 listeners.
 let activeStreams = 0;
 const MAX_STREAMS = 24;
 
@@ -40,7 +40,7 @@ router.get("events", async (ctx) => {
         }
       };
       const handlers: Record<string, (...args: any[]) => void> = {};
-      for (const event of ["file:changed", "agent:log", "agent:status", "agent:done", "agent:error", "task:status", "fsd:conversion"]) {
+      for (const event of ["file:changed", "agent:log", "agent:status", "agent:done", "agent:error", "task:status", "fsd:conversion", "chat:run", "chat:approval"]) {
         const handler = (payload: any) => send(event, payload);
         eventBus.on(event, handler);
         handlers[event] = handler;
@@ -51,7 +51,7 @@ router.get("events", async (ctx) => {
       // silently reconnects, and every reconnect replays the page's change handler
       // (the ERD canvas re-reads its file and re-lays out on each one — measured
       // 2026-09-17: a 15 s keepalive died at 12 s, so the diagram refreshed itself
-      // every ~12 s).
+      // every ~12 s), losing whatever `file:changed` fired in the gap.
       const keepAlive = setInterval(() => send("keepalive", { ts: Date.now() }), 5000);
       cleanup = () => {
         if (isCleanedUp) return;

@@ -11,6 +11,9 @@ import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
+import { useGlobalDropGuard } from "~/lib/file-drop";
+import { useRunNotifications } from "~/lib/use-run-notifications";
+import { useClientErrorReporting } from "~/lib/use-client-error-report";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
@@ -124,6 +127,20 @@ function RootComponent() {
   const location = useLocation();
   const pathname = location.pathname;
   const isDashboardActive = pathname === "/";
+
+  // Desktop notifications for finished/blocked chat runs (FR-B16). Lives at the
+  // root so a run started in one project still reaches the user while they are
+  // working somewhere else (or with the window hidden to the tray).
+  useRunNotifications();
+
+  // Client-side failures go into the server log, which is the only log a local
+  // app has (see the module comment).
+  useClientErrorReporting();
+
+  // A file dropped outside a drop zone must not replace the app with the
+  // dropped file — the desktop shell no longer swallows OS drags (see
+  // `src/lib/file-drop.ts`).
+  useGlobalDropGuard();
 
   useEffect(() => {
     const fetchProjects = () => {

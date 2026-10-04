@@ -33,7 +33,10 @@ router.get("projects/:id/skills", async ({ params }) => {
       .where(eq(projects.id, params.id))
       .run();
   }
-  return json({ status, skills: statuses });
+  // The stored reason travels with the status: without it the UI could only
+  // say "installation failed" and never which skill or why (e.g. "Vendored
+  // skill missing: vendor/skills/diagram-svg/SKILL.md").
+  return json({ status, skills: statuses, error: proj.skillsError || null });
 });
 
 // POST /api/projects/:id/skills/install — install missing skills (background)

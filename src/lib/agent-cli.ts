@@ -17,6 +17,7 @@ const AGENTS: { name: string; command: string; minVersion: string }[] = [
   { name: "claude-code", command: "claude", minVersion: "2.0.0" },
   { name: "codex", command: "codex", minVersion: "0.1.0" },
   { name: "antigravity", command: "agy", minVersion: "1.0.0" },
+  { name: "pi", command: "pi", minVersion: "1.0.0" },
 ];
 
 const IS_WIN = process.platform === "win32";
@@ -129,9 +130,10 @@ export interface AgentModels {
   supported: boolean;
 }
 
-/** List selectable models for an agent CLI. Only opencode (`opencode models`)
- *  and antigravity (`agy models` → one `slug  Human Label` per line) expose a
- *  model list; claude/codex don't have an equivalent command. */
+/** List selectable models for an agent CLI. Only opencode (`opencode models`),
+ *  antigravity (`agy models` → one `slug  Human Label` per line), and
+ *  pi (`pi --list-models`) expose a model list; claude/codex don't have
+ *  an equivalent command. */
 export function listAgentModels(agentName: string): AgentModels {
   if (agentName === "opencode") {
     try {
@@ -149,6 +151,16 @@ export function listAgentModels(agentName: string): AgentModels {
       const out = execSync("agy models", { encoding: "utf-8", timeout: 15000 }).trim();
       const models = out.split("\n").map((l) => l.trim().split(/\s+/)[0]).filter(Boolean);
       return { models, supported: true };
+    } catch {
+      return { models: [], supported: false };
+    }
+  }
+  if (agentName === "pi") {
+    try {
+      // `pi --list-models` — one model id per line (optionally with description).
+      const out = execSync("pi --list-models", { encoding: "utf-8", timeout: 15000 }).trim();
+      const models = out.split("\n").map((l) => l.trim().split(/\s+/)[0]).filter(Boolean);
+      return { models: models.length ? models : [], supported: true };
     } catch {
       return { models: [], supported: false };
     }

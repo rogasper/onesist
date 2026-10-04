@@ -1,3 +1,5 @@
+import { IndexPanel } from "~/components/settings/IndexPanel";
+import { SubagentsPanel } from "~/components/settings/SubagentsPanel";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadProjectRouteData } from "~/lib/project-queries";
@@ -19,6 +21,7 @@ const AGENTS = [
   { value: "claude", label: "Claude Code", command: "claude" },
   { value: "codex", label: "Codex", command: "codex" },
   { value: "antigravity", label: "Antigravity", command: "agy" },
+  { value: "pi", label: "Pi", command: "pi" },
 ];
 
 const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20];
@@ -177,7 +180,15 @@ function SettingsPage() {
         </Section>
 
         {/* Terminal */}
-        <Section title="Terminal">
+        <Section title="Index">
+        <IndexPanel projectId={id} />
+      </Section>
+
+      <Section title="Subagent">
+        <SubagentsPanel projectId={id} />
+      </Section>
+
+      <Section title="Terminal">
           <Field label="Font Size">
             <FilterSelect
               value={String(terminalPrefs.fontSize)}

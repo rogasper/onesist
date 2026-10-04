@@ -48,6 +48,9 @@ function splitTask(task: Task) {
   const deps: string[] = task.dependenciesJson ? (JSON.parse(task.dependenciesJson) as string[]) : [];
   const excerpt = (task.description ?? "")
     .replace(/```[\s\S]*?```/g, "")
+    // Image lines carry a path, not prose: showing "!UI input/assets/x.png" in a
+    // card excerpt is noise (the image itself renders in the detail view).
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/[#*_`>\-|]/g, " ")
     .replace(/\s+/g, " ")
     .trim()

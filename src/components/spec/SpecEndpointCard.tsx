@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import { MermaidBlock } from "~/components/mermaid/MermaidBlock";
+import { WorkspaceImage } from "~/components/markdown/workspace-image";
 import type { ParsedEndpoint } from "~/lib/spec-parser";
 import { methodBadge } from "./SpecSidebar";
 
@@ -107,6 +108,9 @@ export function SpecEndpointCard({ endpoint, onNavigateDetail }: SpecEndpointCar
       }
       return <pre {...props}>{children}</pre>;
     },
+    // Same treatment as MarkdownViewer: workspace-relative image paths become
+    // requests to the raw-image route.
+    img: WorkspaceImage,
   }), [handleRawLink]);
 
   return (

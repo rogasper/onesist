@@ -10,9 +10,13 @@ import { router as docsRouter } from "./projects/docs";
 import { router as tasksRouter } from "./projects/tasks";
 import { router as handoffRouter } from "./projects/handoff";
 import { router as fsdRouter } from "./projects/fsd";
+import { router as assetsRouter } from "./projects/assets";
 import { router as rtmRouter } from "./projects/rtm";
 import { router as sitRouter } from "./projects/sit";
 import { router as canvasRouter } from "./canvas";
+import { router as providersRouter } from "./providers";
+import { router as chatRouter } from "./chat";
+import { router as settingsRouter } from "./settings";
 
 export const routers = [
   systemRouter,
@@ -27,7 +31,11 @@ export const routers = [
   tasksRouter,
   handoffRouter,
   fsdRouter,
+  assetsRouter,
   rtmRouter,
   sitRouter,
   canvasRouter,
+  providersRouter,
+  chatRouter,
+  settingsRouter,
 ];

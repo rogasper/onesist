@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MermaidBlock } from "./MermaidBlock";
 import { DiagramSvgBlock } from "~/components/diagram/DiagramSvgBlock";
+import { WorkspaceImage } from "~/components/markdown/workspace-image";
 
 (MermaidBlock as unknown as { displayName: string }).displayName = "MermaidBlock";
 (DiagramSvgBlock as unknown as { displayName: string }).displayName = "DiagramSvgBlock";
@@ -10,6 +11,18 @@ import { DiagramSvgBlock } from "~/components/diagram/DiagramSvgBlock";
 export interface MarkdownViewerProps {
   content: string;
   className?: string;
+  /**
+   * Optional replacement for fenced code blocks. Chat uses it to render
+   * ` ```dbml `, ` ```json `, and similar as action cards (ADR-001 D8).
+   *
+   * Deliberately a prop, not default behavior: `MarkdownViewer` is also used
+   * by the FSD, Wiki, Docs, Spec, and Task tabs. Changing the default would
+   * change all those tabs too — an unrequested regression.
+   *
+   * Return `null` for unhandled languages to fall through to the default
+   * rendering.
+   */
+  codeRenderer?: (lang: string, code: string) => React.ReactNode | null;
 }
 
 function toText(children: any, node?: any): string {
@@ -21,50 +34,61 @@ function toText(children: any, node?: any): string {
   return "";
 }
 
-function isMermaid(cls: any): boolean {
+function languageOf(cls: any): string {
   const classes = Array.isArray(cls) ? cls.join(" ") : (cls ?? "");
-  return /language-mermaid/.test(classes);
+  const m = /language-([\w-]+)/.exec(classes);
+  return m ? m[1].toLowerCase() : "";
 }
 
-function isDiagramSvg(cls: any): boolean {
-  const classes = Array.isArray(cls) ? cls.join(" ") : (cls ?? "");
-  return /language-diagram-svg/.test(classes) || /language-diagram_svg/.test(classes);
+/** Elements from `codeRenderer` and the diagram blocks stand alone — never
+ *  wrapped in a `<pre>`, since the card already has its own frame. Flagged via
+ *  `displayName` because the `pre` wrapper only receives element children. */
+function isBareBlock(kid: React.ReactNode): boolean {
+  if (!React.isValidElement(kid)) return false;
+  const type = kid.type as any;
+  return (
+    type === MermaidBlock ||
+    type === DiagramSvgBlock ||
+    type?.displayName === "MermaidBlock" ||
+    type?.displayName === "DiagramSvgBlock" ||
+    type?.displayName === BARE_CODE_BLOCK_DISPLAY_NAME
+  );
 }
 
-function isRawSvg(cls: any): boolean {
-  const classes = Array.isArray(cls) ? cls.join(" ") : (cls ?? "");
-  return /(^|\s)language-svg(\s|$)/.test(classes);
-}
+const BARE_CODE_BLOCK_DISPLAY_NAME = "BareCodeBlock";
 
-export function MarkdownViewer({ content, className }: MarkdownViewerProps) {
+export function MarkdownViewer({ content, className, codeRenderer }: MarkdownViewerProps) {
   const components: Record<string, React.ComponentType<any>> = {
     code({ className: cls, children, node, ...props }: any) {
-      if (isMermaid(cls)) {
+      const lang = languageOf(cls);
+      if (lang === "mermaid") {
         return <MermaidBlock code={toText(children, node)} />;
       }
-      if (isDiagramSvg(cls)) {
+      // Diagrams before `codeRenderer`: a ```diagram-svg / ```svg fence must
+      // render as a diagram in chat too, where the card renderer claims any
+      // block of 4 lines or more.
+      if (lang === "diagram-svg" || lang === "diagram_svg") {
         return <DiagramSvgBlock code={toText(children, node)} lang="diagram-svg" />;
       }
-      if (isRawSvg(cls)) {
+      if (lang === "svg") {
         return <DiagramSvgBlock code={toText(children, node)} lang="svg" />;
+      }
+      const rendered = codeRenderer?.(lang, toText(children, node));
+      if (rendered != null) {
+        return rendered as any;
       }
       return <code className={cls} {...props}>{children}</code>;
     },
     pre({ children, ...props }: any) {
       const kids = React.Children.toArray(children);
       for (const kid of kids) {
-        if (
-          React.isValidElement(kid) &&
-          ((kid.type as any) === MermaidBlock ||
-            (kid.type as any)?.displayName === "MermaidBlock" ||
-            (kid.type as any) === DiagramSvgBlock ||
-            (kid.type as any)?.displayName === "DiagramSvgBlock")
-        ) {
-          return kid;
-        }
+        if (isBareBlock(kid)) return kid;
       }
       return <pre {...props}>{children}</pre>;
     },
+    // Images in a document are stored project-relative (`input/assets/x.png`);
+    // without this the browser asks the SPA route for them and shows nothing.
+    img: WorkspaceImage,
   };
 
   return (

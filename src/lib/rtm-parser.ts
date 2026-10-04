@@ -8,7 +8,7 @@
  * ## Business Requirements
  * | ID | Title | Description |
  * |----|-------|-------------|
- * | BR-001 | Login & Autentikasi | Pengguna dapat masuk |
+ * | BR-001 | Login & Authentication | Users can log in |
  *
  * ## Design Solutions
  * | ID | Title | Source | Description |

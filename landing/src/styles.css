@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --color-kumo-recessed: #fcfcfa;
+  --color-kumo-brand: #6d7cff;
+  --color-kumo-info: #6d7cff;
+}
+
+* { font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif; }
+
+html { scroll-behavior: smooth; }
+
+.glass {
+  background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.62));
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid rgba(255,255,255,0.9);
+  box-shadow: 0 8px 32px rgba(16,24,40,0.08), 0 1px 3px rgba(16,24,40,0.06), inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+.glass-strong {
+  background: linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.72));
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.95);
+  box-shadow: 0 12px 40px rgba(16,24,40,0.10), 0 1px 3px rgba(16,24,40,0.06), inset 0 1px 0 rgba(255,255,255,1);
+}
+
+.glass-subtle {
+  background: rgba(255,255,255,0.62);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 4px 12px rgba(16,24,40,0.06);
+}
+
+.specular::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(600px circle at 18% 0%, rgba(255,255,255,0.9), transparent 42%);
+  pointer-events: none;
+}
+
+@keyframes float {
+  0%,100% { transform: translateY(0) rotate(3deg); }
+  50% { transform: translateY(-6px) rotate(3deg); }
+}
+.animate-float { animation: float 5s ease-in-out infinite; }
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+.shimmer::after {
+  content:"";
+  position:absolute; inset:0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 2.8s ease-in-out infinite;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}

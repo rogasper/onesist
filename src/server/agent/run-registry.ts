@@ -1,0 +1,361 @@
+/**
+ * Run registry + approval waiting (FR-E4, FR-K6).
+ *
+ * Design decision worth recording: approvals are managed **server-side**.
+ * The AI SDK offers a client-driven path (stream pauses, client
+ * sends back a `tool-approval-response`, the server resumes via
+ * `lastAssistantMessageIsCompleteWithApprovalResponses`). We chose the server
+ * path because Onesist is a local desktop app with a single client:
+ *
+ *  - a single streaming request, no need to reassemble message parts in the UI
+ *  - decisions stay on the server, so nothing can be forged from the WebView
+ *  - the UI only needs to send one POST
+ *
+ * Consequence to be aware of: if the app is closed while an approval is
+ * pending, that run is lost (marked `interrupted` on the next startup).
+ * The AI SDK's client-driven path can be adopted later if we want approvals
+ * that survive a restart.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
+import { and, eq } from "drizzle-orm";
+import { db } from "~/server/db/client";
+import { chatRuns, chatThreads, projects } from "~/server/db/schema";
+import { eventBus } from "~/server/realtime/events";
+import type { RunStatus } from "./types";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HMAC secret for approvals (FR-K6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let cachedSecret: string | null = null;
+
+function secretPath(): string {
+  const dbPath = process.env.SA_DB_PATH ? path.resolve(process.env.SA_DB_PATH) : path.resolve(process.cwd(), "data.db");
+  return path.join(path.dirname(dbPath), "agent-approval.secret");
+}
+
+/**
+ * Random per-installation secret, created once then reused. The AI SDK uses it
+ * to sign every approval request and verify it on replay, so approvals cannot
+ * be forged by the client (spike T3).
+ */
+export function getApprovalSecret(): string {
+  if (cachedSecret) return cachedSecret;
+  if (process.env.SA_AGENT_APPROVAL_SECRET) {
+    cachedSecret = process.env.SA_AGENT_APPROVAL_SECRET;
+    return cachedSecret;
+  }
+  const file = secretPath();
+  try {
+    if (fs.existsSync(file)) {
+      const existing = fs.readFileSync(file, "utf-8").trim();
+      if (existing.length >= 32) {
+        cachedSecret = existing;
+        return cachedSecret;
+      }
+    }
+    const fresh = crypto.randomBytes(32).toString("hex");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, fresh, { encoding: "utf-8", mode: 0o600 });
+    cachedSecret = fresh;
+    return cachedSecret;
+  } catch {
+    // If the filesystem is not writable, still run with a session secret —
+    // approvals keep working, they just don't survive restarts.
+    cachedSecret = crypto.randomBytes(32).toString("hex");
+    return cachedSecret;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Run state
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ActiveRun {
+  runId: string;
+  threadId: string;
+  projectId: string;
+  abort: AbortController;
+  status: RunStatus;
+  stepCount: number;
+  startedAt: number;
+  /** Approval currently awaiting the user's decision, keyed by `toolCallId`. */
+  pending: Map<string, PendingApproval>;
+  /** Permission decisions per `toolCallId` — "auto" | "approved" | "denied".
+   *  Kept so history can explain WHY a write went through
+   *  unprompted (FR-B4), which cannot be reconstructed after the run closes. */
+  decisions: Map<string, string>;
+  /** User messages handed to this run but not yet seen by a step. `prepareStep`
+   *  drains this between steps, which is the only point in a turn where the
+   *  model's message list can still be extended. */
+  inbox: InjectedMessage[];
+}
+
+export interface PendingApproval {
+  toolCallId: string;
+  name: string;
+  /** Argument summary shown on the approval card. */
+  preview: string;
+  reason?: string;
+  resolve: (decision: "approved" | "denied") => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** A message the user sent while the turn was running ("Kirim sekarang").
+ *  `role` is part of the type on purpose: `convertToModelMessages` refuses a
+ *  message without one ("Unsupported role: undefined"), and the first version of
+ *  this feature handed over `{ id, parts }` — the injection was accepted, stored
+ *  and rendered, and the model never saw it. */
+export interface InjectedMessage {
+  id: string;
+  role: "user";
+  parts: any[];
+}
+
+const RUNS = new Map<string, ActiveRun>();
+
+export const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
+
+export function createRun(opts: { runId: string; threadId: string; projectId: string; startedAt?: string }): ActiveRun {
+  const run: ActiveRun = {
+    runId: opts.runId,
+    threadId: opts.threadId,
+    projectId: opts.projectId,
+    abort: new AbortController(),
+    status: "running",
+    stepCount: 0,
+    startedAt: Date.now(),
+    pending: new Map(),
+    decisions: new Map(),
+    inbox: [],
+  };
+  RUNS.set(opts.runId, run);
+  try {
+    db.insert(chatRuns)
+      .values({
+        id: opts.runId,
+        threadId: opts.threadId,
+        status: "running",
+        stepCount: 0,
+        startedAt: opts.startedAt ?? new Date().toISOString(),
+      })
+      .run();
+  } catch {
+    /* run bookkeeping must never be what fails a conversation */
+  }
+  return run;
+}
+
+export function getRun(runId: string): ActiveRun | undefined {
+  return RUNS.get(runId);
+}
+
+export function getRunForThread(threadId: string): ActiveRun | undefined {
+  for (const run of RUNS.values()) if (run.threadId === threadId && run.status === "running") return run;
+  return undefined;
+}
+
+/**
+ * Hand a user message to the run that is currently working on this thread.
+ *
+ * Returns false when no run is active, so the caller can fall back to sending it
+ * as an ordinary turn instead of dropping it.
+ */
+export function queueUserMessage(threadId: string, message: InjectedMessage): boolean {
+  const run = getRunForThread(threadId);
+  if (!run) return false;
+  run.inbox.push(message);
+  return true;
+}
+
+/** Everything queued since the last call, oldest first. The run's `prepareStep`
+ *  appends these to the model's messages at the next step boundary. */
+export function drainInjectedMessages(runId: string): InjectedMessage[] {
+  const run = RUNS.get(runId);
+  if (!run || !run.inbox.length) return [];
+  return run.inbox.splice(0, run.inbox.length);
+}
+
+export function listActiveRuns(): { runId: string; threadId: string; stepCount: number }[] {
+  return [...RUNS.values()]
+    .filter((r) => r.status === "running")
+    .map((r) => ({ runId: r.runId, threadId: r.threadId, stepCount: r.stepCount }));
+}
+
+function persistStatus(runId: string, status: RunStatus, error?: string) {
+  try {
+    db.update(chatRuns)
+      .set({ status, error: error ?? null, finishedAt: status === "running" ? null : new Date().toISOString() })
+      .where(eq(chatRuns.id, runId))
+      .run();
+  } catch {
+    /* idem */
+  }
+}
+
+export function persistStepCount(runId: string, stepCount: number) {
+  try {
+    db.update(chatRuns).set({ stepCount }).where(eq(chatRuns.id, runId)).run();
+  } catch {
+    /* idem */
+  }
+}
+
+/**
+ * Names for the notification copy (Fase 5.6). A notification for an unfocused
+ * window has no UI to look things up in, so the plain names are resolved here,
+ * where the run still knows its thread. Never throws: notification bookkeeping
+ * must not be what fails a conversation.
+ */
+function notifyContext(threadId: string, projectId: string): { threadTitle: string | null; projectName: string | null } {
+  try {
+    const thread = db.select().from(chatThreads).where(eq(chatThreads.id, threadId)).get() as { title?: string | null } | undefined;
+    const project = db.select().from(projects).where(eq(projects.id, projectId)).get() as { name?: string | null } | undefined;
+    return { threadTitle: thread?.title?.trim() || null, projectName: project?.name?.trim() || null };
+  } catch {
+    return { threadTitle: null, projectName: null };
+  }
+}
+
+export function finishRun(runId: string, status: RunStatus, error?: string): void {
+  const run = RUNS.get(runId);
+  if (run) {
+    run.status = status;
+    for (const pending of run.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve("denied");
+    }
+    run.pending.clear();
+  }
+  persistStatus(runId, status, error);
+  RUNS.delete(runId);
+  // Emitted only when the run was still in the registry: that is the FIRST
+  // transition out of `running`. `finishRun` is called twice on some paths
+  // (the request-abort listener and then the stream's `finally`), and the
+  // notification must not fire twice for one run (FR-B16).
+  if (run) {
+    eventBus.emitChatRun({
+      runId,
+      threadId: run.threadId,
+      projectId: run.projectId,
+      status: status as "done" | "error" | "stopped" | "interrupted",
+      error: error ?? null,
+      ...notifyContext(run.threadId, run.projectId),
+    });
+  }
+}
+
+/** Stops a run: cancels the stream, rejects pending approvals,
+ *  and kills the child process via signal. */
+export function stopRun(runId: string): boolean {
+  const run = RUNS.get(runId);
+  if (!run) return false;
+  run.status = "stopped";
+  run.abort.abort();
+  for (const pending of run.pending.values()) {
+    clearTimeout(pending.timer);
+    pending.resolve("denied");
+  }
+  run.pending.clear();
+  persistStatus(runId, "stopped");
+  RUNS.delete(runId);
+  // The client gates on window focus, so a user who pressed Stop while looking
+  // at the app still sees nothing — only a hidden window hears about it.
+  eventBus.emitChatRun({
+    runId,
+    threadId: run.threadId,
+    projectId: run.projectId,
+    status: "stopped",
+    error: null,
+    ...notifyContext(run.threadId, run.projectId),
+  });
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Approval
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Waits for the user's decision on a tool call. Timeout resolves to `denied` —
+ *  hanging is safer than executing without consent. */
+export function awaitApproval(
+  runId: string,
+  info: { toolCallId: string; name: string; preview: string; reason?: string },
+): Promise<"approved" | "denied"> {
+  const run = RUNS.get(runId);
+  if (!run) return Promise.resolve("denied");
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      run.pending.delete(info.toolCallId);
+      run.decisions.set(info.toolCallId, "denied-timeout");
+      resolve("denied");
+    }, APPROVAL_TIMEOUT_MS);
+    run.pending.set(info.toolCallId, { ...info, resolve, timer });
+    // Emitted here, not at the call site: every future write tool inherits it,
+    // and the notification must be raised the moment the run actually blocks.
+    eventBus.emitChatApproval({
+      runId,
+      threadId: run.threadId,
+      projectId: run.projectId,
+      toolCallId: info.toolCallId,
+      name: info.name,
+      preview: info.preview,
+      ...notifyContext(run.threadId, run.projectId),
+    });
+  });
+}
+
+export function resolveApproval(runId: string, toolCallId: string, decision: "approved" | "denied"): boolean {
+  const run = RUNS.get(runId);
+  const pending = run?.pending.get(toolCallId);
+  if (!run || !pending) return false;
+  clearTimeout(pending.timer);
+  run.pending.delete(toolCallId);
+  run.decisions.set(toolCallId, decision);
+  pending.resolve(decision);
+  return true;
+}
+
+/** Records permission decisions that do NOT go through the approval card (auto mode,
+ *  readonly mode) so history can still explain why. */
+export function recordApprovalDecision(runId: string, toolCallId: string, decision: string): void {
+  RUNS.get(runId)?.decisions.set(toolCallId, decision);
+}
+
+export function getApprovalDecision(runId: string, toolCallId: string): string | null {
+  return RUNS.get(runId)?.decisions.get(toolCallId) ?? null;
+}
+
+export function listPendingApprovals(runId: string) {
+  const run = RUNS.get(runId);
+  if (!run) return [];
+  return [...run.pending.values()].map(({ toolCallId, name, preview, reason }) => ({ toolCallId, name, preview, reason }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Startup hygiene
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Marks runs still `running` as `interrupted`. Called when the server
+ * boots: a freshly started process cannot still be running a run from a
+ * previous session, and leaving them `running` makes the UI show an agent
+ * that only appears to still be working.
+ */
+export function recoverInterruptedRuns(): number {
+  try {
+    const stale = db.select().from(chatRuns).where(eq(chatRuns.status, "running")).all();
+    if (!stale.length) return 0;
+    for (const row of stale) {
+      db.update(chatRuns)
+        .set({ status: "interrupted", finishedAt: new Date().toISOString(), error: "Aplikasi ditutup saat run berjalan." })
+        .where(and(eq(chatRuns.id, row.id), eq(chatRuns.status, "running")))
+        .run();
+    }
+    return stale.length;
+  } catch {
+    return 0;
+  }
+}

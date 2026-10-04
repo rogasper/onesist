@@ -9,8 +9,42 @@ import { listAgentModels } from "~/lib/agent-cli";
 
 export const router = new Router();
 
+/** Absolute path of the server's own log file (null when unknown).
+ *
+ *  Desktop: the Rust shell pipes the sidecar's output to `<appData>/logs/`.
+ *  Dev: nothing redirects it (it goes to the terminal), so the value is only a
+ *  hint — the UI says "lihat log server" rather than promising a file. */
+function serverLogPath(): string | null {
+  try {
+    const dbPath = process.env.SA_DB_PATH ? path.resolve(process.env.SA_DB_PATH) : null;
+    if (!dbPath) return null;
+    return path.join(path.dirname(dbPath), "logs", "server.err.log");
+  } catch {
+    return null;
+  }
+}
+
 // /api/health
-router.all("health", () => json({ status: "ok" }));
+router.all("health", () => json({ status: "ok", logPath: serverLogPath() }));
+
+/**
+ * POST /api/system/client-error — a client-side failure reported into the
+ * SERVER log.
+ *
+ * Why this exists: the WebView's own errors are invisible. A failed fetch
+ * shows up in the panel as "Load failed" (WebKit's wording) and nothing is
+ * written anywhere — so when a run dies mid-stream there is no evidence of
+ * WHICH side dropped it. With this, both halves of the pipe land in the same
+ * file, timestamped, next to the server's own lines.
+ */
+router.post("system/client-error", async ({ body }) => {
+  const data = (await body()) as Record<string, unknown>;
+  const where = String(data.where ?? "klien");
+  const message = String(data.message ?? "(tanpa pesan)").slice(0, 500);
+  const stack = String(data.stack ?? "").slice(0, 1500);
+  console.error(`[client] ${where}: ${message}${stack ? `\n${stack}` : ""}`);
+  return json({ ok: true });
+});
 
 // /api/helpers/platform — OS platform so the frontend can pick the right
 // folder-picker flow (web folder browser on Windows, native elsewhere).
@@ -234,8 +268,8 @@ router.post("system/instances/kill", async ({ body }) => {
 });
 
 // /api/agent/models?agent=opencode — selectable models for the given agent CLI.
-// opencode (`opencode models`) and antigravity (`agy models`) expose a model
-// list; claude/codex return supported:false.
+// opencode (`opencode models`), antigravity (`agy models`), and pi (`pi --list-models`)
+// expose a model list; claude/codex return supported:false.
 router.get("agent/models", async ({ query }) => {
   const agent = query.get("agent") || "opencode";
   return json(listAgentModels(agent));
@@ -269,6 +303,8 @@ router.get("agent/prompt", async ({ query }) => {
     command = `codex exec ${q} --json --sandbox workspace-write --skip-git-repo-check`;
   } else if (agentName === "antigravity") {
     command = `agy -p ${q} --output-format stream-json --dangerously-skip-permissions --print-timeout 30m`;
+  } else if (agentName === "pi") {
+    command = `pi --mode json ${q}`;
   } else {
     command = `opencode run ${q} --auto --format json --dir ${JSON.stringify(root)}`;
   }

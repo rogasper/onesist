@@ -128,6 +128,25 @@ Tentukan display formatting per kolom/field.
 Figma: {link}?node-id={node-id}
 ```
 
+### Output — Design image (lokal, di samping link Figma)
+
+Kalau desainnya sudah ada sebagai gambar di workspace — di-insert ke dokumen lewat editor Onesist dan tersimpan di `input/assets/` — **sertakan gambarnya**, bukan hanya link Figma. Dev FE/fullstack sering membaca kartu ini tanpa membuka Figma, dan gambar itu yang memberi tahu bentuk UI-nya.
+
+```markdown
+**Design reference:**
+
+![{Page/Feature} — mockup](input/assets/{nama-berkas}.png)
+
+Figma: {link}?node-id={node-id}
+```
+
+Aturan:
+
+- Path **relatif terhadap root project** (`input/assets/...`) — bukan URL aplikasi (`/api/...`), bukan path absolut.
+- **Pastikan berkasnya ada lebih dulu** (`list_dir input/assets` atau `glob`). Jangan mengarang nama berkas; kalau tidak ada gambarnya, tulis `N/A` seperti biasa dan andalkan link Figma.
+- Sebutkan varian/state yang diwakili gambar itu (mis. `Login — desktop`, `Login — error state`) supaya dev tahu konteksnya, dan sebutkan node Figma yang cocok bila ada.
+- Satu gambar per baris; beberapa state = beberapa baris dengan keterangan masing-masing.
+
 ---
 
 ## Integration task structure
