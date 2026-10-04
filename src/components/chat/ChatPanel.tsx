@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@cloudflare/kumo";
-import { Check, Gear, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
-import { ChatSurface } from "~/components/chat/ChatSurface";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button, Popover } from "@cloudflare/kumo";
+import { CaretUpDown, Check, Gear, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
+import { ChatSurface, type QueuedMessage } from "~/components/chat/ChatSurface";
+import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
 import { relTime } from "~/lib/rel-time";
+import { usePanelResize } from "~/lib/use-panel-resize";
 
 /**
  * Chat panel docked on the right side (FR-B1).
@@ -36,8 +38,26 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   const [providersOpen, setProvidersOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ThreadSummary | null>(null);
   const [creating, setCreating] = useState(false);
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const [dragging, setDragging] = useState(false);
+  /**
+   * Messages typed while a run is active, per thread id.
+   *
+   * Held here, not in `ChatSurface`, because the surface is keyed by thread id
+   * and remounts on every switch: a queue that vanished because the user glanced
+   * at another conversation would be worse than no queue at all.
+   */
+  const [queues, setQueues] = useState<Record<string, QueuedMessage[]>>({});
+  const enqueue = useCallback((threadId: string, text: string) => {
+    setQueues((prev) => ({ ...prev, [threadId]: [...(prev[threadId] ?? []), { id: crypto.randomUUID(), text }] }));
+  }, []);
+  const removeQueued = useCallback((threadId: string, id: string) => {
+    setQueues((prev) => ({ ...prev, [threadId]: (prev[threadId] ?? []).filter((q) => q.id !== id) }));
+  }, []);
+  const { width, dragging, handleProps: resizeHandleProps } = usePanelResize({
+    min: MIN_WIDTH,
+    max: MAX_WIDTH,
+    initial: DEFAULT_WIDTH,
+    storageKey: "chat-panel-width",
+  });
 
   const { detail, loading: detailLoading, refresh: refreshDetail } = useChatThread(activeId);
 
@@ -58,22 +78,6 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
 
   const active = useMemo(() => threads.find((t) => t.id === activeId) ?? null, [threads, activeId]);
 
-  // Drag the panel's left edge to resize, same as the terminal panel.
-  useEffect(() => {
-    if (!dragging) return;
-    const move = (e: MouseEvent) => {
-      const next = window.innerWidth - e.clientX;
-      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next)));
-    };
-    const up = () => setDragging(false);
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    return () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-  }, [dragging]);
-
   async function handleNew() {
     setCreating(true);
     try {
@@ -86,9 +90,10 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
 
   return (
     <div className={visible ? "flex shrink-0 h-full min-h-0" : "hidden"} style={{ width }}>
-      {/* Resize edge */}
+      {/* Resize edge. Pointer events with capture (see usePanelResize): the drag
+          must not select the transcript text it travels over. */}
       <div
-        onMouseDown={() => setDragging(true)}
+        {...resizeHandleProps}
         className={`w-1 shrink-0 cursor-col-resize ${dragging ? "bg-kumo-brand" : "hover:bg-kumo-brand/40"}`}
         title="Geser untuk mengubah lebar"
       />
@@ -100,7 +105,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
           <Button variant="ghost" onClick={handleNew} disabled={creating} title="Percakapan baru">
             <Plus size={14} />
           </Button>
-          <ThreadPicker threads={threads} activeId={activeId} onSelect={setActiveId} projectId={projectId} />
+          <ThreadPicker threads={threads} activeId={activeId} onSelect={setActiveId} projectId={projectId} panelVisible={visible} />
           {active ? (
             <Button variant="ghost" onClick={() => setPendingDelete(active)} title="Hapus percakapan">
               <X size={13} />
@@ -126,17 +131,22 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
           ) : detailLoading && !detail ? (
             <p className="text-sm text-kumo-subtle px-4 py-3">Memuat percakapan…</p>
           ) : detail ? (
-            <ChatSurface
-              key={detail.thread.id}
-              threadId={detail.thread.id}
-              detail={detail}
-              providers={providers}
-              onRefresh={() => {
-                void refreshDetail();
-                void refresh();
-              }}
-              onOpenProviders={() => setProvidersOpen(true)}
-            />
+            <ProjectIdProvider projectId={projectId}>
+              <ChatSurface
+                key={detail.thread.id}
+                threadId={detail.thread.id}
+                detail={detail}
+                providers={providers}
+                queued={queues[detail.thread.id] ?? []}
+                onEnqueue={(text) => enqueue(detail.thread.id, text)}
+                onRemoveQueued={(id) => removeQueued(detail.thread.id, id)}
+                onRefresh={() => {
+                  void refreshDetail();
+                  void refresh();
+                }}
+                onOpenProviders={() => setProvidersOpen(true)}
+              />
+            </ProjectIdProvider>
           ) : null}
         </div>
       </div>
@@ -203,9 +213,16 @@ function ThreadStartState({
   // paragraph, so the block read as three unrelated things.
   return (
     <div className="h-full flex flex-col items-center justify-center px-6">
-      <div className="w-full max-w-sm grid gap-6 text-center">
-        <div className="grid gap-2 justify-items-center">
-          <p className="text-sm text-kumo-subtle">
+      {/* Flex, NOT grid. With `justify-items-center` every child took its
+          max-content width and was allowed to overflow the column, so the intro
+          line never rewrapped: measured 2026-09-27, the inner box stayed 392.5px
+          wide while the panel went 460 → 320, pushing the text up to 94px past
+          the card's right edge, where `overflow-hidden` clipped it. A flex
+          column caps each item at the available width, so the sentence wraps
+          instead of escaping. */}
+      <div className="w-full max-w-sm flex flex-col items-center gap-6 text-center">
+        <div className="flex w-full flex-col items-center gap-2">
+          <p className="text-sm text-kumo-subtle text-pretty">
             {threads.length
               ? "Pilih percakapan lama untuk dilanjutkan, atau mulai yang baru."
               : "Belum ada percakapan di project ini."}
@@ -216,7 +233,7 @@ function ThreadStartState({
         </div>
 
         {recent.length ? (
-          <div className="grid gap-0.5 text-left">
+          <div className="w-full flex flex-col gap-0.5 text-left">
             {/* Sentence case, no tracking, 12px: a section label is not a heading
                 (kumo `heading-case` / `font-tracking`). */}
             <p className="px-3 pb-1 text-xs text-kumo-subtle">Lanjutkan</p>
@@ -237,9 +254,15 @@ function ThreadStartState({
   );
 }
 
-/** Conversation picker: a chip that opens the list, not a native `<select>` —
- *  the system menu falls outside the app's design language and cannot hold
- *  subtext (changed-file count, compacted-context marker).
+/** Conversation picker: a chip that opens the list, not a `<select>` — the
+ *  system menu cannot hold subtext (mode, permission, tokens, compacted-context
+ *  marker), and a plain form control cannot carry a second result set either.
+ *
+ *  Built on Kumo's `Popover` (Base UI): portaled, anchored to the chip, closes
+ *  on outside click and Escape, and free of the panel's `overflow-hidden`. The
+ *  app has no shadcn: its design system is Kumo, so the primitives come from
+ *  there (`Popover`, `Select`, `Combobox`, `DropdownMenu`) rather than a second
+ *  set of tokens and Radix dependencies.
  *
  *  The popover also carries cross-thread message search (FR-B17): the panel is
  *  too narrow for a second search surface, and "which conversation was that in"
@@ -249,117 +272,130 @@ function ThreadPicker({
   activeId,
   onSelect,
   projectId,
+  panelVisible,
 }: {
   threads: ThreadSummary[];
   activeId: string | null;
   onSelect: (id: string | null) => void;
   projectId: string;
+  /** The panel stays mounted when it is hidden, and the popover renders in a
+   *  portal — so hiding the panel would leave the list floating over the app. */
+  panelVisible: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
   const { hits, loading: searching } = useChatSearch(open ? projectId : undefined, query);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+  /**
+   * Kumo's Popover owns the anchoring, the outside-click and the Escape key that
+   * this used to hand-roll, and it renders in a portal — so the panel's
+   * `overflow-hidden` can no longer clip the list.
+   *
+   * A closed popover must not keep a stale query: reopening it with last week's
+   * results still on screen is worse than an empty field.
+   */
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (!next) setQuery("");
+  }
 
-  // A closed popover should not keep a stale query around: reopening it with
-  // last week's results still on screen is worse than an empty field.
   useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
+    if (!panelVisible) setOpen(false);
+  }, [panelVisible]);
 
   const active = threads.find((t) => t.id === activeId) ?? null;
   const searchingNow = query.trim().length >= 2;
 
   return (
-    <div ref={ref} className="relative flex-1 min-w-0">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 rounded-lg px-2 py-1 ring ring-kumo-line hover:bg-kumo-elevated text-sm text-kumo-default"
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      {/* The chip keeps `flex-1 min-w-0` from the wrapper it replaced, so a long
+          thread name still truncates instead of pushing the header buttons. */}
+      <Popover.Trigger
+        className="flex-1 min-w-0 flex items-center gap-2 rounded-lg px-2 py-1 ring ring-kumo-line hover:bg-kumo-elevated text-sm text-kumo-default"
         title="Ganti percakapan"
       >
         <span className="truncate min-w-0 flex-1 text-left">{active?.title || (threads.length ? "Pilih percakapan" : "Belum ada percakapan")}</span>
-        <span className="text-kumo-subtle text-xs shrink-0">{open ? "⌄" : "⌃"}</span>
-      </button>
-      {open ? (
-        <div className="absolute top-full left-0 right-0 mt-1 z-30 max-h-80 overflow-y-auto rounded-xl bg-kumo-base ring ring-kumo-line shadow-lg p-1.5">
-          <div className="sticky top-0 z-10 bg-kumo-base pb-1">
-            <div className="flex items-center gap-1.5 rounded-lg px-2 h-8 ring ring-kumo-line">
-              <MagnifyingGlass size={13} className="text-kumo-subtle shrink-0" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Cari pesan di semua percakapan"
-                className="w-full bg-transparent text-sm text-kumo-default focus:outline-none placeholder:text-kumo-subtle"
-              />
-              {searching ? <span className="text-xs text-kumo-subtle shrink-0">…</span> : null}
-            </div>
+        <CaretUpDown size={12} className="text-kumo-subtle shrink-0" />
+      </Popover.Trigger>
+      <Popover.Content
+        side="bottom"
+        align="start"
+        sideOffset={6}
+        // Size and scrolling only: Kumo's popup already carries the elevation,
+        // the hairline (outline + tip shadow, never a border with a shadow) and
+        // the open animation. `p-1` keeps the inner rows' `rounded-lg`
+        // concentric with the popup's `rounded-xl`.
+        className="z-30 w-[var(--anchor-width)] min-w-[16rem] max-h-[70vh] overflow-y-auto overscroll-contain rounded-xl shadow-lg p-1"
+      >
+        <div className="sticky top-0 z-10 bg-kumo-elevated pb-1">
+          <div className="flex items-center gap-1.5 rounded-lg px-2 h-8 ring ring-kumo-line">
+            <MagnifyingGlass size={13} className="text-kumo-subtle shrink-0" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Cari pesan di semua percakapan"
+              className="w-full bg-transparent text-sm text-kumo-default focus:outline-none placeholder:text-kumo-subtle"
+            />
+            {searching ? <span className="text-xs text-kumo-subtle shrink-0">…</span> : null}
           </div>
-
-          {searchingNow ? (
-            <div className="pb-1">
-              {hits.map((h) => (
-                <button
-                  key={`${h.messageId}`}
-                  onClick={() => {
-                    onSelect(h.threadId);
-                    setOpen(false);
-                  }}
-                  className="w-full flex flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-kumo-elevated"
-                >
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs text-kumo-subtle shrink-0">{h.role === "user" ? "Anda" : "Agent"}</span>
-                    <span className="text-xs text-kumo-subtle truncate">{h.threadTitle || "Percakapan baru"}</span>
-                  </span>
-                  <span className="text-sm leading-snug">
-                    <Snippet text={h.snippet} />
-                  </span>
-                </button>
-              ))}
-              {!hits.length && !searching ? <p className="px-2.5 py-2 text-sm text-kumo-subtle">Tidak ada pesan yang cocok.</p> : null}
-            </div>
-          ) : null}
-
-          {searchingNow ? <div className="mx-2.5 border-t border-kumo-line/60 mb-1" /> : null}
-
-          {threads.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => {
-                onSelect(t.id);
-                setOpen(false);
-              }}
-              className={`w-full flex items-start gap-2 rounded-lg px-2.5 py-2 text-left ${t.id === activeId ? "bg-kumo-elevated" : "hover:bg-kumo-elevated"}`}
-            >
-              <span className="w-4 shrink-0 text-kumo-brand">{t.id === activeId ? <Check size={13} weight="bold" /> : null}</span>
-              <span className="grid gap-0.5 min-w-0">
-                <span className="text-sm text-kumo-default truncate">{t.title || "Percakapan baru"}</span>
-                <span className="text-xs text-kumo-subtle">
-                  {t.mode === "ask" ? "Menjawab" : t.mode === "plan" ? "Merencanakan" : "Mengerjakan"}
-                  {t.permissionMode === "readonly"
-                    ? " · hanya baca"
-                    : t.permissionMode === "no-shell"
-                      ? " · tanpa shell"
-                      : t.permissionMode === "auto"
-                        ? " · otomatis"
-                        : " · tanya dulu"}
-                  {t.tokensUsed ? ` · ${t.tokensUsed.toLocaleString("id-ID")} token` : ""}
-                  {t.hasSummary ? " · diringkas" : ""}
-                </span>
-              </span>
-            </button>
-          ))}
-          {!threads.length ? <p className="px-2.5 py-3 text-sm text-kumo-subtle">Belum ada percakapan di project ini.</p> : null}
         </div>
-      ) : null}
-    </div>
+
+        {searchingNow ? (
+          <div className="pb-1">
+            {hits.map((h) => (
+              <button
+                key={`${h.messageId}`}
+                onClick={() => {
+                  onSelect(h.threadId);
+                  setOpen(false);
+                }}
+                className="w-full flex flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left hover:bg-kumo-tint"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-kumo-subtle shrink-0">{h.role === "user" ? "Anda" : "Agent"}</span>
+                  <span className="text-xs text-kumo-subtle truncate">{h.threadTitle || "Percakapan baru"}</span>
+                </span>
+                <span className="text-sm leading-snug">
+                  <Snippet text={h.snippet} />
+                </span>
+              </button>
+            ))}
+            {!hits.length && !searching ? <p className="px-2.5 py-2 text-sm text-kumo-subtle">Tidak ada pesan yang cocok.</p> : null}
+          </div>
+        ) : null}
+
+        {searchingNow ? <div className="mx-2.5 border-t border-kumo-line/60 mb-1" /> : null}
+
+        {threads.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => {
+              onSelect(t.id);
+              setOpen(false);
+            }}
+            className={`w-full flex items-start gap-2 rounded-lg px-2.5 py-2 text-left ${t.id === activeId ? "bg-kumo-tint" : "hover:bg-kumo-tint"}`}
+          >
+            <span className="w-4 shrink-0 text-kumo-brand">{t.id === activeId ? <Check size={13} weight="bold" /> : null}</span>
+            <span className="grid gap-0.5 min-w-0">
+              <span className="text-sm text-kumo-default truncate">{t.title || "Percakapan baru"}</span>
+              <span className="text-xs text-kumo-subtle">
+                {t.mode === "ask" ? "Menjawab" : t.mode === "plan" ? "Merencanakan" : "Mengerjakan"}
+                {t.permissionMode === "readonly"
+                  ? " · hanya baca"
+                  : t.permissionMode === "no-shell"
+                    ? " · tanpa shell"
+                    : t.permissionMode === "auto"
+                      ? " · otomatis"
+                      : " · tanya dulu"}
+                {t.tokensUsed ? ` · ${t.tokensUsed.toLocaleString("id-ID")} token` : ""}
+                {t.hasSummary ? " · diringkas" : ""}
+              </span>
+            </span>
+          </button>
+        ))}
+        {!threads.length ? <p className="px-2.5 py-3 text-sm text-kumo-subtle">Belum ada percakapan di project ini.</p> : null}
+      </Popover.Content>
+    </Popover>
   );
 }
 

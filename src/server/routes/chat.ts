@@ -28,7 +28,7 @@ import {
 } from "~/server/agent/config";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
-import { finishRun, getRun, getRunForThread, listPendingApprovals, resolveApproval, stopRun } from "~/server/agent/run-registry";
+import { finishRun, getRun, getRunForThread, listPendingApprovals, queueUserMessage, resolveApproval, stopRun } from "~/server/agent/run-registry";
 import {
   addTokens,
   appendMessage,
@@ -305,6 +305,41 @@ router.post("chat/threads/:id/messages", async (ctx) => {
   }
 });
 
+/**
+ * POST /api/chat/threads/:id/inject — hand a message to the run that is already
+ * running in this thread (the queue's "Kirim sekarang").
+ *
+ * Steering, not restarting: the run keeps the context it has built and picks the
+ * message up at its next step boundary (`prepareStep` drains the inbox), so
+ * nothing already learned has to be redone. The message is persisted HERE, at
+ * hand-over time, so the transcript keeps it even if the run dies before it
+ * reaches another step.
+ */
+router.post("chat/threads/:id/inject", async (ctx) => {
+  try {
+    const thread = getThread(ctx.params.id);
+    if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+
+    const body = await ctx.body();
+    const incoming = (Array.isArray(body?.messages) ? body.messages : []).find((m: any) => m?.role === "user");
+    const parts = (incoming?.parts ?? []).filter((p: any) => p?.type === "text" && String(p.text ?? "").trim());
+    if (!incoming?.id || !parts.length) return json({ error: "Pesan sisipan butuh id dan teks." }, 400);
+
+    const run = getRunForThread(thread.id);
+    // No run to steer: the caller keeps the message queued and it goes out as an
+    // ordinary turn instead — which is the right outcome, not an error to fix.
+    if (!run) return json({ error: "Tidak ada run yang berjalan di percakapan ini." }, 409);
+
+    appendMessage({ threadId: thread.id, role: "user", parts, id: incoming.id });
+    queueUserMessage(thread.id, { id: incoming.id, role: "user", parts });
+    return json({ injected: true, runId: run.runId });
+  } catch (err) {
+    const message = redactSecrets(err);
+    console.error("[chat] unhandled error in inject route:", message);
+    return json({ error: message }, 500);
+  }
+});
+
 async function handleSendMessage(ctx: any): Promise<Response> {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
@@ -344,6 +379,17 @@ async function handleSendMessage(ctx: any): Promise<Response> {
    * `chat_threads.summary` and is part of the system prompt (FR-B8).
    */
   const modelMessages = uiMessages.filter((m) => m?.role !== "system");
+
+  // One run per thread. Nothing used to stop a second POST from starting a
+  // second run on the same thread: both would sit in RUNS, `getRunForThread`
+  // would return whichever it scanned first, and approvals could resolve against
+  // the wrong one. Rejecting here — BEFORE the user message is persisted — keeps
+  // the request retryable: the client's queue sends it again a moment later, and
+  // a rejected attempt leaves no orphan message in the transcript.
+  const activeRun = getRunForThread(thread.id);
+  if (activeRun) {
+    return json({ error: "Masih ada run yang berjalan di percakapan ini.", runId: activeRun.runId }, 409);
+  }
 
   // The user message is persisted BEFORE the run starts, so it survives even if
   // the run fails or the app closes midway.

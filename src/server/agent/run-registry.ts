@@ -87,6 +87,10 @@ export interface ActiveRun {
    *  Kept so history can explain WHY a write went through
    *  unprompted (FR-B4), which cannot be reconstructed after the run closes. */
   decisions: Map<string, string>;
+  /** User messages handed to this run but not yet seen by a step. `prepareStep`
+   *  drains this between steps, which is the only point in a turn where the
+   *  model's message list can still be extended. */
+  inbox: InjectedMessage[];
 }
 
 export interface PendingApproval {
@@ -97,6 +101,17 @@ export interface PendingApproval {
   reason?: string;
   resolve: (decision: "approved" | "denied") => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+/** A message the user sent while the turn was running ("Kirim sekarang").
+ *  `role` is part of the type on purpose: `convertToModelMessages` refuses a
+ *  message without one ("Unsupported role: undefined"), and the first version of
+ *  this feature handed over `{ id, parts }` — the injection was accepted, stored
+ *  and rendered, and the model never saw it. */
+export interface InjectedMessage {
+  id: string;
+  role: "user";
+  parts: any[];
 }
 
 const RUNS = new Map<string, ActiveRun>();
@@ -114,6 +129,7 @@ export function createRun(opts: { runId: string; threadId: string; projectId: st
     startedAt: Date.now(),
     pending: new Map(),
     decisions: new Map(),
+    inbox: [],
   };
   RUNS.set(opts.runId, run);
   try {
@@ -139,6 +155,27 @@ export function getRun(runId: string): ActiveRun | undefined {
 export function getRunForThread(threadId: string): ActiveRun | undefined {
   for (const run of RUNS.values()) if (run.threadId === threadId && run.status === "running") return run;
   return undefined;
+}
+
+/**
+ * Hand a user message to the run that is currently working on this thread.
+ *
+ * Returns false when no run is active, so the caller can fall back to sending it
+ * as an ordinary turn instead of dropping it.
+ */
+export function queueUserMessage(threadId: string, message: InjectedMessage): boolean {
+  const run = getRunForThread(threadId);
+  if (!run) return false;
+  run.inbox.push(message);
+  return true;
+}
+
+/** Everything queued since the last call, oldest first. The run's `prepareStep`
+ *  appends these to the model's messages at the next step boundary. */
+export function drainInjectedMessages(runId: string): InjectedMessage[] {
+  const run = RUNS.get(runId);
+  if (!run || !run.inbox.length) return [];
+  return run.inbox.splice(0, run.inbox.length);
 }
 
 export function listActiveRuns(): { runId: string; threadId: string; stepCount: number }[] {

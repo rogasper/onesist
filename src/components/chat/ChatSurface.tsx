@@ -5,8 +5,9 @@ import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { Button } from "@cloudflare/kumo";
-import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Terminal, Warning, Wrench, type Icon } from "@phosphor-icons/react";
+import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
+import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
 import { FileCard } from "~/components/chat/FileCard";
 import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
@@ -16,6 +17,7 @@ import { MAX_STEPS_DEFAULT, MAX_STEPS_MAX } from "~/server/agent/types";
 import {
   expandMentions,
   formatTokens,
+  messageText,
   uploadAttachment,
   useChatActions,
   useChatSkills,
@@ -51,9 +53,28 @@ interface Props {
   threadId: string;
   detail: ThreadDetail;
   providers: ChatProviderOption[];
+  /** Messages typed while a run was active, oldest first (see ChatPanel). */
+  queued?: QueuedMessage[];
+  onEnqueue?: (text: string) => void;
+  onRemoveQueued?: (id: string) => void;
   onRefresh: () => void;
   onOpenProviders: () => void;
 }
+
+/** A message the user wrote while the agent was still working. */
+export interface QueuedMessage {
+  id: string;
+  text: string;
+}
+
+/** How long a queued send may hang without starting a turn before it is treated
+ *  as "did not go through" and tried again. */
+const QUEUE_GRACE_MS = 2500;
+/** Delay before sending, so the previous run can finish closing on the server:
+ *  `finishRun` runs in the route's `finally`, milliseconds AFTER the client sees
+ *  the stream end — long enough for a send to be refused with 409. */
+const QUEUE_SEND_DELAY_MS = 600;
+const QUEUE_MAX_TRIES = 3;
 
 const MONO = "font-mono text-[0.8125rem]";
 
@@ -75,7 +96,13 @@ function isConnectionFailure(message: string): boolean {
   return /load failed|failed to fetch|networkerror|network error|the operation couldn/i.test(message);
 }
 
-export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProviders }: Props) {
+/** What a queued chip shows: the user's own words, without the attachment block
+ *  the send pipeline prepends. */
+function queuedPreview(text: string): string {
+  return text.replace(/^Lampiran:\n[\s\S]*?\n\n/, "").replace(/\s+/g, " ").trim() || "(lampiran)";
+}
+
+export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, onRemoveQueued, onRefresh, onOpenProviders }: Props) {
   const projectId = detail.thread.projectId;
   const navigate = useNavigate();
   const transport = useThreadTransport(threadId);
@@ -240,19 +267,132 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
 
   async function submit() {
     const text = input.trim();
-    if (streaming) return;
     if (!text && !attachments.length) return;
     // Attachments are referenced as `@…` paths so the agent reads them via
     // `read_file` — the same way users mention files themselves.
     const attachmentLine = attachments.length ? `Lampiran:\n${attachments.map((a) => `@${a.path}`).join("\n")}\n\n` : "";
     // Mentions were inserted by name (compact chips); the model gets full paths.
     const expanded = expandMentions(text, mentionFiles);
+    const payload = `${attachmentLine}${expanded}`.trim();
     setInput("");
     setAttachments([]);
     atBottomRef.current = true;
+
+    // While a run is active the message goes to the queue instead of being
+    // dropped: the composer used to be disabled, so anything typed mid-run was
+    // lost on the floor. Attachments travel with it — they are already uploaded
+    // into the workspace, so the `@path` line is valid whenever it is sent.
+    if (streaming) {
+      if (payload) onEnqueue?.(payload);
+      return;
+    }
     setNow(Date.now());
-    await sendMessage({ text: `${attachmentLine}${expanded}`.trim() });
+    await sendMessage({ text: payload });
   }
+
+  /**
+   * Sends queued messages one at a time, when no run is active.
+   *
+   * A queued message leaves the queue only once its turn has actually STARTED
+   * (`streaming` flipped back on) — so a send the server refuses (it is still
+   * closing the previous run) or that fails outright stays in the queue and is
+   * retried, instead of being silently swallowed.
+   */
+  const queueTriesRef = useRef(0);
+  const queueInFlightRef = useRef<{ id: string; at: number } | null>(null);
+  const [queueStuckId, setQueueStuckId] = useState<string | null>(null);
+  const [injectingId, setInjectingId] = useState<string | null>(null);
+  /**
+   * Messages handed to the running turn. They are rendered here from local state
+   * until the refresh at the end of the run reads them back from the database
+   * (same id, so `injectedVisible` drops the local copy instead of doubling it).
+   */
+  const [injectedLocal, setInjectedLocal] = useState<{ id: string; text: string }[]>([]);
+  // Re-evaluates the queue while a send is in flight and nothing else changes.
+  const [queueTick, setQueueTick] = useState(0);
+
+  useEffect(() => {
+    if (!queued?.length || streaming || noProvider) return;
+    const t = setInterval(() => setQueueTick((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, [queued?.length, streaming, noProvider]);
+
+  useEffect(() => {
+    const head = queued?.[0];
+    if (!head || streaming || noProvider) return;
+    if (queueStuckId === head.id) return;
+
+    const inFlight = queueInFlightRef.current?.id === head.id;
+    if (inFlight) {
+      if (Date.now() - (queueInFlightRef.current?.at ?? 0) < QUEUE_GRACE_MS) return;
+      queueInFlightRef.current = null;
+      queueTriesRef.current += 1;
+      if (queueTriesRef.current >= QUEUE_MAX_TRIES) {
+        setQueueStuckId(head.id);
+        return;
+      }
+    }
+
+    const timer = setTimeout(() => {
+      queueInFlightRef.current = { id: head.id, at: Date.now() };
+      void sendMessage({ text: head.text });
+    }, QUEUE_SEND_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [queued, streaming, noProvider, queueTick, queueStuckId, sendMessage]);
+
+  // The turn started: the queued message is a real message now.
+  useEffect(() => {
+    const head = queued?.[0];
+    if (!streaming || !head) return;
+    if (queueInFlightRef.current?.id !== head.id) return;
+    queueInFlightRef.current = null;
+    queueTriesRef.current = 0;
+    setQueueStuckId(null);
+    onRemoveQueued?.(head.id);
+  }, [streaming, queued, onRemoveQueued]);
+
+  function retryQueued(id: string) {
+    if (queueStuckId !== id) return;
+    queueInFlightRef.current = null;
+    queueTriesRef.current = 0;
+    setQueueStuckId(null);
+    setQueueTick((n) => n + 1);
+  }
+
+  /**
+   * "Kirim sekarang": hand a queued message to the run that is already working,
+   * instead of waiting for it to finish. The run picks it up at its next step
+   * and keeps everything it has learned so far.
+   */
+  async function injectQueued(q: QueuedMessage) {
+    if (injectingId) return;
+    setInjectingId(q.id);
+    try {
+      const res = await fetch(`/api/chat/threads/${threadId}/inject`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: [{ id: q.id, role: "user", parts: [{ type: "text", text: q.text }] }] }),
+        cache: "no-store",
+      });
+      if (res.ok) {
+        setInjectedLocal((prev) => [...prev, { id: q.id, text: q.text }]);
+        onRemoveQueued?.(q.id);
+        return;
+      }
+      // 409 = the run ended between the click and the request. Leave the message
+      // in the queue: the automatic sender takes it as its own turn.
+    } catch {
+      /* same: it stays queued and goes out normally */
+    } finally {
+      setInjectingId(null);
+    }
+  }
+
+  /** Local copies that the stored transcript does not know about yet. */
+  const injectedVisible = useMemo(
+    () => injectedLocal.filter((m) => !messages.some((x) => x.id === m.id)),
+    [injectedLocal, messages]
+  );
 
   async function handleAttach(files: File[]) {
     if (!files.length) return;
@@ -361,6 +501,22 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
             />
           ))}
 
+          {/* Messages handed to the running turn ("Kirim sekarang"): in the
+              user's own words right away, replaced by the stored row — same id —
+              when the end of the run refreshes the transcript. */}
+          {injectedVisible.map((m) => (
+            <MessageBlock
+              key={m.id}
+              message={{ id: m.id, role: "user", parts: [{ type: "text", text: m.text }] } as unknown as UIMessage}
+              streaming={false}
+              projectId={projectId}
+              root={detail.rootPath ?? null}
+              toolDuration={toolDuration}
+              approvalById={approvalById}
+              nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
+            />
+          ))}
+
           {approvals.map((a) => (
             <ApprovalBlock key={a.toolCallId} approval={a} onDecide={decide} />
           ))}
@@ -421,6 +577,60 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
 
       <UnattributedFiles detail={detail} />
 
+      {/* Queued messages: typed while the agent was working, sent one at a time
+          once it stops. Numbered, because the order is the promise being made. */}
+      {queued?.length ? (
+        <div className="border-t border-kumo-line shrink-0">
+          {/* Flex column, not grid: a grid item defaults to `min-width: auto`,
+              which is its max-content width for a `truncate` child — the chip
+              grew to 1137px inside a 450px panel and pushed "Kirim sekarang" and
+              the remove button off the edge (reported 2026-09-27). In a flex
+              column the chip is stretched to the container instead. */}
+          <div className="mx-auto w-full max-w-3xl px-6 pt-2 pb-1 flex flex-col gap-1">
+            <p className="text-xs text-kumo-subtle">
+              Antrian · {queued.length} — dikirim otomatis setelah run ini selesai
+            </p>
+            {queued.map((q, i) => (
+              <div key={q.id} className="min-w-0 flex items-center gap-2 rounded-lg bg-kumo-elevated ring ring-kumo-line px-3 py-1.5 text-xs">
+                <span className="shrink-0 tabular-nums text-kumo-subtle">{i + 1}</span>
+                {/* `min-w-0` here is the second half of the fix: a flex item
+                    refuses to shrink below its content width without it, so the
+                    text would still refuse to truncate once the chip itself can
+                    shrink. */}
+                <span className="flex-1 min-w-0 truncate text-kumo-default">{queuedPreview(q.text)}</span>
+                {streaming ? (
+                  <button
+                    onClick={() => void injectQueued(q)}
+                    disabled={!!injectingId}
+                    title="Kirim ke run yang sedang berjalan"
+                    className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-kumo-brand hover:bg-kumo-tint disabled:opacity-50"
+                  >
+                    {injectingId === q.id ? "mengirim…" : "Kirim sekarang"}
+                  </button>
+                ) : null}
+                {queueStuckId === q.id ? (
+                  <button
+                    onClick={() => retryQueued(q.id)}
+                    title="Kirim ulang"
+                    className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-amber-400 hover:bg-kumo-tint"
+                  >
+                    gagal — coba lagi
+                  </button>
+                ) : null}
+                <button
+                  onClick={() => onRemoveQueued?.(q.id)}
+                  title="Hapus dari antrian"
+                  aria-label="Hapus dari antrian"
+                  className="shrink-0 rounded-md p-1 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <Composer
         projectId={projectId}
         input={input}
@@ -428,7 +638,6 @@ export function ChatSurface({ threadId, detail, providers, onRefresh, onOpenProv
         onSubmit={submit}
         streaming={streaming}
         onStop={() => stop()}
-        disabled={streaming}
         mentions={mentionFiles}
         providerReady={!noProvider}
         providers={providers}
@@ -646,7 +855,12 @@ function MessageBlock({
   if (message.role === "user") {
     const text = (message.parts ?? []).map((p: any) => (isTextUIPart(p) ? p.text : "")).join("");
     return (
-      <div className="flex justify-end">
+      // `group` + focus-visible so the copy affordance is reachable with the
+      // keyboard too, not only on hover.
+      <div className="group flex items-end justify-end gap-1">
+        {text.trim() ? (
+          <CopyButton text={text} variant="icon" title="Salin pesan" className="mb-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+        ) : null}
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-kumo-tint px-4 py-3 text-sm text-kumo-default whitespace-pre-wrap">
           {text}
         </div>
@@ -655,6 +869,8 @@ function MessageBlock({
   }
 
   const blocks = groupParts(message.parts ?? []);
+  /** What "copy this answer" copies: the prose of this turn, nothing else. */
+  const answerText = messageText(message);
   const reasoningBlocks = blocks.filter((b) => b.kind === "reasoning").length;
   const reasoningMs = typeof metadata?.reasoningMs === "number" ? metadata.reasoningMs : null;
   const inputTokens = typeof metadata?.inputTokens === "number" ? metadata.inputTokens : null;
@@ -726,14 +942,24 @@ function MessageBlock({
         </div>
       ) : null}
 
-      {inTok || outTok ? (
-        <p className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex items-center gap-2">
-          <span>↑{formatTokens(inTok ?? 0)} masuk</span>
-          <span>↓{formatTokens(outTok ?? 0)} keluar</span>
-          {reasoningMs ? <span>· berpikir {fmtDuration(reasoningMs)}</span> : null}
-          {failed ? <span className="text-amber-400">· {metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
-        </p>
-      ) : null}
+      {/* Turn footer: usage when it is known, plus the copy action — which is
+          always offered, so a turn without token metadata is still copyable.
+          A failed/stopped turn says so here too, no longer only when tokens
+          happened to be recorded. */}
+      <div className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex items-center gap-2">
+        {inTok || outTok ? (
+          <>
+            <span>↑{formatTokens(inTok ?? 0)} masuk</span>
+            <span>↓{formatTokens(outTok ?? 0)} keluar</span>
+            {reasoningMs ? <span>· berpikir {fmtDuration(reasoningMs)}</span> : null}
+          </>
+        ) : null}
+        {failed ? <span className="text-amber-400">{metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
+        {/* The answer prose only: reasoning, tool output and file cards are not
+            part of what "copy this answer" means. A turn that never produced
+            prose (tool calls only) gets no button — copying "" is not an offer. */}
+        {answerText.trim() ? <CopyButton text={answerText} title="Salin jawaban" className="ml-auto" /> : null}
+      </div>
     </div>
   );
 }
@@ -1145,17 +1371,18 @@ function ToolGroup({
   const judul = groupTitle(parts);
   const JudulIcon = judul.icon;
 
-  // `null` = the user has not decided yet. Undecided follows the work: rows are
-  // visible while the group is running (you want to watch progress) and fold away
-  // once it is done (finished work is a summary line, and the transcript stays
-  // readable through a 30-step turn).
+  // Closed until the user opens it, running or not (requested 2026-09-27:
+  // "isi tool jangan dilihatin otomatis, kalau user mau tahu prosesnya baru
+  // klik"). The header already carries everything needed to read the work from
+  // outside — kind, step count, `berjalan`/`N gagal`, the pulse — so auto-opening
+  // during a run only pushed the answer down the panel.
   //
-  // The previous version ALWAYS showed the last two rows and toggled only what
-  // came before them — so for the many one- and two-row groups a click changed
-  // nothing at all, which reads as "the accordion cannot be closed" (reported
-  // 2026-09-17). Now a click always has a visible effect.
+  // History: the version before this one ALWAYS showed the last two rows and
+  // toggled only what came before them, so for the many one- and two-row groups
+  // a click changed nothing at all, which reads as "the accordion cannot be
+  // closed" (reported 2026-09-17). A click must always have a visible effect.
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
-  const open = manualOpen ?? running > 0;
+  const open = manualOpen ?? false;
 
   return (
     <div className="grid">

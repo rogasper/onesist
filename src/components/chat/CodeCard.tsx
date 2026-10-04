@@ -1,6 +1,6 @@
-import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowSquareOut, Check, Copy } from "@phosphor-icons/react";
+import { ArrowSquareOut } from "@phosphor-icons/react";
+import { CopyButton } from "~/components/ui/CopyButton";
 
 /**
  * Code block card (ADR-001 D8).
@@ -46,22 +46,11 @@ export function isCardWorthyCode(lang: string, code: string): boolean {
 }
 
 export function CodeCard({ lang, code, projectId }: CodeCardProps) {
-  const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
   const target = ROUTE_FOR_LANG[lang];
   const lines = code ? code.replace(/\n$/, "").split("\n") : [];
   const shown = lines.slice(0, 24);
   const more = lines.length - shown.length;
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch {
-      /* clipboard access may be denied; stay silent, it is not a meaningful failure */
-    }
-  }
 
   return (
     <div className="my-2 rounded-xl ring ring-kumo-line overflow-hidden">
@@ -71,14 +60,7 @@ export function CodeCard({ lang, code, projectId }: CodeCardProps) {
           {lines.length} baris
         </span>
         <span className="ml-auto flex items-center gap-1">
-          <button
-            onClick={copy}
-            title="Salin"
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Tersalin" : "Salin"}
-          </button>
+          <CopyButton text={code} />
           {target && projectId ? (
             // Router navigation rather than `<a href>`: a full page load would
             // abort the turn that is still streaming behind this answer.

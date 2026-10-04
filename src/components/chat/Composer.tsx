@@ -52,7 +52,6 @@ interface Props {
   onSubmit: () => void;
   streaming: boolean;
   onStop: () => void;
-  disabled: boolean;
   mentions: MentionFile[];
   providerReady: boolean;
   providers: ChatProviderOption[];
@@ -90,7 +89,6 @@ export function Composer(props: Props) {
     onSubmit,
     streaming,
     onStop,
-    disabled,
     mentions,
     skills,
     providerReady,
@@ -244,11 +242,12 @@ export function Composer(props: Props) {
             files={mentions}
             triggers={mentionTriggers}
             rows={2}
-            disabled={disabled}
             onSubmit={onSubmit}
             autoGrow
             maxHeightPx={176}
-            placeholder={streaming ? "Agent sedang bekerja…" : "Tulis instruksi · / perintah · @ berkas · $ skill"}
+            // Stays editable while the agent works: Enter now queues the message
+            // instead of being refused (the runner used to be locked out).
+            placeholder={streaming ? "Agent sedang bekerja — Enter untuk mengantri pesan" : "Tulis instruksi · / perintah · @ berkas · $ skill"}
             className="block w-full resize-none overflow-y-auto min-h-[52px] max-h-44 text-sm leading-6 px-3.5 pt-2.5 pb-1.5 bg-transparent focus:outline-none text-kumo-default"
           />
 

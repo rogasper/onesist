@@ -18,7 +18,7 @@ import {
 } from "./ai";
 import { buildLanguageModel, resolveMaxOutputTokens, type ProviderRow } from "./config";
 import { pruneForStep, resolveContextWindow, shouldCompact, summarizeOldest, type CompactionDecision } from "./context";
-import { awaitApproval, createRun, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun } from "./run-registry";
+import { awaitApproval, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun } from "./run-registry";
 import { MUTATING_TOOLS, buildTools, type FileChange, type TodoItem } from "./tools";
 import { SUBAGENT_LIMITS, findSubagent, withSubagentSlot, type SubagentInfo } from "./subagents";
 import { getAppSubagents } from "./store";
@@ -252,6 +252,21 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
               summary: result.summary,
             });
           }
+        }
+      }
+      // Messages the user handed over while this turn was running (the queue's
+      // "Kirim sekarang"). Appended AFTER pruning on purpose: an instruction
+      // given seconds ago must not be a candidate for summarising away. Only the
+      // main agent has an inbox — a subagent runs its own loop with its own
+      // messages and no user to steer it.
+      const injected = drainInjectedMessages(input.runId);
+      if (injected.length) {
+        try {
+          next = [...next, ...((await convertToModelMessages(injected as any)) as ModelMessage[])];
+        } catch (err) {
+          // A malformed injected message must not kill a run that is otherwise
+          // healthy; it stays in the transcript, it just does not reach the model.
+          console.error("[agent] pesan sisipan diabaikan:", (err as Error)?.message ?? err);
         }
       }
       return { messages: next };

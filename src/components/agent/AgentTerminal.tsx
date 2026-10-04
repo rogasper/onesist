@@ -8,6 +8,7 @@ import { buildAgentCommand, agentLogo, type AgentCli } from "~/lib/agent-command
 import { attach, park, destroy as destroyCache, register } from "~/lib/xterm-cache";
 import { loadTerminalPrefs, getTerminalTheme, TERMINAL_PREFS_EVENT, type TerminalPrefs } from "~/lib/terminal-prefs";
 import { InlineAlert } from "~/components/ui/InlineAlert";
+import { usePanelResize } from "~/lib/use-panel-resize";
 import "@xterm/xterm/css/xterm.css";
 
 interface AgentTermPanelProps {
@@ -35,8 +36,12 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const termLogo = agentLogo(agentName);
   const [port, setPort] = useState(4323);
   const [projectRoot, setProjectRoot] = useState("");
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const [dragging, setDragging] = useState(false);
+  const { width, dragging, handleProps: resizeHandleProps } = usePanelResize({
+    min: MIN_WIDTH,
+    max: MAX_WIDTH,
+    initial: DEFAULT_WIDTH,
+    storageKey: "terminal-panel-width",
+  });
   const [waiting, setWaiting] = useState(false);
   // cmdpipe backend = server runs the agent in a plain cmd.exe pipe (no PTY).
   // Warn the user — typing looks alive (local echo) but the TUI never gets it.
@@ -585,9 +590,6 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     return () => window.clearInterval(timer);
   }, [visible, safeFit]);
 
-  const handleResizeStart = useCallback(() => setDragging(true), []);
-  const handleResizeEnd = useCallback(() => setDragging(false), []);
-
   const handleEndSession = () => {
     manualEndRef.current = true;
     backendRef.current = null;
@@ -607,30 +609,15 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     connectingRef.current = false;
   };
 
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
-      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, window.innerWidth - e.clientX)));
-    };
-    const onUp = () => setDragging(false);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, [dragging]);
-
   return (
     // SINGLE root element (not a <> fragment) — React 19 + Suspense/lazy can
     // mis-handle multi-root fragment insertion, which surfaced as the
     // "insertBefore not a child" commit crash when the terminal mounts.
     <div className="flex h-full shrink-0">
       <div
-        onMouseDown={handleResizeStart}
-        onMouseUp={handleResizeEnd}
+        {...resizeHandleProps}
         className={`w-1.5 shrink-0 cursor-col-resize hover:bg-kumo-brand/50 transition-colors ${dragging ? "bg-kumo-brand/70" : "bg-transparent"}`}
-        style={{ display: visible ? undefined : "none" }}
+        style={{ ...resizeHandleProps.style, display: visible ? undefined : "none" }}
       />
       <div
         ref={panelRef}
