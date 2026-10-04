@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.1.45 — Agent native di dalam aplikasi (chat, tool, BYOK) + gambar di markdown
+
+Rilis besar: tab **Chat** per project menjalankan agent langsung di dalam Onesist memakai provider BYOK Anda — tanpa CLI agent. Fitur ini sebelumnya hidup di branch `feat/agent-native-chat`; rilis ini adalah kali pertama masuk ke `main`.
+
+### Feat — Chat agent native (BYOK)
+- **Runtime & provider**: Vercel AI SDK v7 di dalam aplikasi; dialog provider dengan 23 preset + custom (endpoint, gaya API, header HTTP tambahan), key hanya tersimpan di perangkat Anda, uji koneksi dengan hasil yang tersimpan.
+- **Mode & izin**: tanya-jawab / kerja / **rencana** (read-only; rencananya bisa disetujui lalu dijalankan) dan 4 mode izin — Tanya dulu (kartu izin per penulisan), Otomatis, Tanpa shell, Read-only.
+- **Tool agent**: baca/tulis/cari berkas, `bash` (environment dibersihkan), index FTS5 + `code_search`, subagent read-only, memory lintas percakapan, dan akses aplikasi: `db_query`/`db_schema` read-only plus `app_write` ke Tasks/RTM/Wiki.
+- **UX chat**: panel bisa di-resize (lebar diingat), pesan bisa disalin, isi tool terlipat sampai diklik, **antrian pesan** dan **pesan sisipan** ke run yang sedang berjalan, pencarian lintas percakapan, slash command, serta token & perkiraan biaya per percakapan.
+- **Notifikasi native**: dua pemicu — run mencapai status akhir saat jendela tidak fokus, dan run menunggu izin. Catatan: di `tauri dev` plugin mengarahkan notifikasi ke Terminal, jadi uji banner harus memakai aplikasi ter-bundle, dan macOS hanya menanyakan izin sekali — jawab **Allow** (jangan Return, defaultnya Don't Allow).
+
+### Feat — Gambar di markdown (input/assets)
+- Editor markdown (FSD, Wiki, Overview) kini punya tombol gambar, paste, dan drag-drop; berkas disimpan ke `input/assets/` dan markdown menyimpan path relatif (`![UI](input/assets/foo.png)`).
+- Semua viewer merendernya: FSD, Wiki, Spec, Docs, SIT, chat, dan **kartu task FE/fullstack** — task yang menunjuk gambar desain menampilkan UI-nya di samping link Figma (skill `fsd-analyzer` 1.5.0 → 1.6.0).
+- Ekspor DOCX belum memuat gambar (menyusul).
+
+### Fix — Tiga tab (Tasks/RTM/Wiki) ikut berubah dari jalur berkas
+- Peta permukaan di prompt menyuruh agent memanggil endpoint impor (`tasks/import`, `rtm/import/apply`) setelah menulis artefak, sehingga hasil kerja berbasis berkas muncul di tab berbasis DB tanpa aksi manual — lewat panggilan yang terlihat di transcript, bukan penulisan database senyap.
+
+### Fix — Keamanan: whitelist `app_write` tidak bisa lagi ditembus
+- Penjaga whitelist memeriksa path mentah sementara URL dinormalisasi setelahnya, sehingga `projects/<id>/tasks/../../../chat/threads/<tid>` lolos pemeriksaan (terukur sebelum perbaikan: thread chat benar-benar terhapus dan `PUT …/../settings` diterima). Sekarang path di-decode, pemisah diseragamkan, `..` ditolak sebelum pemeriksaan, dan placeholder `:id`/`<projectId>` diselesaikan. Suite `verify-db-access` naik 66 → 80 check.
+
+### Fix — lain-lain
+- **Banner skills tidak lagi jalan buntu**: project dengan sebagian skill terpasang (status `pending`) kini punya tombol Install, nama skill diambil dari payload, polling 250 ms, dan kegagalan nyata ditampilkan.
+- **Uji koneksi provider bertahan** setelah menekan Kembali, dan daftar provider disegarkan.
+- **Kegagalan notifikasi tercatat di log server** (sebelumnya ditelan senyap); UX tetap tidak terganggu.
+
+### Verifikasi
+- `bun run typecheck`, build produksi (`bun run build:server`), dan **16 suite verifikasi** hijau. Aplikasi ter-bundle diuji untuk notifikasi: jendela fokus → senyap, jendela tidak fokus → event sampai, plugin dimuat, dan notifikasi terkirim (banner menunggu izin OS di System Settings → Notifications → Onesist).
+
 ## v0.1.44 — Fix: skill diagram-svg & query-writer tidak pernah sampai ke aplikasi
 
 ### Fix — dua skill baru selalu gagal terinstal (project baru tidak bisa lanjut)
