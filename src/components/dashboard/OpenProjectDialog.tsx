@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Button, Dialog, DialogRoot, DialogTitle } from "@cloudflare/kumo";
-import { MagnifyingGlass } from "@phosphor-icons/react";
+import { MagnifyingGlass, Key } from "@phosphor-icons/react";
 import { FolderBrowserDialog } from "./FolderBrowserDialog";
+import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { agentLogo } from "~/lib/agent-command";
+import type { ProviderSummary } from "~/lib/use-providers";
 
 // Native folder picker when running inside the Tauri desktop shell; falls
 // back to the web API (osascript/zenity/powershell) otherwise.
@@ -76,10 +78,26 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
   const [dirOpen, setDirOpen] = useState(false);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
+  const [providerId, setProviderId] = useState("");
+  const [providersOpen, setProvidersOpen] = useState(false);
 
-  // Refresh the agent list whenever the dialog opens, so the CLI availability
+  // Only user-created, usable providers: the environment bootstrap is not a
+  // saved configuration, so it cannot be made the default.
+  const loadProviders = () => {
+    fetch("/api/providers", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        const mine = (data.providers ?? []).filter((p: ProviderSummary) => p.source === "user" && p.usable);
+        setProviders(mine);
+        setProviderId((current) => current || mine.find((p: ProviderSummary) => p.isDefault)?.id || mine[0]?.id || "");
+      })
+      .catch(() => {});
+  };
+
+  // Refresh the agent and provider lists whenever the dialog opens, so what is
   // shown is always current (mount-time fetch may have run before the sidecar
-  // was ready → stale "not installed" entries).
+  // was ready → stale "not installed" / "no provider" entries).
   useEffect(() => {
     if (!open) return;
     setAgentsLoading(true);
@@ -87,6 +105,8 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
       setAgentsList(data);
       setAgentsLoading(false);
     }).catch(() => setAgentsLoading(false));
+    setProviderId("");
+    loadProviders();
   }, [open]);
 
   const applyPickedPath = (p: string) => {
@@ -140,6 +160,17 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Failed to open folder"); setOpening(false); return; }
       setOpening(false);
+      // Stored app-wide: every new thread resolves to this provider, so the
+      // next project reuses it without asking again.
+      const chosen = providers.find((p) => p.id === providerId);
+      if (chosen && !chosen.isDefault) {
+        await fetch(`/api/providers/${chosen.id}`, {
+          method: "PUT",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isDefault: true }),
+        }).catch(() => {});
+      }
       onCreated(data.id);
     } catch {
       setError("Failed to connect");
@@ -239,6 +270,44 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
                 <p className="text-[10px] text-kumo-subtle mt-2">This agent will be used by default when you open the terminal in this project.</p>
               </div>
 
+              <div>
+                <label className="block text-xs text-kumo-subtle mb-1.5">BYOK Provider</label>
+                {providers.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setProvidersOpen(true)}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded border border-dashed border-kumo-line text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/40 transition-colors"
+                  >
+                    <Key size={12} />
+                    Belum ada provider siap pakai — atur
+                  </button>
+                ) : (
+                  <>
+                    <select
+                      value={providerId}
+                      onChange={(e) => setProviderId(e.target.value)}
+                      className="w-full bg-kumo-elevated/30 border border-kumo-line rounded px-3 py-2 text-sm text-kumo-default focus:border-kumo-brand focus:outline-none"
+                    >
+                      {providers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}{p.model ? ` — ${p.model}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex items-start justify-between gap-2 mt-1">
+                      <p className="text-[10px] text-kumo-subtle">Disimpan sebagai provider default, jadi project berikutnya langsung memakainya.</p>
+                      <button
+                        type="button"
+                        onClick={() => setProvidersOpen(true)}
+                        className="text-[10px] text-kumo-subtle underline hover:text-kumo-default shrink-0"
+                      >
+                        Kelola
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
               {error && <InlineAlert kind="error">{error}</InlineAlert>}
 
               <div className="flex justify-end gap-2 pt-4 mt-2">
@@ -256,6 +325,11 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
         open={dirOpen}
         onOpenChange={setDirOpen}
         onSelect={(p) => { applyPickedPath(p); setDirOpen(false); }}
+      />
+
+      <ProviderSettings
+        open={providersOpen}
+        onClose={() => { setProvidersOpen(false); loadProviders(); }}
       />
     </>
   );
