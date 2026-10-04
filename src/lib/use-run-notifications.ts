@@ -10,6 +10,27 @@ import {
 } from "~/lib/run-notification";
 
 /**
+ * Reports a swallowed notification failure into the server log, once per
+ * distinct message. The UX stays silent on purpose (FR-B16: a failed
+ * notification must not disturb the run), but "nothing happens and nothing is
+ * written anywhere" is how a broken notification channel stays broken — the
+ * server log is the one place both ends of the app meet.
+ */
+const reportedFailures = new Set<string>();
+function reportFailure(message: string) {
+  if (reportedFailures.has(message) || reportedFailures.size > 5) return;
+  reportedFailures.add(message);
+  void fetch("/api/system/client-error", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ where: "native-notification", message }),
+    cache: "no-store",
+  }).catch(() => {
+    /* the server may be exactly what is down */
+  });
+}
+
+/**
  * Desktop notifications for chat runs (Fase 5.6, FR-B16).
  *
  * Mounted once at the app root, NOT in the chat panel: the run that finishes
@@ -47,14 +68,17 @@ export function useRunNotifications(): void {
           } else {
             // Returns "granted" | "denied" | "prompt"; only "granted" sends.
             permission = (await mod.requestPermission()) === "granted" ? "granted" : "refused";
+            if (permission === "refused") reportFailure("notification permission was denied by the OS");
           }
         }
         // A refused permission must stay silent: the run itself is unaffected
         // and an error toast about notifications would help nobody.
         if (permission !== "granted") return;
         mod.sendNotification({ title: notification.title, body: notification.body });
-      } catch {
-        /* the plugin or the OS channel is unavailable — never disturb the app */
+      } catch (err) {
+        /* the plugin or the OS channel is unavailable — never disturb the app,
+           but leave a trace in the server log (see reportFailure) */
+        reportFailure(String((err as { message?: string })?.message ?? err));
       }
     }
 

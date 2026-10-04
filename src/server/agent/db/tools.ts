@@ -29,6 +29,39 @@ const WRITABLE_PREFIXES = [
   "projects/:id/wiki",
 ] as const;
 
+/**
+ * Normalisasi path `app_write` SEBELUM penjaga whitelist melihatnya.
+ *
+ * Penjaga memeriksa string, sedangkan `new Request(url)` menormalkan URL
+ * (membuang segmen `.`/`..`, mengubah `\` jadi `/`) SETELAH pemeriksaan — jadi
+ * `projects/<id>/tasks/../../../chat/threads/x` lolos uji prefix tapi mendarat
+ * di endpoint chat. Diukur sebelum perbaikan: thread benar-benar terhapus dan
+ * `PUT .../../settings` diterima. Yang dilakukan di sini: dekode, samakan
+ * pemisah, buang segmen kosong, tolak `..`, lalu selesaikan placeholder.
+ *
+ * Placeholder `:id` / `<projectId>` diselesaikan ke project yang sedang
+ * berjalan karena deskripsi tool sendiri mencontohkannya dan model tidak punya
+ * alasan tahu UUID-nya — sebelum ini `:id` menembus whitelist lalu gagal
+ * FOREIGN KEY, dan `<projectId>` ditolak sebagai path asing.
+ */
+function resolveWritePath(apiPath: string, projectId: string): string {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(apiPath);
+  } catch {
+    throw new Error(`Path "${apiPath}" mengandung encoding yang tidak sah.`);
+  }
+  const cleaned = decoded
+    .replaceAll("\\", "/")
+    .replace(/^\/+/, "")
+    .replace(/^api\//, "")
+    .replace(/\/{2,}/g, "/");
+  if (cleaned.split("/").includes("..")) {
+    throw new Error(`Path "${apiPath}" mengandung segmen ".." dan ditolak.`);
+  }
+  return cleaned.replaceAll("<projectId>", projectId).replaceAll(":id", projectId);
+}
+
 function rowsToText(rows: Record<string, unknown>[]): string {
   if (!rows.length) return "(tidak ada baris)";
   // Nilai dipotong supaya satu kolom teks panjang tidak memenuhi konteks.
@@ -106,11 +139,12 @@ export function buildDbTools(ctx: DbToolContext) {
       `Path yang diizinkan berawalan salah satu dari: ${WRITABLE_PREFIXES.join(", ")}.`,
     inputSchema: z.object({
       method: z.enum(["POST", "PUT", "DELETE"]).describe("POST membuat, PUT memperbarui, DELETE menghapus"),
-      path: z.string().describe("Path API setelah /api, mis. projects/<projectId>/tasks"),
+      path: z.string().describe("Path API setelah /api, mis. projects/<projectId>/tasks — placeholder <projectId> atau :id boleh ditulis apa adanya"),
       body: z.record(z.string(), z.unknown()).optional().describe("Body JSON untuk POST/PUT"),
     }),
     execute: async ({ method, path: apiPath, body }) => {
-      const normalized = apiPath.replace(/^\/+/, "").replace(/^api\//, "").replaceAll(ctx.projectId, ":id");
+      const resolved = resolveWritePath(apiPath, ctx.projectId);
+      const normalized = resolved.replaceAll(ctx.projectId, ":id");
       const allowed = WRITABLE_PREFIXES.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
       if (!allowed) {
         throw new Error(
@@ -118,7 +152,7 @@ export function buildDbTools(ctx: DbToolContext) {
             "Permukaan lain diubah lewat berkas (read_file/write_file).",
         );
       }
-      const realPath = `/api/${apiPath.replace(/^\/?api\//, "").replace(/^\/+/, "")}`;
+      const realPath = `/api/${resolved}`;
       const res = await handleApiRequest(
         new Request(`http://localhost${realPath}`, {
           method,
