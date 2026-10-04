@@ -161,6 +161,29 @@ router.delete("projects/:id", async ({ params }) => {
   db.delete(changeLog).where(eq(changeLog.projectId, id)).run();
   db.delete(fsdSessions).where(eq(fsdSessions.projectId, id)).run();
   db.delete(exports_).where(eq(exports_.projectId, id)).run();
+
+  // Chat threads carry their own project FK (`chat_threads.project_id`), and
+  // none of the deletes above touches them. A project that had ever been used
+  // for chat therefore failed the whole delete with SQLITE_CONSTRAINT_FOREIGNKEY
+  // — the dashboard's "Delete project" returned 500 and the project stayed put.
+  // Reuse the thread deleter so every child table it owns (messages, tool calls,
+  // files, reads, runs, FTS rows) goes with it — including archived threads,
+  // hence `includeArchived = true`.
+  const { listThreads, deleteThread } = await import("~/server/agent/store");
+  for (const thread of listThreads(id, true)) {
+    deleteThread(thread.id);
+  }
+  // Code-index rows (`index_files`/`chunks`/`symbols`/`fts`) are keyed by
+  // project_id without a foreign key, so nothing cascades and nothing complains —
+  // they would just linger forever. `clearProject` is the same cleanup the
+  // re-index path uses.
+  try {
+    const { clearProject } = await import("~/server/agent/index/store");
+    clearProject(id);
+  } catch {
+    /* derived data only — a missing index table must not block the deletion */
+  }
+
   db.delete(projects).where(eq(projects.id, id)).run();
   return json({ message: "Deleted" });
 });

@@ -227,6 +227,12 @@ The API is split into route modules under `server/routes/`, composed by the entr
 - **DO** test with a fresh DB (`rm data.db && bun run dev`) before assuming migrations work — existing dev DBs hide missing-column bugs.
 - **DO** keep the schema guard working: `client.ts` runs drizzle → `applyMigrations()` → `repairMissingSchema()`. The last one replays the migration files idempotently (skipping DROP/RENAME/INSERT/UPDATE/DELETE) because **drizzle never re-runs a revision it has already recorded** — that is what heals a `data.db` that travelled between machines as a zipped copy (zipped while the app was running, or without its `-wal`/`-shm`), where the journal claims tables the file no longer has. Without it the app dies with a permanent `no such table`. Cost measured: 0.5 ms on a healthy DB, ~3 ms when the replay runs.
 
+### Deleting a project (foreign keys)
+- **DO** delete every child before the `projects` row: `PRAGMA foreign_keys = ON` turns any missed child into a hard `FOREIGN KEY constraint failed` — HTTP 500, project stays put. Children keyed by the **parent row id** (`erd_snapshots.erd_id`, `api_snapshots`/`api_endpoints.spec_id`, `wiki_snapshots.page_id`, `task_snapshots.task_id`) must be deleted by those ids, not by the project id.
+- **DO** remember the chat tables are a separate family: `chat_threads.project_id` also points at `projects.id`, and none of the artifact deletes touches it. Reuse `deleteThread()` (`server/agent/store.ts`) per thread — including archived ones — so messages, tool calls, files, reads, runs and FTS rows go with it.
+- **DO** clear the FK-less index tables (`index_files`/`chunks`/`symbols`/`index_fts`) with `clearProject()`; nothing cascades and nothing complains, so they linger forever otherwise.
+- **DO** keep section G of `verify-api.ts` green — it reproduces this exact 500 and is what catches the next missed child table.
+
 ### FSD / file operations
 - **DO** remember FSD documents live on disk in `input/fsd/` — the DB session is metadata (status, artifacts, completeness). Don't store content only in DB.
 - **DO** keep `fsd_sessions.markdownPath` in sync when files are renamed/moved (the `/api/files/rename` handler updates it).

@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.1.46 — Fix: skema DB memulihkan diri + hapus project yang pernah dipakai chat
+
+### Fix — `no such table: business_requirements` setelah `data.db` dipindah antar mesin
+- **`src/server/db/client.ts` — penjaga skema saat startup.** Folder project yang dipindah lewat zip (SQLite WAL belum di-checkpoint) membawa jurnal migrasi yang mengklaim revisi yang tidak ada di berkas `data.db`-nya, sementara Drizzle tidak pernah menjalankan ulang revisi yang sudah tercatat — tabel yang hilang tetap hilang dan aplikasi melempar `no such table: business_requirements`. Sekarang, saat runtime-migration berjalan, nama tabel yang seharusnya ada dibaca dari berkas migrasi; bila ada yang kurang, pernyataan `CREATE`/`ALTER` idempoten diputar ulang (pernyataan destruktif seperti `DROP`/`INSERT`/`UPDATE`/`DELETE`/`RENAME` dilewati) dan hasilnya dicatat di log server. Bila tabel masih kurang, langkah pemulihan ditulis ke log, bukan gagal senyap. Biaya terukur: 0,54 ms saat skema sehat (tanpa memutar ulang apa pun), 2,6 ms saat pemulihan penuh. Diverifikasi `verify-schema-repair.ts` — 11 check.
+
+### Fix — Project tidak bisa dihapus bila pernah dipakai chat
+- **`src/server/routes/projects/index.ts` — `DELETE /api/projects/:id` kini ikut menghapus thread chat.** `chat_threads.project_id` menunjuk ke `projects.id`, dan tidak ada satu pun penghapusan sebelumnya yang menyentuhnya, sehingga project yang punya percakapan selalu gagal dihapus dengan `FOREIGN KEY constraint failed` (HTTP 500 di dasbor). Terukur sebelum perbaikan: project dengan 5 thread → 500, tanpa thread → 200. Sekarang setiap thread project dihapus lewat `deleteThread` yang sudah ada (pesan, tool call, berkas, bacaan, run, dan baris FTS ikut bersih), dan baris index kode (`index_files`/`chunks`/`symbols`/`index_fts`, tanpa foreign key) dibersihkan lewat `clearProject` supaya tidak tertinggal yatim.
+
+### Fix — Galat route API dijawab JSON, bukan halaman HTML 500
+- **`src/server/api-router.ts`** — error yang dilempar handler route dulu lolos ke handler SSR dan kembali sebagai halaman HTML 500, sehingga `res.json()` di klien gagal pada HTML-nya alih-alih menampilkan pesan aslinya. Sekarang handler dibungkus dan membalas JSON `{"error": …}` 500 sekaligus mencatat penyebabnya di log server.
+
+### Verifikasi
+- `bun run typecheck` bersih dan build produksi (`bun run build:server`) hijau.
+- `verify-api.ts` naik 35 → **41 check** dengan bagian G yang mereproduksi kegagalan FK hapus project. Bukti bahwa check-nya benar-benar menangkap kelas bug ini: dengan perbaikan di-revert sementara, bagian G gagal 5 check (`status=500`, `FOREIGN KEY constraint failed`, thread/baris index tertinggal); setelah perbaikan dipasang kembali, hijau.
+- `verify-schema-repair.ts` — 11 check; `GET /api/projects/:id/rtm` pada DB yang dipulihkan menjawab 200.
+- **Bump `0.1.45 → 0.1.46`**.
+
 ## v0.1.45 — Agent native di dalam aplikasi (chat, tool, BYOK) + gambar di markdown
 
 Rilis besar: tab **Chat** per project menjalankan agent langsung di dalam Onesist memakai provider BYOK Anda — tanpa CLI agent. Fitur ini sebelumnya hidup di branch `feat/agent-native-chat`; rilis ini adalah kali pertama masuk ke `main`.
