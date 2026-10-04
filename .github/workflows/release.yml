@@ -210,6 +210,21 @@ jobs:
             if [ -n "$PREV_TAG" ]; then RANGE="${PREV_TAG}..${GITHUB_SHA}"; else RANGE=""; fi
             if [ -n "$RANGE" ]; then git log --format='- %s' "$RANGE"; else git log --format='- %s'; fi | sed 's/^/- /' > /tmp/release_notes.md
           fi
+          # macOS DMGs are unsigned, so Gatekeeper quarantines the download and
+          # refuses to open the app. Surface the one-line fix where users actually
+          # download it. Drop this block once releases are signed and notarized.
+          cat >> /tmp/release_notes.md <<'EOF'
+
+          ---
+
+          **macOS:** kalau muncul "Onesist is damaged and can't be opened" setelah app dipindah ke `/Applications`, jalankan sekali:
+
+          ```
+          xattr -cr /Applications/Onesist.app
+          ```
+
+          Detailnya di [#3](https://github.com/rogasper/onesist/issues/3).
+          EOF
           echo "=== release notes ==="
           cat /tmp/release_notes.md
 

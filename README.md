@@ -69,6 +69,16 @@ bun run dev
 
 Onesist ships as a native, lightweight desktop application for **macOS (Apple Silicon & Intel)** and **Windows**, powered by Tauri 2 and a compiled Bun sidecar server.
 
+### Installing the macOS Build
+
+Release `.dmg` files are not code-signed yet, so macOS quarantines the download and refuses to open the app with *"Onesist is damaged and can't be opened"* (or *"Apple could not verify … is free of malware"* on macOS 15 and newer). The build itself is fine — after dragging the app into `/Applications`, clear the quarantine flag once:
+
+```bash
+xattr -cr /Applications/Onesist.app
+```
+
+If macOS offers it, you can also open **System Settings → Privacy & Security** and use **Open Anyway**. To skip the flag entirely, download the `.dmg` from a terminal instead — `curl -L -o Onesist.dmg <release-url>` — since browsers are the ones that attach it. This step disappears once releases are signed and notarized.
+
 ### Desktop Development
 
 ```bash
