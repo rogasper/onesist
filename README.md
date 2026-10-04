@@ -71,13 +71,18 @@ Onesist ships as a native, lightweight desktop application for **macOS (Apple Si
 
 ### Installing the macOS Build
 
-Release `.dmg` files are not signed with an Apple Developer ID yet — they only carry an ad-hoc signature — so macOS quarantines the download and refuses to open the app with *"Onesist is damaged and can't be opened"* (or *"Apple could not verify … is free of malware"* on macOS 15 and newer). The build itself is fine — after dragging the app into `/Applications`, clear the quarantine flag once:
+Release `.dmg` files are not signed with an Apple Developer ID yet — they only carry an ad-hoc signature — so macOS quarantines the download and blocks the first launch with *"Apple could not verify 'Onesist.app' is free of malware"*. (Builds before 0.1.46 had no signature seal at all, which macOS reported as *"Onesist is damaged and can't be opened"*.) The build itself is fine. After dragging the app into `/Applications`, approve it once:
+
+1. Open the app. macOS shows the warning — dismiss it with **Done**.
+2. Open **System Settings → Privacy & Security**, find Onesist and click **Open Anyway** (Touch ID or password, then **Open**).
+
+The app starts normally from then on. If macOS doesn't offer the button, or you'd rather stay in the terminal:
 
 ```bash
 xattr -cr /Applications/Onesist.app
 ```
 
-If macOS offers it, you can also open **System Settings → Privacy & Security** and use **Open Anyway**. To skip the flag entirely, download the `.dmg` from a terminal instead — `curl -L -o Onesist.dmg <release-url>` — since browsers are the ones that attach it. This step disappears once releases are signed and notarized.
+Downloading the `.dmg` with `curl -L -o Onesist.dmg <release-url>` skips the flag entirely too, since browsers are what attach it. All of this disappears once releases are signed and notarized.
 
 ### Desktop Development
 
