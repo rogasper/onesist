@@ -1,6 +1,6 @@
 import { Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import type { SkillInstallState } from "~/lib/use-skill-install";
+import { missingSkillNames, type SkillInstallState } from "~/lib/use-skill-install";
 
 interface SkillSetupDialogProps {
   state: SkillInstallState;
@@ -10,6 +10,8 @@ interface SkillSetupDialogProps {
 
 export function SkillSetupDialog({ state, onClose, onRetry }: SkillSetupDialogProps) {
   const updating = state.status === "outdated";
+  const missing = missingSkillNames(state.skills);
+  const needsAction = updating || state.status === "pending" || state.status === "failed";
   return (
     <DialogRoot open={state.status !== "idle"} onOpenChange={(open) => {
       if (!open && state.status !== "installing") onClose();
@@ -19,9 +21,9 @@ export function SkillSetupDialog({ state, onClose, onRetry }: SkillSetupDialogPr
           <DialogTitle>{updating ? "Skill update available" : "Project skill setup"}</DialogTitle>
           <DialogDescription className="mt-1">
             {updating ? (
-              <>A newer version of the project skills is available. Updating brings <b>fsd-analyzer</b> and <b>markitdown</b> in <code className="text-[10px]">.agents/skills/</code> to the latest.</>
+              <>A newer version of the project skills is available — the skills already in <code className="text-[10px]">.agents/skills/</code> can be brought up to date.</>
             ) : (
-              <>The project requires the <b>fsd-analyzer</b> and <b>markitdown</b> skills to be installed into{" "}
+              <>The project is missing <b>{missing.join(", ") || "required skills"}</b>. They must be installed into{" "}
               <code className="text-[10px]">.agents/skills/</code> before AI analysis can run.</>
             )}
           </DialogDescription>
@@ -53,10 +55,12 @@ export function SkillSetupDialog({ state, onClose, onRetry }: SkillSetupDialogPr
             )}
           </div>
           <div className="flex justify-end gap-2 mt-5">
-            {state.status === "failed" || updating ? (
+            {needsAction ? (
               <>
                 <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
-                <Button variant="primary" size="sm" onClick={onRetry}>{updating ? "Update now" : "Retry install"}</Button>
+                <Button variant="primary" size="sm" onClick={onRetry}>
+                  {updating ? "Update now" : state.status === "pending" ? "Install" : "Retry install"}
+                </Button>
               </>
             ) : (
               <Button variant="ghost" size="sm" disabled>Please wait…</Button>
