@@ -225,6 +225,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 ### Migrations & schema
 - **DO** keep `server/db/migrations/*.sql` in sync with `schema.ts` — a fresh DB fails if CREATE TABLE is missing columns that schema references (this caused "failed to connect" on fresh installs).
 - **DO** test with a fresh DB (`rm data.db && bun run dev`) before assuming migrations work — existing dev DBs hide missing-column bugs.
+- **DO** keep the schema guard working: `client.ts` runs drizzle → `applyMigrations()` → `repairMissingSchema()`. The last one replays the migration files idempotently (skipping DROP/RENAME/INSERT/UPDATE/DELETE) because **drizzle never re-runs a revision it has already recorded** — that is what heals a `data.db` that travelled between machines as a zipped copy (zipped while the app was running, or without its `-wal`/`-shm`), where the journal claims tables the file no longer has. Without it the app dies with a permanent `no such table`. Cost measured: 0.5 ms on a healthy DB, ~3 ms when the replay runs.
 
 ### FSD / file operations
 - **DO** remember FSD documents live on disk in `input/fsd/` — the DB session is metadata (status, artifacts, completeness). Don't store content only in DB.
