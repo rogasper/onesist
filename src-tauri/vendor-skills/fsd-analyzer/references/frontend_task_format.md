@@ -28,6 +28,7 @@ Template for **frontend-specific** developer task cards. Use alongside `referenc
 | Screen/Page | {route path or page name} |
 | Type | New Page / Update / Bug Fix |
 | Figma Reference | {link} or "N/A" |
+| Design Image | `input/assets/{berkas}.png` (relatif root project) atau "N/A" — lihat `references/task_format.md` §"Design image" |
 | Priority | High / Medium / Low |
 | Story Point | {1/2/3/5/8} (1 SP = 4 hours) |
 | Depends On | Task IDs (BE endpoints must be ready) |
@@ -254,5 +255,6 @@ FE-T2: User Status Toggle (depends on BE-T3 + FE-T1)
 - [ ] Dependencies on BE tasks are explicit
 - [ ] Story point estimate reflects complexity
 - [ ] Figma reference included when available
+- [ ] Design image referenced (`![…](input/assets/…)`, root-relative) when the workspace has one — and the file really exists
 - [ ] Responsive behavior documented
 - [ ] Error handling per error code documented

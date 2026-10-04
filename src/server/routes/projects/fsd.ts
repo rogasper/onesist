@@ -4,7 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import { json, notFound } from "../../http/response";
 import { Router } from "../../http/router";
 import { resolveRoot, hashContent } from "../../http/route-utils";
-import { convertToMarkdown, fsdPaths, saveFsdImage, saveFsdUpload, scanFsdDir } from "../../services/fsd-service";
+import { convertToMarkdown, fsdPaths, saveFsdUpload, scanFsdDir } from "../../services/fsd-service";
 import { db } from "~/server/db/client";
 import { fsdSessions } from "~/server/db/schema";
 
@@ -75,22 +75,6 @@ router.post("projects/:id/fsd/upload", async (ctx) => {
     }, 201);
   } catch (e: any) {
     return json({ error: `Upload failed: ${e?.message ?? e}` }, 500);
-  }
-});
-
-// POST /api/projects/:id/fsd/upload-image — save an image pasted/dropped into the
-// editor into input/fsd/images/. Body: raw file bytes. Query: ?filename=<base64>
-router.post("projects/:id/fsd/upload-image", async (ctx) => {
-  try {
-    const filenameRaw = new URL(ctx.request.url).searchParams.get("filename") ?? "";
-    let originalName = "";
-    try { originalName = Buffer.from(filenameRaw, "base64").toString("utf-8"); } catch {}
-    const buf = Buffer.from(await ctx.request.arrayBuffer());
-    const result = saveFsdImage(resolveRoot(ctx.params.id), originalName, buf);
-    if (result.error) return json({ error: result.error }, result.status ?? 400);
-    return json({ uploaded: result.uploaded, path: result.sourcePath }, 201);
-  } catch (e: any) {
-    return json({ error: `Image upload failed: ${e?.message ?? e}` }, 500);
   }
 });
 

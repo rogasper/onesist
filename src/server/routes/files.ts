@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { json } from "../http/response";
 import { Router } from "../http/router";
 import { resolveRoot } from "../http/route-utils";
+import { resolveInRoot } from "~/server/agent/paths";
 import { db } from "~/server/db/client";
 import { fsdSessions } from "~/server/db/schema";
 import {
@@ -50,18 +51,31 @@ router.get("files/read", ({ query }) => {
 router.get("files/image", ({ query }) => {
   const filePath = query.get("path");
   const projectId = query.get("projectId");
-  if (!filePath || filePath.includes("..")) return json({ error: "Missing or invalid path" }, 400);
-  const fullPath = path.join(resolveRoot(projectId), filePath);
+  if (!filePath) return json({ error: "Missing path" }, 400);
+  // Same rule the agent tools use: resolve, then require the result to stay
+  // inside the project root — a `..` check alone misses absolute paths and
+  // symlinks pointing out of the workspace.
+  let resolved: { abs: string; rel: string };
   try {
-    const buf = fs.readFileSync(fullPath);
-    const ext = path.extname(filePath).slice(1).toLowerCase();
+    resolved = resolveInRoot(resolveRoot(projectId), filePath);
+  } catch (e: any) {
+    return json({ error: e?.message ?? "Path tidak sah" }, 400);
+  }
+  try {
+    const buf = fs.readFileSync(resolved.abs);
+    const ext = path.extname(resolved.abs).slice(1).toLowerCase();
     const types: Record<string, string> = {
       png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
       webp: "image/webp", svg: "image/svg+xml", avif: "image/avif",
     };
+    // Images only. This route exists so `<img src>` can point at workspace
+    // files; without the allowlist it would happily serve any readable file
+    // inside the project (a key file, a `.env`) to whoever has the URL.
+    const type = types[ext];
+    if (!type) return json({ error: "Not an image" }, 415);
     return new Response(new Uint8Array(buf), {
       headers: {
-        "Content-Type": types[ext] || "application/octet-stream",
+        "Content-Type": type,
         "Cache-Control": "no-store",
       },
     });

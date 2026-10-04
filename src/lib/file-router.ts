@@ -294,7 +294,7 @@ export function moveFile(rootPath: string, source: string, destinationDir: strin
 
 export function ensureProjectStructure(rootPath: string): void {
   const dirs = [
-    "input", "input/fsd", "input/figma",
+    "input", "input/fsd", "input/figma", "input/assets",
     "output", "output/spec", "output/erd", "output/task",
     "output/td", "output/timeline", "output/reports",
   ];

@@ -9,12 +9,11 @@ import { hashContent } from "../http/route-utils";
 export interface FsdPaths {
   fsdDir: string;
   sourcesDir: string;
-  imagesDir: string;
 }
 
 export function fsdPaths(root: string): FsdPaths {
   const fsdDir = path.join(root, "input", "fsd");
-  return { fsdDir, sourcesDir: path.join(fsdDir, "sources"), imagesDir: path.join(fsdDir, "images") };
+  return { fsdDir, sourcesDir: path.join(fsdDir, "sources") };
 }
 
 export interface ConversionResult {
@@ -213,24 +212,4 @@ export function saveFsdUpload(root: string, originalName: string, buf: Buffer): 
     needsConversion: !isMd,
     message: isMd ? "Markdown file uploaded" : "File uploaded; conversion is available manually",
   };
-}
-
-export function saveFsdImage(root: string, originalName: string, buf: Buffer): UploadResult {
-  if (!originalName) return { error: "Missing filename" };
-  if (!buf.length) return { error: "Missing file" };
-  if (buf.length > 20 * 1024 * 1024) return { error: "Image too large (max 20MB)", status: 413 };
-  const ext = originalName.match(/\.(png|jpe?g|gif|webp|svg|avif)$/i)?.[0].toLowerCase() ?? "";
-  if (!ext) return { error: `Unsupported image type: ${originalName}`, status: 415 };
-
-  const imagesDir = fsdPaths(root).imagesDir;
-  try { fs.mkdirSync(imagesDir, { recursive: true }); } catch {}
-  const stem = originalName.replace(/\.[a-z0-9]+$/i, "").replace(/[^\w.\- ]+/g, "_");
-  let fileNameFinal = `${stem}${ext}`;
-  let n = 2;
-  while (fs.existsSync(path.join(imagesDir, fileNameFinal))) {
-    fileNameFinal = `${stem}_${n}${ext}`;
-    n++;
-  }
-  fs.writeFileSync(path.join(imagesDir, fileNameFinal), buf);
-  return { uploaded: true, fileName: fileNameFinal, sourcePath: `input/fsd/images/${fileNameFinal}` };
 }

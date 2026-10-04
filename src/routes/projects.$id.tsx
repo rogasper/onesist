@@ -14,7 +14,8 @@ import { ChatPanel } from "~/components/chat/ChatPanel";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
-import { useSkillInstall } from "~/lib/use-skill-install";
+import { useSkillInstall, skillNotice } from "~/lib/use-skill-install";
+import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { FsdEditor, type EditorMode } from "~/components/fsd/FsdEditor";
 import { AppButton } from "~/components/ui/AppButton";
 import { ContextMenu } from "~/components/ui/ContextMenu";
@@ -144,6 +145,8 @@ function ProjectLayout() {
     return <ProjectNotFound />;
   }
 
+  const notice = skillNotice(skill.state);
+
   return (
     <div className="flex h-full">
       <div className="flex-1 min-w-0 flex flex-col">
@@ -224,41 +227,45 @@ function ProjectLayout() {
           ))}
         </div>
 
-        {skill.state.status !== "idle" && skill.state.status !== "ready" && (
+        {notice && (
           <div className={`mb-4 px-3 py-2 rounded border text-xs flex items-center gap-2 ${
-            skill.state.status === "failed"
+            notice.tone === "red"
               ? "border-red-500/30 bg-red-500/10 text-red-400"
-              : skill.state.status === "outdated"
+              : notice.tone === "blue"
                 ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
                 : "border-amber-500/30 bg-amber-500/10 text-amber-400"
           }`}>
             <span className={`w-2 h-2 rounded-full shrink-0 ${
-              skill.state.status === "outdated" ? "bg-blue-400" : "animate-pulse bg-amber-400"
+              notice.pulse
+                ? "animate-pulse bg-amber-400"
+                : notice.tone === "red"
+                  ? "bg-red-400"
+                  : notice.tone === "blue"
+                    ? "bg-blue-400"
+                    : "bg-amber-400"
             }`} />
-            <span>
-              {skill.state.status === "failed"
-                ? "Project skills failed to install — AI analysis is unavailable. "
-                : skill.state.status === "outdated"
-                  ? "Skill update available — a newer version of the project skills can be installed. "
-                  : "Installing required project skills (fsd-analyzer, markitdown)… "}
-            </span>
-            {(skill.state.status === "failed" || skill.state.status === "outdated") && (
+            <span>{notice.text} </span>
+            {notice.action && (
               <button
                 onClick={() => skill.start(project.id)}
                 className="ml-auto px-2 py-1 text-[10px] rounded border border-kumo-line text-kumo-default hover:bg-kumo-elevated transition-colors"
               >
-                {skill.state.status === "outdated" ? "Update now" : "Retry install"}
+                {notice.action}
               </button>
             )}
           </div>
         )}
 
         <div className="flex-1 min-h-0">
-          {activeTab === "overview" ? (
-            <OverviewContent project={project} openTabs={openTabs} setOpenTabs={setOpenTabs} activeTabPath={activeTabPath} setActiveTabPath={setActiveTabPath} onFileClick={handleFileClick} onTabClose={handleTabClose} />
-          ) : (
-            <Outlet />
-          )}
+          {/* Markdown rendered in any tab resolves workspace-relative image
+              paths (`input/assets/…`) through this project id. */}
+          <ProjectIdProvider projectId={project.id}>
+            {activeTab === "overview" ? (
+              <OverviewContent project={project} openTabs={openTabs} setOpenTabs={setOpenTabs} activeTabPath={activeTabPath} setActiveTabPath={setActiveTabPath} onFileClick={handleFileClick} onTabClose={handleTabClose} />
+            ) : (
+              <Outlet />
+            )}
+          </ProjectIdProvider>
         </div>
       </div>
 

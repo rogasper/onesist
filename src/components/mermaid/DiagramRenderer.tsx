@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MermaidBlock } from "./MermaidBlock";
 import { DiagramSvgBlock } from "~/components/diagram/DiagramSvgBlock";
+import { WorkspaceImage } from "~/components/markdown/workspace-image";
 
 (MermaidBlock as unknown as { displayName: string }).displayName = "MermaidBlock";
 (DiagramSvgBlock as unknown as { displayName: string }).displayName = "DiagramSvgBlock";
@@ -85,6 +86,9 @@ export function MarkdownViewer({ content, className, codeRenderer }: MarkdownVie
       }
       return <pre {...props}>{children}</pre>;
     },
+    // Images in a document are stored project-relative (`input/assets/x.png`);
+    // without this the browser asks the SPA route for them and shows nothing.
+    img: WorkspaceImage,
   };
 
   return (

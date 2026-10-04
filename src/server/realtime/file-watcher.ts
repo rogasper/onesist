@@ -25,6 +25,9 @@ const WATCH_DEPTH = 3;
 
 const watchDirs = [
   "input/fsd", "input/fsds",
+  // Images inserted through the markdown editor land here; without this entry a
+  // fresh screenshot never reaches the file tree or the `@` mentions.
+  "input/assets",
   "output/spec", "output/specs",
   "output/erd", "output/erds",
   "output/task", "output/tasks",
