@@ -4,51 +4,70 @@ import { MagnifyingGlass } from "@phosphor-icons/react";
 import { FolderBrowserDialog } from "./FolderBrowserDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { agentLogo } from "~/lib/agent-command";
+import { isDesktopShell } from "~/lib/run-notification";
+import { reportClientError } from "~/lib/use-client-error-report";
 
-// Native folder picker when running inside the Tauri desktop shell; falls
-// back to the web API (osascript/zenity/powershell) otherwise.
-async function pickFolder(): Promise<string | null> {
-  // Check at call-time, not module-level: __TAURI_INTERNALS__ may be injected
-  // after the module first evaluates when the page loads from an external URL.
-  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-  if (isTauri) {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const path = await invoke<string | null>("pick_folder");
-      return path;
-    } catch (e) {
-      console.error("[pick_folder] invoke failed, falling back to web API:", e);
-    }
+/** Trace a picker failure into the server log. "Load failed" in the panel is
+ *  WebKit's wording and proves nothing; the server log holds the real chain
+ *  (IPC error + HTTP error, timestamped) — see /api/system/client-error. */
+function tracePickerFailure(stage: string, e: unknown): void {
+  const err = e instanceof Error ? e : new Error(String(e));
+  reportClientError(`folder-picker/${stage}`, err.message, err.stack);
+}
+
+/** Native picker through the Tauri shell. Retries once — reopening the sheet
+ *  is cheap and the first failure may be transient. Throws on final failure;
+ *  the caller then drops to the web FolderBrowserDialog, NEVER to the
+ *  osascript route: osascript steals window activation, which suspends the
+ *  web-content process and kills every in-flight WebView fetch ("Load failed"). */
+async function pickFolderNative(): Promise<string | null> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  try {
+    return await invoke<string | null>("pick_folder");
+  } catch (first) {
+    console.error("[pick_folder] invoke failed, retrying once:", first);
+    tracePickerFailure("invoke-1", first);
   }
   try {
-    // Never wait forever: a hung powershell picker (or dead server) must
-    // surface as an error instead of leaving the Open button disabled.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 120000);
-    try {
-      const res = await fetch("/api/helpers/choose-folder", {
-        method: "POST",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        // Server distinguishes "cancelled" (path:null, no error) from
-        // "picker failed" (error set) — surface failures, not cancels.
-        if (data.error) throw new Error(data.error);
-        return data.path ?? null;
-      }
-    } finally {
-      clearTimeout(timer);
+    return await invoke<string | null>("pick_folder");
+  } catch (second) {
+    console.error("[pick_folder] invoke failed after retry:", second);
+    tracePickerFailure("invoke-2", second);
+    throw second;
+  }
+}
+
+/** HTTP picker (osascript/zenity/powershell) — the web build only; on desktop
+ *  the native command above owns this path. */
+async function pickFolderHttp(): Promise<string | null> {
+  // Never wait forever: a hung powershell picker (or dead server) must
+  // surface as an error instead of leaving the Open button disabled.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120000);
+  try {
+    const res = await fetch("/api/helpers/choose-folder", {
+      method: "POST",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      // Server distinguishes "cancelled" (path:null, no error) from
+      // "picker failed" (error set) — surface failures, not cancels.
+      if (data.error) throw new Error(data.error);
+      return data.path ?? null;
     }
+    return null;
   } catch (e) {
     console.error("[pick_folder] web API failed:", e);
+    tracePickerFailure("http", e);
     if (e instanceof DOMException && e.name === "AbortError") {
       throw new Error("Folder picker timed out (120s). Coba lagi, atau ketik path folder langsung di kolom Project Folder.");
     }
     throw new Error(`Folder picker failed: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    clearTimeout(timer);
   }
-  return null;
 }
 
 interface AgentInfo {
@@ -102,7 +121,19 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
     setBrowsing(true);
     setError("");
     try {
-      const path = await pickFolder();
+      if (isDesktopShell()) {
+        try {
+          const path = await pickFolderNative();
+          if (path) applyPickedPath(path);
+        } catch {
+          // The IPC/native layer is dead. The web FolderBrowserDialog talks
+          // straight to the sidecar over HTTP (/api/helpers/list-dirs) and
+          // owns no native activation, so it cannot re-trigger the failure.
+          setDirOpen(true);
+        }
+        return;
+      }
+      const path = await pickFolderHttp();
       if (path) applyPickedPath(path);
     } catch (e: any) {
       setError(e?.message || "Failed to open folder picker");
@@ -118,11 +149,11 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
     try {
       const res = await fetch("/api/helpers/platform", { cache: "no-store" });
       const { platform } = await res.json();
-      if (platform === "win32") setDirOpen(true);
-      else handleBrowse();
+      if (platform === "win32") { setDirOpen(true); return; }
     } catch {
-      handleBrowse();
+      // platform unknown: fall through to the same picker handleBrowse picks.
     }
+    void handleBrowse();
   };
 
   const handleOpenFolder = async () => {
