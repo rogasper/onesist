@@ -210,14 +210,16 @@ jobs:
             if [ -n "$PREV_TAG" ]; then RANGE="${PREV_TAG}..${GITHUB_SHA}"; else RANGE=""; fi
             if [ -n "$RANGE" ]; then git log --format='- %s' "$RANGE"; else git log --format='- %s'; fi | sed 's/^/- /' > /tmp/release_notes.md
           fi
-          # macOS DMGs are unsigned, so Gatekeeper quarantines the download and
-          # refuses to open the app. Surface the one-line fix where users actually
-          # download it. Drop this block once releases are signed and notarized.
+          # macOS DMGs carry no Developer ID signature, so Gatekeeper quarantines
+          # the download and blocks the first launch. Surface the fix where users
+          # actually download it. Drop this block once releases are notarized.
           cat >> /tmp/release_notes.md <<'EOF'
 
           ---
 
-          **macOS:** kalau muncul "Onesist is damaged and can't be opened" setelah app dipindah ke `/Applications`, jalankan sekali:
+          **macOS:** saat app pertama kali dibuka, macOS akan menolak dengan "Apple could not verify 'Onesist.app' is free of malware". Klik **Done**, lalu buka **System Settings → Privacy & Security**, cari Onesist dan klik **Open Anyway**.
+
+          Kalau tombolnya tidak muncul, atau lebih suka terminal, jalankan sekali:
 
           ```
           xattr -cr /Applications/Onesist.app
