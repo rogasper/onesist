@@ -265,8 +265,17 @@ pub fn run() {
     .run(|app, event| {
       match event {
         RunEvent::Exit => {
+          // Terminating (Dock Quit / Cmd+Q land here — ExitRequested does not
+          // fire reliably on macOS). Mark quitting so the close-to-tray handler
+          // can't hide the window instead of letting it close, and stop the
+          // sidecar WITHOUT emitting: the status event is delivered to a
+          // WebView macOS is already tearing down, and that delivery blocks the
+          // main thread on a semaphore inside the terminate callback — measured
+          // as a 123-second quit. The sidecar still dies here (and has a PPID
+          // watchdog via SA_DESKTOP=1).
+          tray::mark_quitting();
           if let Some(state) = app.try_state::<sidecar::SidecarState>() {
-            state.stop();
+            state.stop_quiet();
           }
         }
         // Dock Quit / Cmd+Q trigger ExitRequested on macOS. Mark quitting so
@@ -302,7 +311,7 @@ pub fn run() {
             let _ = win.destroy();
           }
           if let Some(state) = app.try_state::<sidecar::SidecarState>() {
-            state.stop();
+            state.stop_quiet();
           }
         }
         RunEvent::WindowEvent { .. } => {}

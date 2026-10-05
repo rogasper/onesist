@@ -104,6 +104,14 @@ pub fn setup_close_to_tray(app: &AppHandle) {
 pub fn watch_sidecar_status(app: &AppHandle) {
     let app = app.clone();
     app.clone().listen(SIDECAR_STATUS_EVENT, move |event| {
+        // While quitting there is nothing to update — the WebView is being
+        // destroyed, and forwarding an event to it blocks the caller on the
+        // IPC until the WebView process gives up (the ~2 minute quit hang).
+        // This also covers the child's own termination event, which is emitted
+        // from the output-drain thread after `stop()`.
+        if QUITTING.load(Ordering::SeqCst) {
+            return;
+        }
         if let Some(win) = app.get_webview_window("main") {
             let _ = win.emit("sidecar-status", event.payload());
         }
