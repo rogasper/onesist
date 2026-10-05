@@ -166,17 +166,19 @@ export function useProviders() {
   }, [refresh]);
 
   const createProvider = useCallback(
-    async (draft: ProviderDraft) => {
-      await api("/api/providers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
+    async (draft: ProviderDraft): Promise<ProviderSummary> => {
+      const body = await api<{ provider: ProviderSummary }>("/api/providers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
       await refresh();
+      return body.provider;
     },
     [refresh],
   );
 
   const updateProvider = useCallback(
-    async (id: string, patch: Partial<ProviderDraft> & { clearApiKey?: boolean }) => {
-      await api(`/api/providers/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
+    async (id: string, patch: Partial<ProviderDraft> & { clearApiKey?: boolean }): Promise<ProviderSummary> => {
+      const body = await api<{ provider: ProviderSummary }>(`/api/providers/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(patch) });
       await refresh();
+      return body.provider;
     },
     [refresh],
   );
