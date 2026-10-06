@@ -1,0 +1,42 @@
+name: "✨ Feature Request"
+description: Usulkan ide atau fitur baru untuk Onesist
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Terima kasih atas usulannya! Pastikan ide serupa belum pernah diajukan sebelumnya.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Masalah / Kebutuhan
+      description: Masalah apa yang ingin diselesaikan? Ceritakan situasi nyata yang Anda alami.
+      placeholder: Saat mengerjakan '...', saya harus '...' secara manual sehingga '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Usulan Solusi
+      description: Fitur seperti apa yang Anda bayangkan? Kalau ada gambaran alurnya, tuliskan langkahnya.
+      placeholder: Akan lebih mudah kalau '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatif yang Sudah Dicoba
+      description: Cara lain yang sudah dipakai untuk menutupi kebutuhan ini, atau pendekatan lain yang dipertimbangkan.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Konteks Tambahan / Screenshot
+      description: Tambahkan mockup, referensi, atau tautan terkait jika ada.
+    validations:
+      required: false

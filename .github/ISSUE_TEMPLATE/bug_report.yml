@@ -1,0 +1,57 @@
+name: "🐛 Bug Report"
+description: Buat laporan bug untuk membantu kami memperbaiki masalah
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Terima kasih sudah melaporkan masalah! Pastikan isu serupa belum pernah dilaporkan sebelumnya.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Deskripsi Bug
+      description: Jelaskan apa yang terjadi secara jelas dan ringkas.
+      placeholder: Terjadi error saat mencoba...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Langkah Reproduksi Masalah
+      description: Langkah-langkah detail agar bug ini bisa direproduksi ulang.
+      placeholder: |
+        1. Buka halaman '...'
+        2. Klik tombol '....'
+        3. Lihat error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ekspektasi
+      description: Apa yang seharusnya terjadi?
+      placeholder: Seharusnya sistem merespons dengan status 200...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Info
+      description: Detail spesifik sistem / browser / device / runtime.
+      placeholder: |
+        - OS: [e.g. macOS / Ubuntu / Windows]
+        - Browser / Tool: [e.g. Chrome 120, Node.js 20, Go 1.22]
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Konteks Tambahan / Screenshot
+      description: Tambahkan logs, stack trace, atau paste screenshot jika ada.
+    validations:
+      required: false
