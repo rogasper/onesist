@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.47 — macOS: quit instan, folder picker lepas dari osascript, provider BYOK dipilih saat buka project
+
+### Fix — Quit macOS ~2 menit → di bawah 1 detik
+- **`src-tauri/src/sidecar.rs` + `lib.rs` + `tray.rs` — jalur terminate tidak lagi mengirim event ke WebView.** Dock Quit / Cmd+Q masuk sebagai `RunEvent::Exit` (bukan `ExitRequested`), dan di sana `state.stop()` memancarkan `sidecar-status` ke WebView yang justru sedang dibongkar macOS. Pengirimannya memblokir main thread di dalam semaphore milik tao, dan quit terukur **~123 detik**. Sekarang ada `stop_quiet()` — mematikan sidecar tanpa mengumumkannya — dan itulah yang dipakai jalur terminate (`RunEvent::Exit`, `ExitRequested`, dan `Drop`), sementara `tray::watch_sidecar_status` melewati penerusan selama `QUITTING`. **Terukur di mesin ini pada bundle rilis: quit 0,48 detik dan tidak ada proses yang tertinggal** (penulis PR mengukur 0,65 detik pada bundle debug).
+- **Klik ikon Dock kini memunculkan jendela** yang sedang tersembunyi ke tray (handler `RunEvent::Reopen`; sebelumnya ikonnya tampak mati).
+
+### Fix — Folder picker macOS: "Load failed" (osascript tidak lagi dipakai di aplikasi desktop)
+- **Desktop tidak pernah lagi jatuh ke osascript.** Rantainya: `invoke("pick_folder")` gagal (perintah milik app ini tidak punya entri izin app-level, jadi Tauri menjawab "Plugin not found"), lalu jatuh ke `POST /api/helpers/choose-folder` → `osascript "tell me to activate"` → aktivasi direbut → proses web-content di-suspend → setiap fetch yang sedang jalan mati dengan "Load failed" (itu kata-kata WebKit, bukan pesan Onesist) dan muncul dialog kedua. Sekarang `OpenProjectDialog` mencoba perintah native sekali lagi, lalu **beralih ke folder browser bawaan aplikasi** yang bicara langsung ke sidecar lewat HTTP (`/api/helpers/list-dirs`) tanpa proses anak; `system.ts` menolak jalur darwin saat `SA_DESKTOP=1` dengan pesan yang jelas, dan setiap kegagalan picker dicatat ke `logs/server.err.log` (`reportClientError`) sehingga rantai kegagalannya kelihatan.
+- **Konsekuensi yang disengaja:** sheet folder bawaan macOS tidak lagi terjangkau di aplikasi desktop sampai `pick_folder` diberi izin app-level (atau dipindah ke dialog plugin). Ini keputusan desain yang masih terbuka — untuk sekarang folder browser bawaan aplikasi yang berlaku.
+
+### Feat — Pilih provider BYOK saat membuka project
+- Dialog **Open Project** kini punya dropdown provider (hanya provider buatan Anda yang siap pakai; bootstrap environment bukan konfigurasi tersimpan, jadi tidak bisa dijadikan default). Pilihannya **disimpan sebagai default aplikasi saat project dibuka**, jadi project berikutnya memakai provider yang sama tanpa ditanya lagi; tombol **Kelola** membuka pengaturan provider sebagai modal di atas dialog, dan **Batal tidak mengubah apa pun**.
+
+### Catatan — DMG macOS sekarang ter-seal (rilis pertama setelah #5)
+- Mulai rilis ini bundle macOS ditandatangani **ad-hoc** (`bundle.macOS.signingIdentity: "-"`), jadi Gatekeeper menampilkan dialog yang menawarkan **Open Anyway** alih-alih vonis "damaged" yang tidak punya jalan masuk. Belum ada Developer ID/notarization, jadi halaman rilis tetap membawa catatan pemasangan; jalur `xattr -cr /Applications/Onesist.app` tetap berlaku sebagai cadangan yang dijamin bekerja.
+
+### Verifikasi
+- `bun run typecheck` bersih, `bun run build` sukses, dan sidecar + shell Rust terkompilasi lewat `bunx tauri build --bundles app`.
+- Bundle hasil build dijalankan: aplikasi boot, sidecar melayani `/api/health` 200, dan **quit terukur 0,48 detik** tanpa proses yatim.
+- Penjaga picker diuji lewat sidecar produksi: dengan `SA_DESKTOP=1`, `POST /api/helpers/choose-folder` menjawab `{"path":null,"error":"Folder picker native gagal — jalur osascript dinonaktifkan di aplikasi desktop"}` (tidak ada osascript yang dijalankan), `POST /api/helpers/list-dirs` mengembalikan daftar direktori, dan jejak `[client] folder-picker/…` benar-benar mendarat di `logs/server.err.log` aplikasi.
+- **Belum diuji:** jalur picker secara klik-nyata di macOS (yang diperiksa sisi server + peruteannya) dan perilaku di Windows — penulis PR juga belum mengujinya; cabang `win32` tidak berubah perilakunya dan penjaga di `system.ts` hanya berlaku untuk darwin.
+- **Bump `0.1.46 → 0.1.47`**.
+
 ## v0.1.46 — Fix: skema DB memulihkan diri + hapus project yang pernah dipakai chat
 
 ### Fix — `no such table: business_requirements` setelah `data.db` dipindah antar mesin
