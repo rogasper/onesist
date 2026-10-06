@@ -108,6 +108,15 @@ router.post("helpers/choose-folder", async () => {
   async function pickFolder(): Promise<string> {
     const platform = process.platform;
     if (platform === "darwin") {
+      // Desktop only ever reaches here when the Tauri pick_folder command
+      // failed. Running osascript from here would open a second picker that
+      // steals window activation — that suspends the web-content process and
+      // takes every in-flight WebView fetch down with "Load failed". The
+      // frontend drops to the web folder browser instead, so refuse loudly
+      // rather than spawn the applet. Web builds (no SA_DESKTOP) are unchanged.
+      if (process.env.SA_DESKTOP === "1") {
+        throw new Error("Folder picker native gagal — jalur osascript dinonaktifkan di aplikasi desktop");
+      }
       const r = await runCommand("osascript", ["-e", "tell me to activate", "-e", "POSIX path of (choose folder)"], 60000);
       return r.code === 0 ? r.out : "";
     }

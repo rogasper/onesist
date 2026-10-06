@@ -74,11 +74,29 @@ impl SidecarState {
     }
 
     pub fn stop(&self) {
+        self.stop_inner(true);
+    }
+
+    /// Stop without announcing it on the event bus.
+    ///
+    /// Used from the app's terminate path. That emit is delivered to the
+    /// WebView, and macOS is already tearing the WebView down when it runs:
+    /// the delivery blocks the main thread on a semaphore until the WebView
+    /// process gives up, which measured as a ~2 minute quit (123s). Nobody is
+    /// listening at that point either — the UI is going away with us.
+    pub fn stop_quiet(&self) {
+        self.stop_inner(false);
+    }
+
+    fn stop_inner(&self, announce: bool) {
         *self.stopped.lock().unwrap() = true;
         if let Ok(mut guard) = self.child.lock() {
             if let Some(child) = guard.take() {
                 let _ = child.kill();
             }
+        }
+        if !announce {
+            return;
         }
         let port = self.config.lock().unwrap().as_ref().map(|c| c.port).unwrap_or(0);
         self.emit(SidecarPhase::Stopped, port);
@@ -245,7 +263,9 @@ impl SidecarState {
 
 impl Drop for SidecarState {
     fn drop(&mut self) {
-        self.stop();
+        // Quiet: the app is being dropped, so a "stopped" broadcast has no
+        // listener left — and emitting it can block on a dying WebView.
+        self.stop_quiet();
     }
 }
 

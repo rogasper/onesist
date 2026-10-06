@@ -265,8 +265,32 @@ pub fn run() {
     .run(|app, event| {
       match event {
         RunEvent::Exit => {
+          // Terminating (Dock Quit / Cmd+Q land here — ExitRequested does not
+          // fire reliably on macOS). Mark quitting so the close-to-tray handler
+          // can't hide the window instead of letting it close, and stop the
+          // sidecar WITHOUT emitting: the status event is delivered to a
+          // WebView macOS is already tearing down, and that delivery blocks the
+          // main thread on a semaphore inside the terminate callback — measured
+          // as a 123-second quit. The sidecar still dies here (and has a PPID
+          // watchdog via SA_DESKTOP=1).
+          tray::mark_quitting();
           if let Some(state) = app.try_state::<sidecar::SidecarState>() {
-            state.stop();
+            state.stop_quiet();
+          }
+        }
+        // Clicking the Dock icon while the window is hidden-to-tray fires
+        // applicationShouldHandleReopen, and without this arm nothing answers
+        // it — the icon looks dead. Mirror the tray "Show Onesist" item.
+        // (unminimize first: a Dock-minimized window reports visible, so
+        // show()+set_focus alone would leave it in the Dock).
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { has_visible_windows, .. } => {
+          if !has_visible_windows {
+            if let Some(win) = app.get_webview_window("main") {
+              let _ = win.unminimize();
+              let _ = win.show();
+              let _ = win.set_focus();
+            }
           }
         }
         // Dock Quit / Cmd+Q trigger ExitRequested on macOS. Mark quitting so
@@ -302,7 +326,7 @@ pub fn run() {
             let _ = win.destroy();
           }
           if let Some(state) = app.try_state::<sidecar::SidecarState>() {
-            state.stop();
+            state.stop_quiet();
           }
         }
         RunEvent::WindowEvent { .. } => {}

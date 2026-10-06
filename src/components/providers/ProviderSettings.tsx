@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button } from "@cloudflare/kumo";
+import { Button, Dialog, DialogRoot } from "@cloudflare/kumo";
 import { ArrowLeft, Eye, EyeSlash, Plus, X } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import {
@@ -33,12 +33,38 @@ import {
  *  - no "Templates"/"Scenario Prompt Templates" — format conventions in
  *    Onesist are carried by the skill (`fsd-analyzer`), not prompt templates
  *  - there is an Agent turn limit (FR-L7), which DBX also has and is equally useful
+ *
+ * A `variant="modal"` shell exists for callers that must not lose their own
+ * state while the user configures a provider (Open Project): the app's own
+ * dialog chrome, over the caller, wide enough that the constraint above still
+ * holds.
  */
 const MONO = "font-mono text-[0.8125rem]";
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** `page` covers the whole app (default); `modal` floats over the caller. */
+  variant?: "page" | "modal";
+  /** Called with the saved provider when the surface is run as a modal. */
+  onSaved?: (provider: ProviderSummary) => void;
+}
+
+/** The two views' shell: full-surface, or the app's dialog chrome over the caller. */
+function Frame({ variant, onClose, dismissible, children }: { variant: "page" | "modal"; onClose?: () => void; dismissible?: boolean; children: React.ReactNode }) {
+  if (variant === "page") {
+    return <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">{children}</div>;
+  }
+  return (
+    // The shared Dialog (not a hand-rolled panel) is what puts this above the
+    // caller's own dialog and keeps the app's chrome; 56rem leaves the inner
+    // max-w-4xl form exactly the width it has in page mode.
+    <DialogRoot open onOpenChange={(next) => { if (!next) onClose?.(); }} disablePointerDismissal={!dismissible}>
+      <Dialog className="sm:w-[56rem]">
+        <div className="flex flex-col max-h-[85vh]">{children}</div>
+      </Dialog>
+    </DialogRoot>
+  );
 }
 
 const API_STYLES = [
@@ -230,7 +256,7 @@ function Toggle({ checked, onChange, label, description, disabled }: { checked: 
 
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
-export function ProviderSettings({ open, onClose }: Props) {
+export function ProviderSettings({ open, onClose, variant = "page", onSaved }: Props) {
   const { providers, presets, loading, error, refresh, createProvider, updateProvider, deleteProvider, testProvider, testDraft, getModelsForDraft } = useProviders();
 
   const [view, setView] = useState<"list" | "form">("list");
@@ -311,8 +337,18 @@ export function ProviderSettings({ open, onClose }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      if (isNew) await createProvider(draft);
-      else if (current) await updateProvider(current.id, { ...draft, apiKey: draft.apiKey.trim() || undefined });
+      const saved = isNew
+        ? await createProvider(draft)
+        : current
+          ? await updateProvider(current.id, { ...draft, apiKey: draft.apiKey.trim() || undefined })
+          : null;
+      // Run as a modal, the surface hands the result back and closes: the caller
+      // can select it without re-reading the list.
+      if (saved && onSaved) {
+        onSaved(saved);
+        onClose();
+        return;
+      }
       setView("list");
       setSelected(null);
     } catch (err: any) {
@@ -381,7 +417,8 @@ export function ProviderSettings({ open, onClose }: Props) {
   // ── Form view (drill-in) ────────────────────────────────────────────────
   if (view === "form") {
     return (
-      <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">
+      // A draft lives here, so an outside press never closes this view.
+      <Frame variant={variant} onClose={onClose}>
         <header className="flex items-center gap-3 px-8 py-4 border-b border-kumo-line shrink-0">
             <Button variant="ghost" onClick={backToList} icon={<ArrowLeft size={14} />}>
               Back
@@ -691,13 +728,14 @@ export function ProviderSettings({ open, onClose }: Props) {
             </Button>
           </div>
         </footer>
-      </div>
+      </Frame>
     );
   }
 
   // ── List view ────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">
+    // Nothing is unsaved in the list, so the backdrop may dismiss it.
+    <Frame variant={variant} onClose={onClose} dismissible>
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-4xl">
           <header className="flex items-center gap-4 px-8 py-6">
@@ -772,7 +810,7 @@ export function ProviderSettings({ open, onClose }: Props) {
           </Button>
         </div>
       </footer>
-    </div>
+    </Frame>
   );
 }
 
