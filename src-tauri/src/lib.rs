@@ -278,6 +278,21 @@ pub fn run() {
             state.stop_quiet();
           }
         }
+        // Clicking the Dock icon while the window is hidden-to-tray fires
+        // applicationShouldHandleReopen, and without this arm nothing answers
+        // it — the icon looks dead. Mirror the tray "Show Onesist" item.
+        // (unminimize first: a Dock-minimized window reports visible, so
+        // show()+set_focus alone would leave it in the Dock).
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { has_visible_windows, .. } => {
+          if !has_visible_windows {
+            if let Some(win) = app.get_webview_window("main") {
+              let _ = win.unminimize();
+              let _ = win.show();
+              let _ = win.set_focus();
+            }
+          }
+        }
         // Dock Quit / Cmd+Q trigger ExitRequested on macOS. Mark quitting so
         // the close-to-tray handler lets the window close. Stop the sidecar
         // and hard-exit — Tauri's app.exit() can hang with a tray icon
