@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Popover } from "@cloudflare/kumo";
 import { CaretUpDown, Check, Gear, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
-import { ChatSurface, type QueuedMessage } from "~/components/chat/ChatSurface";
+import { ChatSurface } from "~/components/chat/ChatSurface";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -24,43 +24,6 @@ const MIN_WIDTH = 320;
 const DEFAULT_WIDTH = 460;
 const MAX_WIDTH = 900;
 
-const QUEUE_STORAGE_KEY = "onesist.chat.queue";
-
-/** Queued messages per thread, and which threads have their queue held. */
-interface QueueStorage {
-  queues: Record<string, QueuedMessage[]>;
-  paused: Record<string, boolean>;
-}
-
-function readQueueStorage(): QueueStorage {
-  const empty: QueueStorage = { queues: {}, paused: {} };
-  if (typeof window === "undefined") return empty;
-  try {
-    const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY);
-    if (!raw) return empty;
-    const parsed = JSON.parse(raw);
-    return {
-      queues: parsed?.queues && typeof parsed.queues === "object" ? parsed.queues : {},
-      paused: parsed?.paused && typeof parsed.paused === "object" ? parsed.paused : {},
-    };
-  } catch {
-    // Unreadable storage must not block the chat; the queue simply starts empty.
-    return empty;
-  }
-}
-
-function writeQueueStorage(state: QueueStorage): void {
-  if (typeof window === "undefined") return;
-  try {
-    // Drop empty entries so the stored value does not grow with finished threads.
-    const queues = Object.fromEntries(Object.entries(state.queues).filter(([, items]) => items.length));
-    const paused = Object.fromEntries(Object.entries(state.paused).filter(([id, on]) => on && queues[id]));
-    window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify({ queues, paused }));
-  } catch {
-    /* quota or private mode: the queue still works for this session */
-  }
-}
-
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -75,55 +38,6 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   const [providersOpen, setProvidersOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ThreadSummary | null>(null);
   const [creating, setCreating] = useState(false);
-  /**
-   * Messages typed while a run is active, per thread id.
-   *
-   * Held here, not in `ChatSurface`, because the surface is keyed by thread id
-   * and remounts on every switch: a queue that vanished because the user glanced
-   * at another conversation would be worse than no queue at all.
-   */
-  // The queue survives a reload: it is the user's own unsent work. It is read on
-  // first render; the panel shows no conversation until one is picked, so no
-  // server-rendered markup can differ from this.
-  const [queueState, setQueueState] = useState<QueueStorage>(() => readQueueStorage());
-  const { queues, paused: pausedQueues } = queueState;
-  useEffect(() => {
-    writeQueueStorage(queueState);
-  }, [queueState]);
-  const enqueue = useCallback((threadId: string, text: string) => {
-    setQueueState((prev) => ({
-      ...prev,
-      queues: { ...prev.queues, [threadId]: [...(prev.queues[threadId] ?? []), { id: crypto.randomUUID(), text }] },
-    }));
-  }, []);
-  const removeQueued = useCallback((threadId: string, id: string) => {
-    setQueueState((prev) => ({
-      ...prev,
-      queues: { ...prev.queues, [threadId]: (prev.queues[threadId] ?? []).filter((q) => q.id !== id) },
-    }));
-  }, []);
-  /** Messages a run did not take in go back to the FRONT of the queue, in order. */
-  const restoreQueued = useCallback((threadId: string, texts: string[]) => {
-    setQueueState((prev) => ({
-      ...prev,
-      queues: {
-        ...prev.queues,
-        [threadId]: [...texts.map((text) => ({ id: crypto.randomUUID(), text })), ...(prev.queues[threadId] ?? [])],
-      },
-    }));
-  }, []);
-  /** Moves one queued message to the front, so it is the next thing sent. */
-  const promoteQueued = useCallback((threadId: string, id: string) => {
-    setQueueState((prev) => {
-      const items = prev.queues[threadId] ?? [];
-      const item = items.find((q) => q.id === id);
-      if (!item) return prev;
-      return { ...prev, queues: { ...prev.queues, [threadId]: [item, ...items.filter((q) => q.id !== id)] } };
-    });
-  }, []);
-  const setQueuePaused = useCallback((threadId: string, paused: boolean) => {
-    setQueueState((prev) => ({ ...prev, paused: { ...prev.paused, [threadId]: paused } }));
-  }, []);
   const { width, dragging, handleProps: resizeHandleProps } = usePanelResize({
     min: MIN_WIDTH,
     max: MAX_WIDTH,
@@ -209,19 +123,11 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
                 threadId={detail.thread.id}
                 detail={detail}
                 providers={providers}
-                queued={queues[detail.thread.id] ?? []}
-                onEnqueue={(text) => enqueue(detail.thread.id, text)}
-                onRemoveQueued={(id) => removeQueued(detail.thread.id, id)}
                 onRefresh={() => {
                   void refreshDetail();
                   void refresh();
                 }}
                 onOpenProviders={() => setProvidersOpen(true)}
-                queuePaused={!!pausedQueues[detail.thread.id]}
-                onPauseQueue={() => setQueuePaused(detail.thread.id, true)}
-                onResumeQueue={() => setQueuePaused(detail.thread.id, false)}
-                onRestoreQueued={(texts) => restoreQueued(detail.thread.id, texts)}
-                onPromoteQueued={(id) => promoteQueued(detail.thread.id, id)}
               />
             </ProjectIdProvider>
           ) : null}

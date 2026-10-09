@@ -18,7 +18,12 @@ type EventName =
   // open thread drop its "menunggu disisipkan" marker while the run continues.
   | "chat:steer"
   // A pending approval was answered, timed out, or its run ended: remove the card.
-  | "chat:approval-resolved";
+  | "chat:approval-resolved"
+  // The message queue of a thread changed: re-read it.
+  | "chat:queue"
+  // A turn started on a thread (possibly from the queue, with no client streaming
+  // it): a client viewing the thread can reattach to the live output.
+  | "chat:turn";
 
 interface EventPayload {
   type: EventName;
@@ -140,6 +145,14 @@ class AppEventBus extends EventEmitter {
   /** Steered messages the model has taken, identified by their message ids. */
   emitChatSteer(input: { threadId: string; messageIds: string[] }) {
     this.emitAppEvent({ type: "chat:steer", data: { ...input } });
+  }
+
+  emitChatQueue(input: { threadId: string }) {
+    this.emitAppEvent({ type: "chat:queue", data: { ...input } });
+  }
+
+  emitChatTurn(input: { threadId: string; runId: string }) {
+    this.emitAppEvent({ type: "chat:turn", data: { ...input } });
   }
 
   emitChatApprovalResolved(input: { threadId: string; toolCallId: string }) {

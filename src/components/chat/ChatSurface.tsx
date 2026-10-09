@@ -13,7 +13,7 @@ import { FileCard } from "~/components/chat/FileCard";
 import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
-import { chatActivity, markTaken, planQueueStep, settleSteers, shouldPauseQueue, type ScheduledSend } from "~/components/chat/chat-state";
+import { chatActivity, markTaken, settleSteers } from "~/components/chat/chat-state";
 import { MAX_STEPS_DEFAULT, MAX_STEPS_MAX } from "~/server/agent/types";
 import {
   expandMentions,
@@ -22,6 +22,8 @@ import {
   uploadAttachment,
   useChatActions,
   useChatLiveEvents,
+  useChatQueue,
+  type QueueItem,
   useChatSkills,
   useMentionFiles,
   usePendingApprovals,
@@ -55,38 +57,9 @@ interface Props {
   threadId: string;
   detail: ThreadDetail;
   providers: ChatProviderOption[];
-  /** Messages typed while a run was active, oldest first (see ChatPanel). */
-  queued?: QueuedMessage[];
-  onEnqueue?: (text: string) => void;
-  onRemoveQueued?: (id: string) => void;
   onRefresh: () => void;
   onOpenProviders: () => void;
-  /** The queue is held: nothing is sent automatically until resumed. Set after a
-   *  Stop or a failed run, so the queue never fires into a state the user just
-   *  interrupted. */
-  queuePaused?: boolean;
-  onPauseQueue?: () => void;
-  onResumeQueue?: () => void;
-  /** Messages a run did not take in; they go back to the front of the queue. */
-  onRestoreQueued?: (texts: string[]) => void;
-  /** Moves a queued message to the front of the queue ("Jalankan sekarang"). */
-  onPromoteQueued?: (id: string) => void;
 }
-
-/** A message the user wrote while the agent was still working. */
-export interface QueuedMessage {
-  id: string;
-  text: string;
-}
-
-/** How long a queued send may hang without starting a turn before it is treated
- *  as "did not go through" and tried again. */
-const QUEUE_GRACE_MS = 2500;
-/** Delay before sending, so the previous run can finish closing on the server:
- *  `finishRun` runs in the route's `finally`, milliseconds AFTER the client sees
- *  the stream end — long enough for a send to be refused with 409. */
-const QUEUE_SEND_DELAY_MS = 600;
-const QUEUE_MAX_TRIES = 3;
 
 const MONO = "font-mono text-[0.8125rem]";
 
@@ -118,16 +91,8 @@ export function ChatSurface({
   threadId,
   detail,
   providers,
-  queued,
-  onEnqueue,
-  onRemoveQueued,
   onRefresh,
   onOpenProviders,
-  queuePaused = false,
-  onPauseQueue,
-  onResumeQueue,
-  onRestoreQueued,
-  onPromoteQueued,
 }: Props) {
   const projectId = detail.thread.projectId;
   const navigate = useNavigate();
@@ -137,25 +102,19 @@ export function ChatSurface({
   /** A run ended and the transcript has not been re-read since. The re-read is
    *  what settles steers and the reply, so the flag stays up until it happens. */
   const awaitingRefresh = useRef(false);
-  /** The Stop about to happen was asked for by "Jalankan sekarang": do not pause. */
-  const runNowRef = useRef(false);
 
-  const { messages, sendMessage, status, stop, error, setMessages } = useChat({
+  const { messages, sendMessage, status, stop, error, setMessages, resumeStream } = useChat({
     id: threadId,
     transport: transport!,
     messages: initialMessages,
     // A run still working when the thread was opened is followed live from where
     // it is (the stream route replays what came before), not only read at its end.
     resume: !!detail.activeRun,
-    onFinish: ({ isAbort, isError }) => {
+    onFinish: () => {
       awaitingRefresh.current = true;
       setWatchingRun(false);
-      // Stop or a failure: hold the queue. Sending the next queued message right
-      // after the user interrupted a run would look like the Stop did not work.
-      // The exception is "Jalankan sekarang", which stops on purpose to send the
-      // promoted message next.
-      if (shouldPauseQueue({ isAbort, isError }, runNowRef.current)) onPauseQueue?.();
-      runNowRef.current = false;
+      // The queue is held by the server when this run was stopped or failed; no
+      // pausing decision is made here.
       onRefresh();
     },
   });
@@ -173,18 +132,25 @@ export function ChatSurface({
   const { runningElsewhere, busy } = activity;
   // A run started elsewhere can be parked on an approval; the card must still be
   // answerable here, or the run waits forever.
+  // The queue is the server's: re-read whenever it changes.
+  const queue = useChatQueue(threadId);
   const approvalState = usePendingApprovals(threadId, activity.approvalsOn);
   const { approvals, decide } = approvalState;
   // One live-events subscription serves the run, steer and approval updates.
   // Open while this client streams (a steer taken mid-run is shown as taken, and
   // approvals can be answered) and while watching a run started elsewhere.
-  useChatLiveEvents(threadId, activity.liveEvents, {
+  useChatLiveEvents(threadId, true, {
     ...approvalState.handlers,
+    onQueueChanged: () => void queue.refresh(),
+    onTurnStarted: () => {
+      // A turn started on this thread while this client is not streaming it (the
+      // queue sent the next message): follow it live.
+      if (!streamingRef.current) void resumeStream();
+    },
     onRunEnded: () => {
       setWatchingRun(false);
       // While this client streams, its own onFinish owns the run's end (and the
       // pause decision); only a run started elsewhere is settled here.
-      if (!streamingRef.current) runNowRef.current = false;
       awaitingRefresh.current = true;
       onRefresh();
     },
@@ -366,7 +332,7 @@ export function ChatSurface({
     // lost on the floor. Attachments travel with it — they are already uploaded
     // into the workspace, so the `@path` line is valid whenever it is sent.
     if (busy) {
-      if (payload) onEnqueue?.(payload);
+      if (payload) void queue.enqueue([payload]);
       return;
     }
     setNow(Date.now());
@@ -374,101 +340,12 @@ export function ChatSurface({
   }
 
   /**
-   * Sends queued messages one at a time, when no run is active.
-   *
-   * A queued message leaves the queue only once its turn has actually STARTED
-   * (`streaming` flipped back on) — so a send the server refuses (it is still
-   * closing the previous run) or that fails outright stays in the queue and is
-   * retried, instead of being silently swallowed.
-   */
-  const queueTriesRef = useRef(0);
-  const queueInFlightRef = useRef<{ id: string; at: number } | null>(null);
-  /** The pending delayed send for the queue head, if one is scheduled. */
-  const sendTimerRef = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
-  const [queueStuckId, setQueueStuckId] = useState<string | null>(null);
-  const [injectingId, setInjectingId] = useState<string | null>(null);
-  /**
-   * Messages handed to the running turn. They are rendered here from local state
-   * until the refresh at the end of the run reads them back from the database
-   * (same id, so `injectedVisible` drops the local copy instead of doubling it).
+   * Steers handed to the running turn ("Arahkan"), until the run settles them.
+   * The server marks each one taken when the model receives it (`chat:steer`).
    */
   const [injectedLocal, setInjectedLocal] = useState<{ id: string; text: string; taken?: boolean }[]>([]);
-  // Re-evaluates the queue while a send is in flight and nothing else changes.
-  const [queueTick, setQueueTick] = useState(0);
-
-  useEffect(() => {
-    if (!queued?.length || busy || noProvider || queuePaused) return;
-    const t = setInterval(() => setQueueTick((n) => n + 1), 500);
-    return () => clearInterval(t);
-  }, [queued?.length, busy, noProvider, queuePaused]);
-
-  // The send timer is NOT cleared by this effect's re-runs. `queueTick` re-runs
-  // the effect every 500 ms while the queue waits; with a cleanup that cleared the
-  // timer, the 600 ms delay was reset on every tick and the queued message was
-  // never sent. The timer is only cancelled when its head is no longer the next
-  // thing to send, or when the panel unmounts (see below).
-  useEffect(() => {
-    const head = queued?.[0];
-    const scheduled = sendTimerRef.current;
-    const step = planQueueStep({
-      headId: head?.id ?? null,
-      blocked: busy || noProvider || queuePaused || queueStuckId === head?.id,
-      scheduledId: scheduled?.id ?? null,
-      inFlightId: queueInFlightRef.current?.id ?? null,
-      inFlightAt: queueInFlightRef.current?.at ?? 0,
-      now: Date.now(),
-      tries: queueTriesRef.current,
-      graceMs: QUEUE_GRACE_MS,
-      maxTries: QUEUE_MAX_TRIES,
-    });
-    // A timer for a head that is no longer next is stale, whatever the step says.
-    if (scheduled && scheduled.id !== head?.id) {
-      clearTimeout(scheduled.timer);
-      sendTimerRef.current = null;
-    }
-    if (step.kind === "idle") {
-      if (scheduled && scheduled.id === head?.id) clearTimeout(scheduled.timer);
-      sendTimerRef.current = null;
-      return;
-    }
-    if (step.kind === "keep" || step.kind === "wait") return;
-    if (step.kind === "stuck") {
-      setQueueStuckId(head!.id);
-      return;
-    }
-    if (step.retry) {
-      queueInFlightRef.current = null;
-      queueTriesRef.current += 1;
-    }
-    const target = head!;
-    const timer = setTimeout(() => {
-      sendTimerRef.current = null;
-      queueInFlightRef.current = { id: target.id, at: Date.now() };
-      void sendMessage({ text: target.text });
-    }, QUEUE_SEND_DELAY_MS);
-    sendTimerRef.current = { id: target.id, timer } satisfies ScheduledSend;
-  }, [queued, busy, noProvider, queuePaused, queueTick, queueStuckId, sendMessage]);
-
-  // Leaving the thread must not fire a queued send into a conversation the user
-  // is no longer looking at.
-  useEffect(
-    () => () => {
-      if (sendTimerRef.current) clearTimeout(sendTimerRef.current.timer);
-      sendTimerRef.current = null;
-    },
-    [],
-  );
-
-  // The turn started: the queued message is a real message now.
-  useEffect(() => {
-    const head = queued?.[0];
-    if (!streaming || !head) return;
-    if (queueInFlightRef.current?.id !== head.id) return;
-    queueInFlightRef.current = null;
-    queueTriesRef.current = 0;
-    setQueueStuckId(null);
-    onRemoveQueued?.(head.id);
-  }, [streaming, queued, onRemoveQueued]);
+  /** A steer request is in flight (the button shows "mengirim…"). */
+  const [injectingId, setInjectingId] = useState<string | null>(null);
 
   /**
    * Settle the turn once the stored transcript has been re-read after a run.
@@ -491,7 +368,7 @@ export function ChatSurface({
       messages.map((m) => m.id),
     );
     if (settle.wait) return;
-    if (settle.restore.length) onRestoreQueued?.(settle.restore);
+    if (settle.restore.length) void queue.enqueue(settle.restore, true);
     if (settle.clear) setInjectedLocal([]);
 
     // Replace the live transcript with the stored one only when every streamed
@@ -501,7 +378,7 @@ export function ChatSurface({
       awaitingRefresh.current = false;
       setMessages(detail.messages as unknown as UIMessage[]);
     }
-  }, [detail, injectedLocal, messages, onRestoreQueued, setMessages, watchingRun]);
+  }, [detail, injectedLocal, messages, queue.enqueue, setMessages, watchingRun]);
 
   /** Ends the run on the server and this client's view of it. The explicit call
    *  is needed because a dropped connection no longer stops a run. */
@@ -510,29 +387,12 @@ export function ChatSurface({
     stop();
   }
 
-  /** "Jalankan sekarang": the queued message becomes the next turn. The run is
-   *  stopped, and the queue sends the promoted message once it has closed. */
-  function runNow(q: QueuedMessage) {
-    if (!busy) return;
-    runNowRef.current = true;
-    onPromoteQueued?.(q.id);
-    stopActiveRun();
-  }
-
-  function retryQueued(id: string) {
-    if (queueStuckId !== id) return;
-    queueInFlightRef.current = null;
-    queueTriesRef.current = 0;
-    setQueueStuckId(null);
-    setQueueTick((n) => n + 1);
-  }
-
   /**
    * "Kirim sekarang": hand a queued message to the run that is already working,
    * instead of waiting for it to finish. The run picks it up at its next step
    * and keeps everything it has learned so far.
    */
-  async function injectQueued(q: QueuedMessage) {
+  async function injectQueued(q: QueueItem) {
     if (injectingId) return;
     setInjectingId(q.id);
     try {
@@ -544,7 +404,7 @@ export function ChatSurface({
       });
       if (res.ok) {
         setInjectedLocal((prev) => [...prev, { id: q.id, text: q.text }]);
-        onRemoveQueued?.(q.id);
+        void queue.remove(q.id);
         return;
       }
       // 409 = the run ended between the click and the request. Leave the message
@@ -763,37 +623,29 @@ export function ChatSurface({
 
       <UnattributedFiles detail={detail} />
 
-      {/* Queued messages: typed while the agent was working, sent one at a time
-          once it stops. Numbered, because the order is the promise being made. */}
-      {queued?.length ? (
+      {/* Queued messages, held by the server and sent one at a time once the run
+          that is working ends. Numbered, because the order is the promise made. */}
+      {queue.items.length > 0 ? (
         <div className="border-t border-kumo-line shrink-0">
-          {/* Flex column, not grid: a grid item defaults to `min-width: auto`,
-              which is its max-content width for a `truncate` child — the chip
-              grew to 1137px inside a 450px panel and pushed "Kirim sekarang" and
-              the remove button off the edge (reported 2026-09-27). In a flex
-              column the chip is stretched to the container instead. */}
+          {/* Flex column, not grid: a grid item defaults to `min-width: auto`, which
+              lets a `truncate` child grow past the panel (reported 2026-09-27). */}
           <div className="mx-auto w-full max-w-3xl px-6 pt-2 pb-1 flex flex-col gap-1">
-            {queuePaused ? (
+            {queue.paused ? (
               <div className="flex items-center gap-2 text-xs text-kumo-subtle">
-                <span className="flex-1 min-w-0">
-                  Antrian dijeda setelah run dihentikan atau gagal · {queued.length} pesan menunggu
-                </span>
-                <button onClick={() => onResumeQueue?.()} className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-kumo-brand hover:bg-kumo-tint">
+                <span className="flex-1 min-w-0">Antrian dijeda setelah run dihentikan atau gagal · {queue.items.length} pesan menunggu</span>
+                <button onClick={() => void queue.resume()} className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-kumo-brand hover:bg-kumo-tint">
                   Lanjutkan
                 </button>
               </div>
             ) : (
               <p className="text-xs text-kumo-subtle">
-                Antrian · {queued.length} — dikirim otomatis setelah run ini selesai
+                Antrian · {queue.items.length} — dikirim otomatis setelah run ini selesai
               </p>
             )}
-            {queued.map((q, i) => (
+            {queue.items.map((q, i) => (
               <div key={q.id} className="min-w-0 flex items-center gap-2 rounded-lg bg-kumo-elevated ring ring-kumo-line px-3 py-1.5 text-xs">
                 <span className="shrink-0 tabular-nums text-kumo-subtle">{i + 1}</span>
-                {/* `min-w-0` here is the second half of the fix: a flex item
-                    refuses to shrink below its content width without it, so the
-                    text would still refuse to truncate once the chip itself can
-                    shrink. */}
+                {/* `min-w-0` lets the text truncate instead of pushing the buttons out. */}
                 <span className="flex-1 min-w-0 truncate text-kumo-default">{queuedPreview(q.text)}</span>
                 {busy ? (
                   <>
@@ -806,7 +658,7 @@ export function ChatSurface({
                       {injectingId === q.id ? "mengirim…" : "Arahkan"}
                     </button>
                     <button
-                      onClick={() => runNow(q)}
+                      onClick={() => void queue.runNow(q.id)}
                       title="Jalankan sekarang: hentikan run yang berjalan, lalu kirim pesan ini sebagai giliran berikutnya"
                       className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-amber-400 hover:bg-kumo-tint"
                     >
@@ -814,17 +666,8 @@ export function ChatSurface({
                     </button>
                   </>
                 ) : null}
-                {queueStuckId === q.id ? (
-                  <button
-                    onClick={() => retryQueued(q.id)}
-                    title="Kirim ulang"
-                    className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-amber-400 hover:bg-kumo-tint"
-                  >
-                    gagal — coba lagi
-                  </button>
-                ) : null}
                 <button
-                  onClick={() => onRemoveQueued?.(q.id)}
+                  onClick={() => void queue.remove(q.id)}
                   title="Hapus dari antrian"
                   aria-label="Hapus dari antrian"
                   className="shrink-0 rounded-md p-1 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"

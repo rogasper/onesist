@@ -62,6 +62,7 @@ import { createStreamTiming, tapStream } from "~/server/agent/stream-timing";
 import { withStreamHeartbeat } from "~/server/agent/stream-heartbeat";
 import { getApprovalDecision } from "~/server/agent/run-registry";
 import { closeRunStream, openRunStream, pushRunChunk, subscribeRunStream } from "~/server/agent/run-stream";
+import { enqueue, listQueue, registerQueueStarter, removeQueued, runQueuedNow, setPaused } from "~/server/agent/queue";
 import { resolveChatActions } from "~/server/agent/actions";
 import { resolveSkills, skillSummaries } from "~/server/agent/skills";
 import { SUBAGENT_LIMITS, SUBAGENT_TOOLS, parseSubagent, resolveSubagents, subagentSummaries } from "~/server/agent/subagents";
@@ -354,6 +355,22 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
 
+  const body = await ctx.body();
+  const uiMessages = (Array.isArray(body.messages) ? body.messages : []) as UIMessage[];
+  if (!uiMessages.length) return json({ error: "messages kosong." }, 400);
+  return startThreadTurn(thread.id, uiMessages, ctx.request.signal);
+}
+
+/**
+ * Starts one turn on a thread and returns its UI message stream. Used by the send
+ * route and by the server-side queue, so both follow the same rules: one run per
+ * thread, the user message is stored before the run starts, and the model reads
+ * the stored history.
+ */
+async function startThreadTurn(threadId: string, uiMessages: UIMessage[], clientSignal?: AbortSignal): Promise<Response> {
+  const thread = getThread(threadId);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+
   const root = projectRootOf(thread.projectId);
   if (!root) return json({ error: "Project belum punya root path." }, 400);
 
@@ -368,10 +385,6 @@ async function handleSendMessage(ctx: any): Promise<Response> {
       400,
     );
   }
-
-  const body = await ctx.body();
-  const uiMessages = (Array.isArray(body.messages) ? body.messages : []) as UIMessage[];
-  if (!uiMessages.length) return json({ error: "messages kosong." }, 400);
 
   /**
    * Transcript markers must never reach the model.
@@ -556,12 +569,13 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   // transcript is complete the next time the thread is opened. An explicit Stop
   // goes through `chat/threads/:id/stop`. Logged so a disconnect can still be
   // traced to the step it happened at.
-  ctx.request.signal.addEventListener("abort", () => {
+  clientSignal?.addEventListener("abort", () => {
     const langkah = getRun(runId)?.stepCount ?? 0;
     console.log(`[chat] klien terputus; run ${runId} tetap berjalan (thread ${current.id}, langkah ${langkah})`);
   });
 
   openRunStream(runId);
+  eventBus.emitChatTurn({ threadId: current.id, runId });
   const stream = toUIMessageStream({
     stream: tapStream(result.stream, timing),
     originalMessages: uiMessages,
@@ -856,6 +870,52 @@ router.get("chat/threads/:id/stream", async (ctx) => {
     statusText: response.statusText,
     headers: response.headers,
   });
+});
+
+// ── Message queue (server-side) ──────────────────────────────────────────────
+
+/** The queue starts turns itself when a run ends. The turn's stream is read here:
+ *  nobody else reads it, and the run only saves its reply while the stream is read. */
+registerQueueStarter(async (threadId, text) => {
+  const response = await startThreadTurn(threadId, [
+    { id: newId("msg"), role: "user", parts: [{ type: "text", text }] } as unknown as UIMessage,
+  ]);
+  if (response.status !== 200 || !response.body) return false;
+  void response.body.pipeTo(new WritableStream()).catch(() => {});
+  return true;
+});
+
+router.get("chat/threads/:id/queue", async (ctx) => {
+  if (!getThread(ctx.params.id)) return json({ error: "Thread tidak ditemukan." }, 404);
+  return json(listQueue(ctx.params.id));
+});
+
+/** Adds messages to the queue. `front: true` puts them ahead of what is queued. */
+router.post("chat/threads/:id/queue", async (ctx) => {
+  if (!getThread(ctx.params.id)) return json({ error: "Thread tidak ditemukan." }, 404);
+  const body = await ctx.body();
+  const texts = Array.isArray(body.texts) ? body.texts.map((t: unknown) => String(t ?? "")) : [];
+  if (!texts.some((t: string) => t.trim())) return json({ error: "texts wajib diisi." }, 400);
+  const ids = enqueue(ctx.params.id, texts, body.front === true);
+  return json({ ids });
+});
+
+router.delete("chat/threads/:id/queue/:itemId", async (ctx) => {
+  const removed = removeQueued(ctx.params.id, ctx.params.itemId);
+  return json({ removed }, removed ? 200 : 404);
+});
+
+/** "Jalankan sekarang": the item becomes the next turn; the active run is stopped. */
+router.post("chat/threads/:id/queue/:itemId/run-now", async (ctx) => {
+  const ok = runQueuedNow(ctx.params.id, ctx.params.itemId);
+  return json({ ok }, ok ? 200 : 404);
+});
+
+/** Lanjutkan: releases a held queue. */
+router.post("chat/threads/:id/queue/resume", async (ctx) => {
+  if (!getThread(ctx.params.id)) return json({ error: "Thread tidak ditemukan." }, 404);
+  setPaused(ctx.params.id, false);
+  return json(listQueue(ctx.params.id));
 });
 
 /** Stop whatever run is active on this thread. The client needs this because a

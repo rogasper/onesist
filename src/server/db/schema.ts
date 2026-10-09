@@ -353,10 +353,33 @@ export const chatThreads = sqliteTable(
     maxSteps: integer("max_steps").notNull().default(60),
     tokensUsed: integer("tokens_used").notNull().default(0),
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+    /** The message queue is held: nothing is sent from it until resumed. Set when a
+     *  run is stopped or fails, so the next queued message does not go out on its own. */
+    queuePaused: integer("queue_paused", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").default("datetime('now')"),
     updatedAt: text("updated_at").default("datetime('now')"),
   },
   (t) => [index("idx_chat_threads_project").on(t.projectId)],
+);
+
+/**
+ * Messages the user queued while a run was working (or while the queue was held).
+ * Held on the server so they are sent even when no client is open on the thread,
+ * and so every open view of the thread shows the same queue.
+ */
+export const chatQueue = sqliteTable(
+  "chat_queue",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    /** Lower goes first. "Jalankan sekarang" moves an item to the front. */
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+    createdAt: text("created_at").default("datetime('now')"),
+  },
+  (t) => [index("idx_chat_queue_thread").on(t.threadId, t.position)],
 );
 
 export const chatMessages = sqliteTable(

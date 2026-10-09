@@ -5,7 +5,7 @@
  *   bun test src/components/chat/chat-state.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chatActivity, markTaken, planQueueStep, settleSteers, shouldPauseQueue, type SteerItem } from "./chat-state";
+import { chatActivity, markTaken, settleSteers, type SteerItem } from "./chat-state";
 
 const steer = (id: string, text = id): SteerItem => ({ id, text });
 
@@ -56,25 +56,6 @@ describe("settleSteers", () => {
   });
 });
 
-describe("shouldPauseQueue", () => {
-  test("Stop holds the queue", () => {
-    expect(shouldPauseQueue({ isAbort: true, isError: false }, false)).toBe(true);
-  });
-
-  test("a failed run holds the queue", () => {
-    expect(shouldPauseQueue({ isAbort: false, isError: true }, false)).toBe(true);
-  });
-
-  test("a normal finish does not hold the queue", () => {
-    expect(shouldPauseQueue({ isAbort: false, isError: false }, false)).toBe(false);
-  });
-
-  test("Jalankan sekarang stops the run without holding the queue", () => {
-    // Regression: the promoted message must go out after the stop.
-    expect(shouldPauseQueue({ isAbort: true, isError: false }, true)).toBe(false);
-  });
-});
-
 describe("chatActivity", () => {
   test("idle thread: nothing is busy and nothing is subscribed", () => {
     expect(chatActivity({ streaming: false, watching: false })).toEqual({
@@ -105,50 +86,5 @@ describe("chatActivity", () => {
   test("streaming a run this client started is not 'elsewhere'", () => {
     const a = chatActivity({ streaming: true, watching: true });
     expect(a.runningElsewhere).toBe(false);
-  });
-});
-
-describe("planQueueStep", () => {
-  const base = {
-    headId: "m1",
-    blocked: false,
-    scheduledId: null,
-    inFlightId: null,
-    inFlightAt: 0,
-    now: 10_000,
-    tries: 0,
-    graceMs: 2500,
-    maxTries: 3,
-  };
-
-  test("no head, or blocked: idle", () => {
-    expect(planQueueStep({ ...base, headId: null }).kind).toBe("idle");
-    expect(planQueueStep({ ...base, blocked: true }).kind).toBe("idle");
-  });
-
-  test("a send already scheduled for this head is kept, not restarted", () => {
-    // Regression: the send timer was reset on every 500 ms tick, so a queued
-    // message never went out while the queue was waiting.
-    expect(planQueueStep({ ...base, scheduledId: "m1" })).toEqual({ kind: "keep" });
-  });
-
-  test("a new head schedules a send", () => {
-    expect(planQueueStep(base)).toEqual({ kind: "schedule", retry: false });
-  });
-
-  test("a scheduled send for another head is not kept", () => {
-    expect(planQueueStep({ ...base, scheduledId: "m0" })).toEqual({ kind: "schedule", retry: false });
-  });
-
-  test("a sent head that has not started yet waits during the grace period", () => {
-    expect(planQueueStep({ ...base, inFlightId: "m1", inFlightAt: 9_000 })).toEqual({ kind: "wait" });
-  });
-
-  test("a head that did not start after the grace period is retried", () => {
-    expect(planQueueStep({ ...base, inFlightId: "m1", inFlightAt: 1_000, tries: 0 })).toEqual({ kind: "schedule", retry: true });
-  });
-
-  test("a head that keeps failing to start becomes stuck", () => {
-    expect(planQueueStep({ ...base, inFlightId: "m1", inFlightAt: 1_000, tries: 2 })).toEqual({ kind: "stuck" });
   });
 });

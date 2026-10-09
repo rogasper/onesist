@@ -319,6 +319,10 @@ export interface ChatLiveEventHandlers {
   onApproval?: () => void;
   /** An approval was answered, timed out, or its run ended. */
   onApprovalResolved?: (toolCallId: string) => void;
+  /** The thread's message queue changed: re-read it. */
+  onQueueChanged?: () => void;
+  /** A turn started on this thread (possibly from the queue). */
+  onTurnStarted?: () => void;
   onOpen?: () => void;
 }
 
@@ -363,6 +367,12 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
         source.addEventListener("chat:approval-resolved", (e) => {
           const data = forThisThread(e);
           if (data) latest.current.onApprovalResolved?.(String(data.toolCallId ?? ""));
+        });
+        source.addEventListener("chat:queue", (e) => {
+          if (forThisThread(e)) latest.current.onQueueChanged?.();
+        });
+        source.addEventListener("chat:turn", (e) => {
+          if (forThisThread(e)) latest.current.onTurnStarted?.();
         });
         source.onerror = () => {
           failures += 1;
@@ -443,6 +453,72 @@ export function usePendingApprovals(threadId: string | null, active: boolean) {
   }, [threadId]);
 
   return { approvals, decide, handlers };
+}
+
+export interface QueueItem {
+  id: string;
+  text: string;
+}
+
+export interface ChatQueueState {
+  items: QueueItem[];
+  /** Held after a stop or a failure: nothing is sent from the queue until resumed. */
+  paused: boolean;
+}
+
+/**
+ * The thread's message queue, held on the server (see server/agent/queue.ts).
+ * Re-read on `chat:queue`; the server starts the next turn itself, so the client
+ * only adds, removes, promotes and resumes.
+ */
+export function useChatQueue(threadId: string | null) {
+  const [state, setState] = useState<ChatQueueState>({ items: [], paused: false });
+
+  const refresh = useCallback(async () => {
+    if (!threadId) return;
+    try {
+      setState(await api<ChatQueueState>(`/api/chat/threads/${threadId}/queue`));
+    } catch {
+      /* the queue is re-read on the next event */
+    }
+  }, [threadId]);
+
+  useEffect(() => {
+    setState({ items: [], paused: false });
+    void refresh();
+  }, [threadId, refresh]);
+
+  const post = useCallback(
+    async (path: string, body?: unknown) => {
+      try {
+        await api(`/api/chat/threads/${threadId}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body ?? {}),
+        });
+      } finally {
+        await refresh();
+      }
+    },
+    [threadId, refresh],
+  );
+
+  /** Adds messages to the queue. `front` puts them ahead of what is queued. */
+  const enqueue = useCallback((texts: string[], front = false) => post("/queue", { texts, front }), [post]);
+
+  const remove = useCallback(async (id: string) => {
+    try {
+      await api(`/api/chat/threads/${threadId}/queue/${id}`, { method: "DELETE" });
+    } finally {
+      await refresh();
+    }
+  }, [threadId, refresh]);
+
+  /** "Jalankan sekarang": the item becomes the next turn; the active run is stopped. */
+  const runNow = useCallback((id: string) => post(`/queue/${id}/run-now`), [post]);
+  const resume = useCallback(() => post("/queue/resume"), [post]);
+
+  return { ...state, refresh, enqueue, remove, runNow, resume };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

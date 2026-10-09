@@ -51,17 +51,6 @@ export function settleSteers(items: SteerItem[], storedIds: ReadonlySet<string>,
   };
 }
 
-/**
- * Whether a finished run should hold the queue.
- *
- * A Stop or a failure holds it, so the next queued message does not go out right
- * after the user interrupted. "Jalankan sekarang" stops on purpose to send the
- * promoted message next, so it does not hold the queue.
- */
-export function shouldPauseQueue(end: { isAbort: boolean; isError: boolean }, runNow: boolean): boolean {
-  return (end.isAbort || end.isError) && !runNow;
-}
-
 export interface ChatActivity {
   /** A run on this thread is going, but this client is not streaming it. */
   runningElsewhere: boolean;
@@ -83,53 +72,4 @@ export function chatActivity(input: { streaming: boolean; watching: boolean }): 
     liveEvents: busy,
     approvalsOn: busy,
   };
-}
-
-/** The send timer of the queue head, if one is pending. */
-export interface ScheduledSend {
-  id: string;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-export type QueueStep =
-  /** Nothing can be sent now: cancel any pending timer. */
-  | { kind: "idle" }
-  /** A send for this head is already scheduled. Keep it; do not restart its delay. */
-  | { kind: "keep" }
-  /** The head was sent and its turn has not started yet, within the grace period. */
-  | { kind: "wait" }
-  /** The head failed to start too many times: stop and let the user retry. */
-  | { kind: "stuck" }
-  /** Schedule a send for the head. `retry` means it was sent before and did not start. */
-  | { kind: "schedule"; retry: boolean };
-
-export interface QueueStepInput {
-  headId: string | null;
-  /** Busy, no provider, paused, or the head is stuck. */
-  blocked: boolean;
-  scheduledId: string | null;
-  inFlightId: string | null;
-  inFlightAt: number;
-  now: number;
-  tries: number;
-  graceMs: number;
-  maxTries: number;
-}
-
-/**
- * Decides what the queue does on this tick.
- *
- * The timer is only restarted for a different head. Re-running the decision on
- * an unrelated change (the 500 ms tick, for one) must return `keep`, not restart
- * the delay: restarting it on every tick meant a queued message was never sent.
- */
-export function planQueueStep(input: QueueStepInput): QueueStep {
-  if (!input.headId || input.blocked) return { kind: "idle" };
-  if (input.scheduledId === input.headId) return { kind: "keep" };
-  if (input.inFlightId === input.headId) {
-    if (input.now - input.inFlightAt < input.graceMs) return { kind: "wait" };
-    if (input.tries + 1 >= input.maxTries) return { kind: "stuck" };
-    return { kind: "schedule", retry: true };
-  }
-  return { kind: "schedule", retry: false };
 }

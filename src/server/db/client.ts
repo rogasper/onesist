@@ -120,6 +120,12 @@ const RUNTIME_TABLES = [
   "CREATE INDEX IF NOT EXISTS idx_chat_tool_calls_thread ON chat_tool_calls (thread_id, tool_call_id)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_thread_files_thread_path ON chat_thread_files (thread_id, path)",
   "CREATE INDEX IF NOT EXISTS idx_chat_runs_thread ON chat_runs (thread_id)",
+  `CREATE TABLE IF NOT EXISTS chat_queue (
+    id text PRIMARY KEY NOT NULL, thread_id text NOT NULL, position integer NOT NULL,
+    text text NOT NULL, created_at text DEFAULT (datetime('now')),
+    FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_chat_queue_thread ON chat_queue (thread_id, position)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_thread_reads_thread_path ON chat_thread_reads (thread_id, path)",
   `CREATE TABLE IF NOT EXISTS subagents (
     id text PRIMARY KEY NOT NULL, name text NOT NULL, description text NOT NULL,
@@ -213,6 +219,7 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     // Which assistant turn wrote a file (the transcript's per-answer file
     // section, UJI-MANUAL C9b) — see migrations/0014_white_sentinel.sql.
     "ALTER TABLE chat_thread_files ADD COLUMN message_id TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN queue_paused INTEGER DEFAULT 0 NOT NULL",
     // Fase 5.5: harga per juta token untuk perkiraan biaya (diisi user).
     "ALTER TABLE llm_providers ADD COLUMN input_price_per_mtok REAL",
     "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",
