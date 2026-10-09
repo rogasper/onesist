@@ -140,6 +140,7 @@ function nextEvent(c: CdpClient, method: string, sessionId: string, ms: number):
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+
 export interface CaptureResult {
   png: Buffer;
   finalUrl: string;
@@ -153,7 +154,114 @@ export interface CaptureResult {
  * closes the tab. With `waitForCanvas`, waits (up to 25 s) for a canvas element first: Figma draws
  * its frames on one.
  */
-export async function capture(url: string, opts: { waitForCanvas?: boolean; settleMs?: number } = {}): Promise<CaptureResult> {
+/** Hides Figma's editor chrome and comment layer in the viewer (see the `hideUi` option). */
+const FIGMA_CHROME_HIDDEN_CSS = [
+  "left_panel_island_container",
+  "rightPanelLoggedOutDesignContainer",
+  "positioned_design_toolbelt",
+  "logged_out_banner",
+  "base_cookie_banner",
+  "blocked_ui_loading_indicator",
+  "comments_view",
+  "multiplayer_cursors",
+]
+  .map((name) => `[class*="${name}"]`)
+  .join(", ")
+  .concat(" { display: none !important; }");
+
+/** Figma's selection blue, the outline it draws around the node named by `node-id`. */
+const SELECTION_RGB = [24, 160, 251];
+
+/**
+ * Runs in a blank page of the managed window, so the browser's own canvas decodes the PNG (no
+ * decoder in Onesist). Finds the selection outline by colour, then crops to the inside of it. The
+ * frame name above and the size label below sit outside the outline, so they are left out, and
+ * the outline itself is inset out of the picture. Resolves to null when no outline is visible,
+ * and the caller keeps the whole screenshot.
+ */
+const CROP_TO_SELECTION_SCRIPT = `async (b64, rgb, tolerance, minRun, inset) => {
+  const img = new Image();
+  img.src = "data:image/png;base64," + b64;
+  await img.decode();
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const near = (i) =>
+    Math.abs(px[i] - rgb[0]) <= tolerance && Math.abs(px[i + 1] - rgb[1]) <= tolerance && Math.abs(px[i + 2] - rgb[2]) <= tolerance;
+  const cols = new Uint32Array(w);
+  const rows = new Uint32Array(h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (near((y * w + x) * 4)) {
+        cols[x]++;
+        rows[y]++;
+      }
+    }
+  }
+  let left = -1;
+  let right = -1;
+  let top = -1;
+  for (let x = 0; x < w; x++) {
+    if (cols[x] >= minRun) {
+      if (left < 0) left = x;
+      right = x;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    if (rows[y] >= minRun && top < 0) top = y;
+  }
+  if (left < 0 || top < 0 || right - left < minRun) return null;
+  // The sides run the frame's whole height. Follow them down from the top and stop at the first
+  // gap: Figma's own blue bars further down can touch the same columns.
+  let bottom = top;
+  let lastBlue = top;
+  for (let y = top; y < h && y - lastBlue <= 3; y++) {
+    if (near((y * w + left) * 4) || near((y * w + right) * 4)) {
+      lastBlue = y;
+      bottom = y;
+    }
+  }
+  if (bottom - top < minRun) return null;
+  const x0 = left + inset;
+  const y0 = top + inset;
+  const x1 = right - inset + 1;
+  const y1 = bottom - inset + 1;
+  const out = document.createElement("canvas");
+  out.width = x1 - x0;
+  out.height = y1 - y0;
+  out.getContext("2d").drawImage(img, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+  return out.toDataURL("image/png").split(",")[1];
+}`;
+
+/** Crops a screenshot to the selected frame, or returns null when no selection outline shows. */
+async function cropToSelection(c: CdpClient, png: Buffer): Promise<Buffer | null> {
+  const { targetId } = await c.send("Target.createTarget", { url: "about:blank" });
+  try {
+    const { sessionId } = await c.send("Target.attachToTarget", { targetId, flatten: true });
+    // Device pixels: the viewport is 2x. A frame outline is at least 300 px long; the outline is
+    // about 2 px wide, so 3 px inside it is clear of the stroke.
+    const args = [png.toString("base64"), SELECTION_RGB, 30, 300, 3].map((v) => JSON.stringify(v)).join(", ");
+    const result = await c.send(
+      "Runtime.evaluate",
+      { expression: `(${CROP_TO_SELECTION_SCRIPT})(${args})`, awaitPromise: true, returnByValue: true },
+      sessionId,
+    );
+    const out = result.result?.value as string | null | undefined;
+    return out ? Buffer.from(out, "base64") : null;
+  } finally {
+    await c.send("Target.closeTarget", { targetId }).catch(() => {});
+  }
+}
+
+export async function capture(
+  url: string,
+  opts: { waitForCanvas?: boolean; settleMs?: number; viewportHeight?: number; cropToSelection?: boolean; hideUi?: boolean } = {},
+): Promise<CaptureResult> {
   const c = await ensureBrowser();
   touch();
   const { targetId } = await c.send("Target.createTarget", { url: "about:blank" });
@@ -161,7 +269,7 @@ export async function capture(url: string, opts: { waitForCanvas?: boolean; sett
     const { sessionId } = await c.send("Target.attachToTarget", { targetId, flatten: true });
     await c.send("Page.enable", {}, sessionId);
     await c.send("Runtime.enable", {}, sessionId);
-    await c.send("Emulation.setDeviceMetricsOverride", VIEWPORT, sessionId);
+    await c.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, height: opts.viewportHeight ?? VIEWPORT.height }, sessionId);
     const loaded = nextEvent(c, "Page.loadEventFired", sessionId, 25_000).catch(() => {});
     await c.send("Page.navigate", { url }, sessionId);
     await loaded;
@@ -173,6 +281,16 @@ export async function capture(url: string, opts: { waitForCanvas?: boolean; sett
       }
     }
     await sleep(opts.settleMs ?? 1500);
+    if (opts.hideUi) {
+      // Figma's keyboard shortcuts for this (Shift+C, Cmd+\) do nothing in the public viewer, so the
+      // editor chrome and the comment layer are hidden with a stylesheet instead. Matched by class
+      // name prefix, which Figma's CSS modules keep stable: file name and menu, right panel, bottom
+      // toolbelt, "Sign up" and cookie banners, loading indicator, comments and cursors.
+      await evalJs(
+        `(() => { const style = document.createElement("style"); style.textContent = ${JSON.stringify(FIGMA_CHROME_HIDDEN_CSS)}; document.head.appendChild(style); })()`,
+      );
+      await sleep(500);
+    }
     // Drawing settles when two screenshots in a row are identical (at most 15 s).
     let previous = "";
     let shot = "";
@@ -184,8 +302,10 @@ export async function capture(url: string, opts: { waitForCanvas?: boolean; sett
     }
     const finalUrl = String((await evalJs("location.href")) ?? url);
     const title = String((await evalJs("document.title")) ?? "");
+    let png: Buffer = Buffer.from(shot, "base64");
+    if (opts.cropToSelection) png = (await cropToSelection(c, png)) ?? png;
     return {
-      png: Buffer.from(shot, "base64"),
+      png,
       finalUrl,
       title,
       loginRequired: /\/(login|signup)\b/.test(finalUrl),

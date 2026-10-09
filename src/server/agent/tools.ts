@@ -749,7 +749,16 @@ export function buildTools(ctx: ToolContext): ToolSet {
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Hanya URL http/https yang diizinkan.");
       let shot;
       try {
-        shot = await captureInBrowser(parsed.toString(), { waitForCanvas: /figma\.com\/(design|file|proto|board)\//.test(url) });
+        // Figma design links: the editor chrome and comments are hidden. A Figma link with node-id
+        // opens with that frame selected; a taller window keeps the frame clear of the bottom
+        // toolbar, and the crop keeps just the selected frame.
+        const isFigma = /figma\.com\/(design|file|proto|board)\//.test(url);
+        const figmaNode = isFigma && /[?&]node-id=/.test(url);
+        shot = await captureInBrowser(parsed.toString(), {
+          waitForCanvas: isFigma,
+          ...(isFigma ? { hideUi: true } : {}),
+          ...(figmaNode ? { viewportHeight: 1600, cropToSelection: true } : {}),
+        });
       } catch (err) {
         if (err instanceof BrowserError) throw new Error(err.message);
         throw new Error(`Gagal membuka tautan: ${(err as Error).message}`);
