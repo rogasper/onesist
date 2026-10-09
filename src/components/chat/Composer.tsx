@@ -7,6 +7,7 @@ import { ModelPicker } from "~/components/chat/ModelPicker";
 import { FRESH_CURSOR, attachmentLabel, isLongPaste, pastedTextName, stepHistory, type HistoryCursor } from "~/components/chat/chat-draft";
 import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ContextUsage, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
 import { refSlug, type MentionRef } from "~/lib/mention-ref";
+import { isFolderPath } from "~/lib/mentions";
 
 /**
  * Chat composer (FR-B, FR-C10, FR-C11, ADR-001 D8).
@@ -232,7 +233,8 @@ export function Composer(props: Props) {
         // full `@dir/chat.ts` when the message is sent — the model still receives
         // a path it can act on. The popup keeps listing paths, so a duplicate name
         // is still distinguishable before choosing.
-        items: mentions.map((f) => ({ name: f.name, path: f.path, insert: `@${f.name}` })),
+        // A folder is inserted with its trailing slash (`@reports/`); see mentions.ts.
+        items: mentions.map((f) => ({ name: f.name, path: f.path, insert: isFolderPath(f.path) ? `@${f.name}/` : `@${f.name}` })),
       },
       {
         // Slash commands (FR-5.4) come from the SAME list as the `Aksi` popover, so

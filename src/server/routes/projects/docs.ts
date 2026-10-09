@@ -9,6 +9,7 @@ import { readFile, writeFile, scanDirectory } from "~/lib/file-router";
 import { DOC_TEMPLATE_PATH, DEFAULT_TEMPLATE } from "~/lib/doc-template";
 import { db } from "~/server/db/client";
 import { projects } from "~/server/db/schema";
+import { listMentionables } from "~/server/agent/mentionables";
 
 export const router = new Router();
 
@@ -129,40 +130,8 @@ router.get("projects/:id/docs/files", ({ params }) => {
 // file the popup refused to show.
 router.get("projects/:id/project-files", ({ params }) => {
   const { rootPath } = getCtx(params.id);
-  const files: { name: string; path: string }[] = [];
-  const CAP = 800;
-  // Skipped because they are either machine output (node_modules, dist, target)
-  // or listed by another trigger: `.agents/skills` and `.agents/agents` belong to
-  // `$` and to the subagent picker, and listing every SKILL.md here would bury
-  // the actual workspace files under them.
-  const SKIP = new Set(["node_modules", ".git", "dist", "binaries", "target", ".cache", ".next", ".turbo", "coverage", ".mastra"]);
-
-  const walk = (dir: string, prefix: string, depth: number) => {
-    if (files.length >= CAP) return;
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (files.length >= CAP) return;
-      if (entry.name.startsWith(".") && entry.name !== ".agents") continue;
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        if (SKIP.has(entry.name)) continue;
-        if (rel === ".agents/skills" || rel === ".agents/agents") continue;
-        if (depth >= 6) continue;
-        walk(path.join(dir, entry.name), rel, depth + 1);
-      } else if (entry.isFile()) {
-        files.push({ name: entry.name, path: rel });
-      }
-    }
-  };
-  walk(rootPath, "", 0);
-
-  files.sort((a, b) => a.path.localeCompare(b.path));
-  return json({ files });
+  // Files and folders, root first (P2.1); see mentionables.ts for the rules.
+  return json({ files: listMentionables(rootPath) });
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
