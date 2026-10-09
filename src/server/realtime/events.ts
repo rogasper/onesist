@@ -26,7 +26,10 @@ type EventName =
   | "chat:queue"
   // A turn started on a thread (possibly from the queue, with no client streaming
   // it): a client viewing the thread can reattach to the live output.
-  | "chat:turn";
+  | "chat:turn"
+  // The provider refused a request that the SDK is retrying (429 or 5xx). Lets the
+  // status line say so instead of a silent wait. `attempt` 0 means the retries ended.
+  | "chat:provider-retry";
 
 interface EventPayload {
   type: EventName;
@@ -164,6 +167,10 @@ class AppEventBus extends EventEmitter {
 
   emitChatTurn(input: { threadId: string; runId: string }) {
     this.emitAppEvent({ type: "chat:turn", data: { ...input } });
+  }
+
+  emitChatProviderRetry(input: { threadId: string; status: number; attempt: number }) {
+    this.emitAppEvent({ type: "chat:provider-retry", data: { ...input } });
   }
 
   emitChatApprovalResolved(input: { threadId: string; toolCallId: string }) {

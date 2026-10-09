@@ -340,6 +340,8 @@ export interface ChatLiveEventHandlers {
   onQueueChanged?: () => void;
   /** A turn started on this thread (possibly from the queue). */
   onTurnStarted?: () => void;
+  /** The provider refused a request and the SDK is retrying it; attempt 0 ends the retries. */
+  onProviderRetry?: (info: { status: number; attempt: number }) => void;
   onOpen?: () => void;
 }
 
@@ -397,6 +399,10 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
         });
         source.addEventListener("chat:turn", (e) => {
           if (forThisThread(e)) latest.current.onTurnStarted?.();
+        });
+        source.addEventListener("chat:provider-retry", (e) => {
+          const data = forThisThread(e);
+          if (data) latest.current.onProviderRetry?.({ status: Number(data.status), attempt: Number(data.attempt) });
         });
         source.onerror = () => {
           failures += 1;

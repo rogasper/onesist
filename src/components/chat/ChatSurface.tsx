@@ -13,7 +13,7 @@ import { FileCard } from "~/components/chat/FileCard";
 import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
-import { chatActivity, markTaken, settleSteers } from "~/components/chat/chat-state";
+import { chatActivity, markTaken, providerRetryLabel, settleSteers } from "~/components/chat/chat-state";
 import {
   bashExitCode,
   changeStats,
@@ -28,6 +28,7 @@ import {
   parseFetchResult,
   parseGlobList,
   parseSearchHits,
+  codeSearchLines,
   replacementPreview,
 } from "~/components/chat/chat-view";
 import { MAX_STEPS_DEFAULT, MAX_STEPS_MAX } from "~/server/agent/types";
@@ -165,6 +166,7 @@ export function ChatSurface({
   useChatLiveEvents(threadId, true, {
     ...approvalState.handlers,
     onQueueChanged: () => void queue.refresh(),
+    onProviderRetry: (info) => setProviderRetry(info.attempt > 0 ? info : null),
     onTurnStarted: () => {
       // A turn started on this thread while this client is not streaming it (the
       // queue sent the next message): follow it live.
@@ -172,6 +174,7 @@ export function ChatSurface({
     },
     onRunEnded: () => {
       setWatchingRun(false);
+      setProviderRetry(null);
       // While this client streams, its own onFinish owns the run's end (and the
       // pause decision); only a run started elsewhere is settled here.
       awaitingRefresh.current = true;
@@ -258,6 +261,11 @@ export function ChatSurface({
 
   // Turn start time, for the "Generating reply · 12s" status line.
   const [startedAt, setStartedAt] = useState<number | null>(null);
+  // A provider refusal the SDK is retrying, and whether the status line shows the plan.
+  const [providerRetry, setProviderRetry] = useState<{ status: number; attempt: number } | null>(null);
+  const [planOpen, setPlanOpen] = useState(false);
+  /** The status strip folded to a capsule: the elapsed time and Hentikan only. */
+  const [stripCompact, setStripCompact] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -266,6 +274,7 @@ export function ChatSurface({
       return;
     }
     setStartedAt(null);
+    setProviderRetry(null);
   }, [streaming]);
 
   useEffect(() => {
@@ -516,6 +525,19 @@ export function ChatSurface({
     const current = latestPlan.find((t) => t.status === "in_progress");
     return `Rencana ${done}/${latestPlan.length}${current ? ` · ${current.text}` : ""}`;
   }, [latestPlan]);
+  /** Subagent runs that have not returned yet, across the loaded transcript. */
+  const runningSubagents = useMemo(
+    () =>
+      messages.reduce(
+        (n, m) =>
+          n +
+          ((m.parts ?? []) as any[]).filter(
+            (p) => isToolUIPart(p) && getToolName(p) === "task" && p.state !== "output-available" && p.state !== "output-error",
+          ).length,
+        0,
+      ),
+    [messages],
+  );
   /** A steer request is in flight (the button shows "mengirim…"). */
   const [injectingId, setInjectingId] = useState<string | null>(null);
 
@@ -924,12 +946,36 @@ export function ChatSurface({
 
       {streaming && startedAt ? (
         <div className="border-t border-kumo-line shrink-0">
+          {planOpen && latestPlan && !stripCompact ? (
+            <div className="mx-auto w-full max-w-3xl px-6 pt-2 max-h-40 overflow-y-auto">
+              <TodoRows todos={latestPlan} />
+            </div>
+          ) : null}
           <div className="mx-auto w-full max-w-3xl px-6 py-1.5 flex items-center gap-2 text-xs text-kumo-subtle">
             <Pulse />
             <span className="min-w-0 truncate">
-              {planLine ? `${planLine} · ` : ""}Menghasilkan balasan
-              {mode === "agent" ? " · memakai tool" : mode === "plan" ? " · menyusun rencana" : ""} · berjalan {elapsedSeconds(startedAt, now)}s
+              {stripCompact ? null : (
+                <>
+                  {latestPlan ? (
+                    <button onClick={() => setPlanOpen((v) => !v)} aria-expanded={planOpen} className="hover:text-kumo-default">
+                      {planLine} {planOpen ? "⌄" : "›"}
+                    </button>
+                  ) : null}
+                  {latestPlan ? " · " : ""}Menghasilkan balasan
+                  {mode === "agent" ? " · memakai tool" : mode === "plan" ? " · menyusun rencana" : ""}
+                  {runningSubagents ? ` · ${runningSubagents} subagen berjalan` : ""}
+                </>
+              )}
+              {stripCompact ? null : " · "}
+              {providerRetryLabel(providerRetry) ? `${providerRetryLabel(providerRetry)} · ` : ""}berjalan {elapsedSeconds(startedAt, now)}s
             </span>
+            <button
+              onClick={() => setStripCompact((v) => !v)}
+              aria-label={stripCompact ? "Tampilkan status" : "Ringkas status"}
+              className="shrink-0 px-1 text-kumo-subtle hover:text-kumo-default"
+            >
+              {stripCompact ? "▴" : "▾"}
+            </button>
             <button
               onClick={stopActiveRun}
               className="ml-auto shrink-0 rounded-md px-2 py-0.5 ring ring-kumo-line hover:bg-kumo-elevated text-kumo-default"
@@ -1435,7 +1481,7 @@ function MessageBlockView({
   return (
     // One assistant turn is wrapped in ONE container, not loose blocks:
     // the eye immediately knows what belongs to one agent job.
-    <div className="rounded-xl bg-kumo-recessed/60 px-4 py-3.5 grid gap-3">
+    <div className="group rounded-xl bg-kumo-recessed/60 px-4 py-3.5 grid gap-3">
       {segmentBlocks(blocks).map((seg, si, all) => {
         if (seg.work) {
           // A finished run folds into one row; the run still in progress stays open.
@@ -1480,17 +1526,21 @@ function MessageBlockView({
         {/* The answer prose only: reasoning, tool output and file cards are not
             part of what "copy this answer" means. A turn that never produced
             prose (tool calls only) gets no button — copying "" is not an offer. */}
-        {canRetry && onRetry && !streaming ? (
-          <button onClick={() => onRetry(message.id)} className="ml-auto whitespace-nowrap hover:text-kumo-default">
-            Coba lagi
-          </button>
-        ) : null}
-        {onFork && !streaming ? (
-          <button onClick={() => onFork(message.id)} className={`${canRetry && onRetry ? "" : "ml-auto"} whitespace-nowrap hover:text-kumo-default`} title="Buat cabang percakapan dari sini">
-            Cabang
-          </button>
-        ) : null}
-        {answerText.trim() ? <CopyButton text={answerText} title="Salin jawaban" className="ml-auto" /> : null}
+        {/* The actions show on hover, as on the prompt bubble. A failed turn keeps its
+            retry visible, since that is the thing the reader is looking for. */}
+        <div className={`ml-auto flex items-center gap-3 transition-opacity ${failed ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
+          {canRetry && onRetry && !streaming ? (
+            <button onClick={() => onRetry(message.id)} className="whitespace-nowrap hover:text-kumo-default">
+              Coba lagi
+            </button>
+          ) : null}
+          {onFork && !streaming ? (
+            <button onClick={() => onFork(message.id)} className="whitespace-nowrap hover:text-kumo-default" title="Buat cabang percakapan dari sini">
+              Cabang
+            </button>
+          ) : null}
+          {answerText.trim() ? <CopyButton text={answerText} title="Salin jawaban" /> : null}
+        </div>
       </div>
     </div>
   );
@@ -1651,6 +1701,28 @@ function FindBar({
   );
 }
 
+/** The todo items, one per row: done struck through, the current step pulsing. */
+function TodoRows({ todos }: { todos: TodoItem[] }) {
+  return (
+    <div className="grid gap-1 py-1">
+      {todos.map((t, i) => (
+        <p key={t.id ?? i} className="flex items-start gap-2 text-sm">
+          <span className="mt-0.5 shrink-0">
+            {t.status === "completed" ? (
+              <Check size={13} className="text-green-400" />
+            ) : t.status === "in_progress" ? (
+              <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full bg-amber-400 animate-pulse" />
+            ) : (
+              <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full ring ring-kumo-line" />
+            )}
+          </span>
+          <span className={t.status === "completed" ? "text-kumo-subtle line-through" : "text-kumo-default"}>{t.text}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function TodoPanel({ todos }: { todos: TodoItem[] }) {
   const [open, setOpen] = useState(false);
   const done = todos.filter((t) => t.status === "completed").length;
@@ -1670,22 +1742,7 @@ function TodoPanel({ todos }: { todos: TodoItem[] }) {
       </button>
       {open ? (
         <ChildRail>
-          <div className="grid gap-1 py-1">
-            {todos.map((t, i) => (
-              <p key={t.id ?? i} className="flex items-start gap-2 text-sm">
-                <span className="mt-0.5 shrink-0">
-                  {t.status === "completed" ? (
-                    <Check size={13} className="text-green-400" />
-                  ) : t.status === "in_progress" ? (
-                    <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full bg-amber-400 animate-pulse" />
-                  ) : (
-                    <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full ring ring-kumo-line" />
-                  )}
-                </span>
-                <span className={t.status === "completed" ? "text-kumo-subtle line-through" : "text-kumo-default"}>{t.text}</span>
-              </p>
-            ))}
-          </div>
+          <TodoRows todos={todos} />
         </ChildRail>
       ) : null}
     </div>
@@ -1829,6 +1886,7 @@ function toolKind(name: string): ToolKind {
     case "list_dir":
       return "baca";
     case "grep":
+    case "code_search":
     case "glob":
       return "cari";
     case "web_fetch":
@@ -1931,6 +1989,7 @@ function toolTarget(name: string, input: any): string {
     case "bash":
       return String(input.command ?? "");
     case "grep":
+    case "code_search":
       return `${input.query ?? ""}${input.mode ? ` · ${input.mode}` : ""}`;
     case "read_file": {
       const path = String(input.path ?? input.file_path ?? "");
@@ -2059,6 +2118,23 @@ function ToolBody({ name, input, output }: { name: string; input: any; output: s
                 </p>
               ))}
             </div>
+          ))}
+        </div>
+      );
+    }
+    case "code_search": {
+      const lines = codeSearchLines(output);
+      if (!lines.length) return raw;
+      return (
+        <div className="max-h-56 overflow-y-auto grid gap-0.5">
+          {lines.map((l, i) => (
+            <p
+              key={i}
+              title={l.text}
+              className={`${MONO} truncate ${l.kind === "file" ? "text-kumo-default mt-1" : l.kind === "hit" ? "pl-3 text-kumo-subtle" : "text-kumo-subtle italic"}`}
+            >
+              {l.text}
+            </p>
           ))}
         </div>
       );

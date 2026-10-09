@@ -73,3 +73,14 @@ export function chatActivity(input: { streaming: boolean; watching: boolean }): 
     approvalsOn: busy,
   };
 }
+
+/**
+ * What the status line says while the provider refuses a request and the SDK retries
+ * it. Null when no retry is running (`attempt` 0 ends it). The next attempt is the one
+ * after the last refused answer.
+ */
+export function providerRetryLabel(info: { status: number; attempt: number } | null): string | null {
+  if (!info || info.attempt <= 0) return null;
+  const reason = info.status === 429 ? "penyedia membatasi permintaan (429)" : `penyedia gagal merespons (${info.status})`;
+  return `${reason}, percobaan ke ${info.attempt + 1}`;
+}

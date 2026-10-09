@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { llmProviders } from "~/server/db/schema";
+import { eventBus } from "~/server/realtime/events";
 import {
   createAnthropic,
   createOpenAI,
@@ -186,6 +187,25 @@ export function identityHeaders(endpoint: string, sessionId: string | undefined,
   return identity;
 }
 
+/** Retries in a row per thread: the SDK retries a refused request, and the status line
+ *  should say so. Cleared by the first response that is not a retry. */
+const providerRetries = new Map<string, number>();
+
+/** Reports one provider response for a thread. A 429 or 5xx is a retry the SDK will make;
+ *  any other answer ends the retries that were running. */
+export function reportProviderAttempt(threadId: string, status: number): void {
+  const retryable = status === 429 || status >= 500;
+  const before = providerRetries.get(threadId) ?? 0;
+  if (retryable) {
+    const attempt = before + 1;
+    providerRetries.set(threadId, attempt);
+    eventBus.emitChatProviderRetry({ threadId, status, attempt });
+  } else if (before > 0) {
+    providerRetries.delete(threadId);
+    eventBus.emitChatProviderRetry({ threadId, status, attempt: 0 });
+  }
+}
+
 function identityFetch(opts: { endpoint: string; sessionId?: string; overrides: Record<string, string> }): typeof fetch {
   // Nilai yang kita kirim, dan yang menang kalau USER mengisinya sendiri di
   // header kustom. SDK sudah menaruh `user-agent` bawaannya di init.headers, jadi
@@ -195,7 +215,9 @@ function identityFetch(opts: { endpoint: string; sessionId?: string; overrides: 
   return (async (input: any, init: any) => {
     const headers = new Headers(init?.headers ?? undefined);
     for (const [name, value] of Object.entries(identity)) headers.set(name, value);
-    return fetch(input, { ...init, headers });
+    const res = await fetch(input, { ...init, headers });
+    if (opts.sessionId) reportProviderAttempt(opts.sessionId, res.status);
+    return res;
   }) as typeof fetch;
 }
 

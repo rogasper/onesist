@@ -172,3 +172,22 @@ export function parseDbRows(output: unknown): { rows: Record<string, unknown>[];
     return null;
   }
 }
+
+export type CodeSearchLine = { kind: "note" | "file" | "hit"; text: string };
+
+/**
+ * A `code_search` result, line by line. The tool does not mark its lines with
+ * anything but indentation: files start at the margin, hits are indented under them,
+ * and the summary lines are notes. Blank lines are dropped.
+ */
+export function codeSearchLines(output: unknown): CodeSearchLine[] {
+  if (typeof output !== "string") return [];
+  return output
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line): CodeSearchLine => {
+      if (line.startsWith("  ")) return { kind: "hit", text: line.trim() };
+      if (/^(\(Index|\d+ (kecocokan|simbol|berkas cocok)|Tidak )/.test(line)) return { kind: "note", text: line };
+      return { kind: "file", text: line };
+    });
+}

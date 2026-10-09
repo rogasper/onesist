@@ -5,7 +5,7 @@
  *   bun test src/components/chat/chat-state.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chatActivity, markTaken, settleSteers, type SteerItem } from "./chat-state";
+import { chatActivity, markTaken, providerRetryLabel, settleSteers, type SteerItem } from "./chat-state";
 
 const steer = (id: string, text = id): SteerItem => ({ id, text });
 
@@ -87,4 +87,11 @@ describe("chatActivity", () => {
     const a = chatActivity({ streaming: true, watching: true });
     expect(a.runningElsewhere).toBe(false);
   });
+});
+
+test("the status line names the refused request and the attempt after it", () => {
+  expect(providerRetryLabel({ status: 429, attempt: 1 })).toBe("penyedia membatasi permintaan (429), percobaan ke 2");
+  expect(providerRetryLabel({ status: 503, attempt: 2 })).toBe("penyedia gagal merespons (503), percobaan ke 3");
+  expect(providerRetryLabel({ status: 200, attempt: 0 })).toBeNull();
+  expect(providerRetryLabel(null)).toBeNull();
 });

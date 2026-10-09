@@ -10,6 +10,7 @@ import { expect, test } from "bun:test";
 import {
   bashExitCode,
   changeStats,
+  codeSearchLines,
   changeTitle,
   exploreTitle,
   formatDuration,
@@ -109,4 +110,16 @@ test("a db_query result becomes rows with their columns; anything else is not a 
   expect(parsed?.rows.length).toBe(2);
   expect(parseDbRows("0 baris:\n(tidak ada baris)")).toEqual({ rows: [], columns: [] });
   expect(parseDbRows("Query gagal: syntax error")).toBeNull();
+});
+
+test("a code_search result keeps its files, hits and notes apart", () => {
+  const out = "(Index project dibuat sekarang: 4 berkas, 9 bagian.)\n\n2 kecocokan di 1 berkas untuk \"rule\":\n\noutput/reports/rule-a.md\n  [Aturan] rule untuk approval\n  rule kedua";
+  expect(codeSearchLines(out)).toEqual([
+    { kind: "note", text: "(Index project dibuat sekarang: 4 berkas, 9 bagian.)" },
+    { kind: "note", text: "2 kecocokan di 1 berkas untuk \"rule\":" },
+    { kind: "file", text: "output/reports/rule-a.md" },
+    { kind: "hit", text: "[Aturan] rule untuk approval" },
+    { kind: "hit", text: "rule kedua" },
+  ]);
+  expect(codeSearchLines(null)).toEqual([]);
 });
