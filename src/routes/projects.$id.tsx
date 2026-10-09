@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
 import { ChatPanel } from "~/components/chat/ChatPanel";
 import { subscribeQuotes } from "~/lib/chat-quote";
+import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
@@ -56,6 +57,11 @@ function ProjectLayout() {
   const [chatOpen, setChatOpen] = useState(false);
   // A quote sent from a viewer opens the chat, so the reader sees where it went.
   useEffect(() => subscribeQuotes(() => setChatOpen(true)), []);
+  // The chat folds the app sidebar on a narrow window and gives it back when it closes (P3.2).
+  useEffect(() => {
+    if (chatOpen) foldSidebarForChat(window.innerWidth);
+    else restoreSidebarAfterChat();
+  }, [chatOpen]);
   const [termRetryKey, setTermRetryKey] = useState(0);
   const [terminalRunning, setTerminalRunning] = useState(false);
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
@@ -160,9 +166,9 @@ function ProjectLayout() {
             <span className="text-kumo-default font-medium">{project.name}</span>
             {rootPath && <span className="text-[10px] text-kumo-subtle ml-2">{rootPath}</span>}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="rounded bg-kumo-elevated p-1"><Cube size={14} className="text-kumo-brand" /></div>
-            <h1 className="text-xl font-semibold tracking-tight text-kumo-default">{project.name}</h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="rounded bg-kumo-elevated p-1 shrink-0"><Cube size={14} className="text-kumo-brand" /></div>
+            <h1 className="text-xl font-semibold tracking-tight text-kumo-default truncate min-w-0">{project.name}</h1>
             <div className="ml-auto flex items-center gap-2">
               <AppButton
                 onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
@@ -212,7 +218,7 @@ function ProjectLayout() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 mb-3 flex-wrap">
+        <div className="flex items-center gap-1 mb-3 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TAB_ITEMS.map((t) => (
             <AppButton
               key={t.value}
@@ -223,7 +229,7 @@ function ProjectLayout() {
                 if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id } });
                 else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id } } as any);
               }}
-              className="px-3"
+              className="px-3 shrink-0 whitespace-nowrap"
             >
               {t.label}
             </AppButton>
