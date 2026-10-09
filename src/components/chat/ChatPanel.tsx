@@ -6,7 +6,8 @@ import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import { useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
 
@@ -32,6 +33,8 @@ interface Props {
 
 export function ChatPanel({ visible, onClose, projectId }: Props) {
   const { threads, loading, error, refresh, createThread, deleteThread } = useChatThreads(projectId);
+  // A run starting, finishing, or asking for approval changes the badges: re-read the list.
+  useChatActivityEvents(() => void refresh());
   const { providers, refresh: refreshProviders } = useChatProviders();
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -365,6 +368,16 @@ function ThreadPicker({
             <span className="w-4 shrink-0 text-kumo-brand">{t.id === activeId ? <Check size={13} weight="bold" /> : null}</span>
             <span className="grid gap-0.5 min-w-0">
               <span className="text-sm text-kumo-default truncate">{t.title || "Percakapan baru"}</span>
+              {threadBadges(t.activity).length ? (
+                <span className="flex flex-wrap gap-x-2.5 text-xs">
+                  {threadBadges(t.activity).map((b) => (
+                    <span key={b.label} className={`inline-flex items-center gap-1 ${b.tone === "run" ? "text-blue-400" : "text-amber-400"}`}>
+                      {b.tone === "run" ? <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" /> : null}
+                      {b.label}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
               <span className="text-xs text-kumo-subtle">
                 {t.mode === "ask" ? "Menjawab" : t.mode === "plan" ? "Merencanakan" : "Mengerjakan"}
                 {t.permissionMode === "readonly"

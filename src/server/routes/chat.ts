@@ -14,7 +14,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatThreads, projects } from "~/server/db/schema";
+import { apiEndpoints, apiSpecs, chatThreads, erds, fsdSessions, projects, tasks, testCases } from "~/server/db/schema";
 import { consumeStream, createUIMessageStreamResponse, toUIMessageStream, type UIMessage } from "~/server/agent/ai";
 import { makeRunId, startTurn } from "~/server/agent/agent";
 import {
@@ -30,13 +30,15 @@ import {
 } from "~/server/agent/config";
 import { convertToModelMessages } from "~/server/agent/ai";
 import { estimateTokens, resolveContextWindow, splitForCompaction, summarizeOldest } from "~/server/agent/context";
-import { listMentionRefs, resolveMentionRef } from "~/server/agent/mention-refs";
+import { dbmlTableNames, listMentionRefs, resolveMentionRef } from "~/server/agent/mention-refs";
+import { suggestionsFor } from "~/server/agent/suggestions";
+import { threadActivityOf } from "~/server/agent/thread-activity";
 import { MENTION_KINDS, type MentionKind } from "~/lib/mention-ref";
 import { parseReasoningLevel } from "~/server/agent/reasoning";
 import { imagePartProblem } from "~/lib/image-attachment";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
-import { finishRun, getRun, getRunForThread, listPendingApprovals, listPendingQuestions, queueUserMessage, resolveApproval, resolveQuestion, stopRun } from "~/server/agent/run-registry";
+import { activeRuns, finishRun, getRun, getRunForThread, listPendingApprovals, listPendingQuestions, queueUserMessage, resolveApproval, resolveQuestion, stopRun } from "~/server/agent/run-registry";
 import {
   addTokens,
   appendMessage,
@@ -209,7 +211,13 @@ router.get("chat/threads", async (ctx) => {
   const projectId = ctx.query.get("projectId");
   if (!projectId) return json({ error: "projectId wajib." }, 400);
   const includeArchived = ctx.query.get("archived") === "1";
-  return json({ threads: listThreads(projectId, includeArchived).map(publicThread) });
+  // What each thread is doing right now (a run, an approval, a question), so the list
+  // can show it without opening the thread.
+  const activity = threadActivityOf(activeRuns());
+  const idle = { running: false, pendingApprovals: 0, pendingQuestions: 0 };
+  return json({
+    threads: listThreads(projectId, includeArchived).map((t) => ({ ...publicThread(t), activity: activity.get(t.id) ?? idle })),
+  });
 });
 
 router.post("chat/threads", async (ctx) => {
@@ -1382,3 +1390,38 @@ router.get("chat/projects/:id/refs/:kind/:refId", async (ctx) => {
   if (!found) return json({ error: "Referensi tidak ditemukan." }, 404);
   return json(found);
 });
+
+/** The state-aware suggestions of an empty chat (M5 item 22). */
+router.get("chat/projects/:id/suggestions", async (ctx) => {
+  const projectId = ctx.params.id;
+  const fsdRows = db.select().from(fsdSessions).where(eq(fsdSessions.projectId, projectId)).all();
+  const specRows = db.select().from(apiSpecs).where(eq(apiSpecs.projectId, projectId)).all();
+  const endpointCount = db
+    .select({ id: apiEndpoints.id })
+    .from(apiEndpoints)
+    .innerJoin(apiSpecs, eq(apiSpecs.id, apiEndpoints.specId))
+    .where(eq(apiSpecs.projectId, projectId))
+    .all().length;
+  const erdTableCount = db
+    .select()
+    .from(erds)
+    .where(eq(erds.projectId, projectId))
+    .all()
+    .reduce((n: number, e: { dbmlContent: string }) => n + dbmlTableNames(e.dbmlContent).length, 0);
+  const taskCount = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, projectId)).all().length;
+  const testCaseCount = db.select({ id: testCases.id }).from(testCases).where(eq(testCases.projectId, projectId)).all().length;
+  const newest = (rows: { updatedAt: string | null }[]) => rows.reduce((m, r) => ((r.updatedAt ?? "") > m ? (r.updatedAt ?? "") : m), "");
+  const newestFsd = newest(fsdRows);
+  const newestSpec = newest(specRows);
+  return json({
+    suggestions: suggestionsFor({
+      fsdCount: fsdRows.length,
+      endpointCount,
+      erdTableCount,
+      taskCount,
+      testCaseCount,
+      fsdNewerThanSpec: newestFsd !== "" && newestFsd > newestSpec,
+    }),
+  });
+});
+

@@ -27,6 +27,8 @@ export interface ThreadSummary {
   hasSummary: boolean;
   /** Reasoning effort picked for this thread; null = the provider's default. */
   reasoningEffort?: "low" | "medium" | "high" | null;
+  /** What the thread is doing now: a run, and the answers it waits for (M5). */
+  activity?: { running: boolean; pendingApprovals: number; pendingQuestions: number };
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -622,6 +624,60 @@ export async function compactThread(threadId: string): Promise<{ ok: true } | { 
   const res = await fetch(`/api/chat/threads/${threadId}/compact`, { method: "POST", cache: "no-store" });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   return res.ok ? { ok: true } : { ok: false, error: data.error ?? "Gagal meringkas percakapan." };
+}
+
+/** A suggestion for an empty chat: fills the composer, is not sent by itself. */
+export interface ProjectSuggestion {
+  label: string;
+  prompt: string;
+}
+
+export async function fetchProjectSuggestions(projectId: string): Promise<ProjectSuggestion[]> {
+  const res = await fetch(`/api/chat/projects/${projectId}/suggestions`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return ((await res.json()) as { suggestions: ProjectSuggestion[] }).suggestions;
+}
+
+/**
+ * Any chat event in the project, for lists that show activity (the thread list badges).
+ * One connection, closed after repeated errors, and never polled.
+ */
+export function useChatActivityEvents(onChange: () => void) {
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  useEffect(() => {
+    let source: EventSource | null = null;
+    let failures = 0;
+    let disposed = false;
+    const ping = () => latest.current();
+    async function connect() {
+      try {
+        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
+        if (!res.ok) return;
+        const { ticket } = (await res.json()) as { ticket?: string };
+        if (!ticket || disposed) return;
+        source = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
+        for (const name of ["chat:run", "chat:turn", "chat:approval", "chat:approval-resolved", "chat:question", "chat:question-resolved"]) {
+          source.addEventListener(name, ping);
+        }
+        source.onerror = () => {
+          failures += 1;
+          if (failures >= 5) {
+            source?.close();
+            source = null;
+          }
+        };
+      } catch {
+        /* the list stays as it was; reopening the panel reads it again */
+      }
+    }
+    void connect();
+    return () => {
+      disposed = true;
+      source?.close();
+      source = null;
+    };
+  }, []);
 }
 
 /** The `#` references a project offers the composer. */

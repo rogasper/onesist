@@ -5,7 +5,7 @@
  *   bun test src/components/chat/chat-state.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chatActivity, markTaken, providerRetryLabel, settleSteers, type SteerItem } from "./chat-state";
+import { chatActivity, markTaken, providerRetryLabel, settleSteers, threadBadges, type SteerItem } from "./chat-state";
 
 const steer = (id: string, text = id): SteerItem => ({ id, text });
 
@@ -94,4 +94,14 @@ test("the status line names the refused request and the attempt after it", () =>
   expect(providerRetryLabel({ status: 503, attempt: 2 })).toBe("penyedia gagal merespons (503), percobaan ke 3");
   expect(providerRetryLabel({ status: 200, attempt: 0 })).toBeNull();
   expect(providerRetryLabel(null)).toBeNull();
+});
+
+test("a thread list badge says a run is going, and how many answers it waits for", () => {
+  expect(threadBadges(undefined)).toEqual([]);
+  expect(threadBadges({ running: false, pendingApprovals: 0, pendingQuestions: 0 })).toEqual([]);
+  expect(threadBadges({ running: true, pendingApprovals: 1, pendingQuestions: 0 })).toEqual([
+    { tone: "run", label: "Berjalan" },
+    { tone: "wait", label: "Menunggu 1 jawaban" },
+  ]);
+  expect(threadBadges({ running: true, pendingApprovals: 1, pendingQuestions: 2 })[1].label).toBe("Menunggu 3 jawaban");
 });

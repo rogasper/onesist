@@ -84,3 +84,13 @@ export function providerRetryLabel(info: { status: number; attempt: number } | n
   const reason = info.status === 429 ? "penyedia membatasi permintaan (429)" : `penyedia gagal merespons (${info.status})`;
   return `${reason}, percobaan ke ${info.attempt + 1}`;
 }
+
+/** The badges a thread shows in the list: a run going, and what it waits for (M5 item 23). */
+export function threadBadges(activity: { running: boolean; pendingApprovals: number; pendingQuestions: number } | undefined): { tone: "run" | "wait"; label: string }[] {
+  if (!activity) return [];
+  const badges: { tone: "run" | "wait"; label: string }[] = [];
+  if (activity.running) badges.push({ tone: "run", label: "Berjalan" });
+  const waiting = activity.pendingApprovals + activity.pendingQuestions;
+  if (waiting > 0) badges.push({ tone: "wait", label: waiting === 1 ? "Menunggu 1 jawaban" : `Menunggu ${waiting} jawaban` });
+  return badges;
+}

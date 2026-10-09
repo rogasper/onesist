@@ -48,7 +48,9 @@ import {
   compactThread,
   fetchMentionRefs,
   fetchMentionRef,
+  fetchProjectSuggestions,
   type ContextUsage,
+  type ProjectSuggestion,
   useChatQueue,
   type QueueItem,
   useChatSkills,
@@ -228,6 +230,18 @@ export function ChatSurface({
   const [attachError, setAttachError] = useState<string | null>(null);
   /** Pictures waiting to go with the next message (sent as file parts, not uploaded). */
   const [images, setImages] = useState<PendingImage[]>([]);
+
+  // What an empty chat suggests next, from the project's own files (M5 item 22).
+  const [suggestions, setSuggestions] = useState<ProjectSuggestion[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void fetchProjectSuggestions(projectId).then((list) => {
+      if (alive) setSuggestions(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
 
   // Project references for the `#` trigger; the thread itself is not offered to itself.
   const [refs, setRefs] = useState<MentionRef[]>([]);
@@ -995,7 +1009,7 @@ export function ChatSurface({
               </button>
             </div>
           ) : null}
-          {!messages.length ? <EmptyState onPick={setInput} providerReady={!noProvider} /> : null}
+          {!messages.length ? <EmptyState onPick={setInput} providerReady={!noProvider} suggestions={suggestions} /> : null}
 
           {messages.map((m, mi) => (
             <div key={m.id ?? mi} data-user-turn={m.role === "user" ? m.id : undefined}>
@@ -1355,13 +1369,15 @@ function useLiveToolDurations(messages: UIMessage[]): Record<string, number> {
   return done;
 }
 
-function EmptyState({ onPick, providerReady }: { onPick: (t: string) => void; providerReady: boolean }) {
-  const contoh = [
-    "Analisa FSD di input/fsd dan buatkan spec API, ERD, dan task card.",
-    "Periksa konsistensi MASTER_SPEC_API.md dengan output/spec — laporkan yang tidak cocok.",
-    "Susun test case SIT untuk modul yang belum punya di output/sit.",
-    "Ringkas MASTER_ERD.md dan sebutkan entitas yang belum punya endpoint.",
-  ];
+function EmptyState({
+  onPick,
+  providerReady,
+  suggestions,
+}: {
+  onPick: (t: string) => void;
+  providerReady: boolean;
+  suggestions: ProjectSuggestion[];
+}) {
   return (
     <div className="pt-8 grid gap-2">
       <div className="grid gap-1.5">
@@ -1373,13 +1389,16 @@ function EmptyState({ onPick, providerReady }: { onPick: (t: string) => void; pr
         </p>
       </div>
       <div className="grid gap-2 mt-2">
-        {contoh.map((t) => (
+        {suggestions.map((s) => (
+          // Fills the composer; the user reads it and sends it, as in ZCode.
           <button
-            key={t}
-            onClick={() => onPick(t)}
-            className="text-left text-sm rounded-xl px-4 py-3 ring ring-kumo-line hover:bg-kumo-elevated text-kumo-subtle"
+            key={s.label}
+            onClick={() => onPick(s.prompt)}
+            title={s.prompt}
+            className="text-left rounded-xl px-4 py-3 ring ring-kumo-line hover:bg-kumo-elevated grid gap-0.5"
           >
-            {t}
+            <span className="text-sm font-medium text-kumo-default">{s.label}</span>
+            <span className="text-xs text-kumo-subtle">{s.prompt}</span>
           </button>
         ))}
       </div>

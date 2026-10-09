@@ -169,6 +169,11 @@ export function getRun(runId: string): ActiveRun | undefined {
   return RUNS.get(runId);
 }
 
+/** Every run the registry holds, finished or not; callers filter by status. */
+export function activeRuns(): ActiveRun[] {
+  return [...RUNS.values()];
+}
+
 export function getRunForThread(threadId: string): ActiveRun | undefined {
   for (const run of RUNS.values()) if (run.threadId === threadId && run.status === "running") return run;
   return undefined;
