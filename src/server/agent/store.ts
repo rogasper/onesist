@@ -6,7 +6,7 @@
  * in-memory ring buffer lost on server restart.
  */
 import crypto from "node:crypto";
-import { and, asc, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, max, sql } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
 import { MAX_STEPS_DEFAULT, type FileOp, type PermissionMode, type ThreadMode } from "./types";
@@ -310,6 +310,35 @@ export function searchChatMessages(projectId: string, query: string, limit: numb
 
 export function listMessages(threadId: string): MessageRow[] {
   return db.select().from(chatMessages).where(eq(chatMessages.threadId, threadId)).orderBy(asc(chatMessages.seq)).all() as MessageRow[];
+}
+
+/** How many messages a thread view loads at a time (the newest ones first). */
+export const MESSAGE_PAGE = 50;
+
+/**
+ * One page of a thread's messages, oldest first: the `limit` messages before
+ * `beforeSeq` (or the newest ones when no cursor is given). `hasMore` tells the
+ * client whether an older page exists.
+ */
+export function listMessagePage(threadId: string, opts: { beforeSeq?: number; limit?: number } = {}): { rows: MessageRow[]; hasMore: boolean } {
+  const limit = opts.limit ?? MESSAGE_PAGE;
+  const where =
+    opts.beforeSeq != null
+      ? and(eq(chatMessages.threadId, threadId), lt(chatMessages.seq, opts.beforeSeq))
+      : eq(chatMessages.threadId, threadId);
+  const found = db.select().from(chatMessages).where(where).orderBy(desc(chatMessages.seq)).limit(limit + 1).all() as MessageRow[];
+  const hasMore = found.length > limit;
+  return { rows: found.slice(0, limit).reverse(), hasMore };
+}
+
+/** The sequence number of one message in its thread, for paging from it. */
+export function messageSeq(threadId: string, messageId: string): number | null {
+  const row = db
+    .select({ seq: chatMessages.seq })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.threadId, threadId), eq(chatMessages.id, messageId)))
+    .get() as { seq: number } | undefined;
+  return row?.seq ?? null;
 }
 
 /** Convert stored rows into `UIMessage[]` for `useChat` and for continuing

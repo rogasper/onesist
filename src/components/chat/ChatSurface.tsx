@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
@@ -102,6 +102,13 @@ export function ChatSurface({
   /** A run ended and the transcript has not been re-read since. The re-read is
    *  what settles steers and the reply, so the flag stays up until it happens. */
   const awaitingRefresh = useRef(false);
+  /** Messages loaded from older pages, oldest first. They sit in front of the newest
+   *  page in the transcript, and a refresh re-applies them rather than dropping them. */
+  const olderRef = useRef<UIMessage[]>([]);
+  const [hasMoreOlder, setHasMoreOlder] = useState(!!detail.hasMoreMessages);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  /** Scroll height before an older page was prepended, to keep the view in place. */
+  const prependHeight = useRef<number | null>(null);
 
   const { messages, sendMessage, status, stop, error, setMessages, resumeStream } = useChat({
     id: threadId,
@@ -257,6 +264,44 @@ export function ChatSurface({
     if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, approvals]);
 
+  // Prepending an older page grows the list above the reader. Keep the message they
+  // were looking at in place by moving the scroll by the height that was added.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && prependHeight.current != null) {
+      el.scrollTop += el.scrollHeight - prependHeight.current;
+      prependHeight.current = null;
+    }
+  }, [messages]);
+
+  /** The stored transcript with the older pages put back in front of it. */
+  function withOlder(list: UIMessage[]): UIMessage[] {
+    const ids = new Set(list.map((m) => m.id));
+    return [...olderRef.current.filter((m) => !ids.has(m.id)), ...list];
+  }
+
+  /** Loads the page of messages before the oldest one shown. */
+  async function loadOlder() {
+    const oldest = messages[0]?.id;
+    if (!oldest || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch(`/api/chat/threads/${threadId}/messages?before=${encodeURIComponent(oldest)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { messages: UIMessage[]; hasMore: boolean };
+      const scroller = scrollRef.current;
+      prependHeight.current = scroller ? scroller.scrollHeight : null;
+      const older = data.messages;
+      olderRef.current = [...older, ...olderRef.current.filter((m) => !older.some((o) => o.id === m.id))];
+      setMessages((prev) => [...older.filter((m) => !prev.some((p) => p.id === m.id)), ...prev]);
+      setHasMoreOlder(data.hasMore);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+
   function onScroll() {
     const el = scrollRef.current;
     if (!el) return;
@@ -362,11 +407,8 @@ export function ChatSurface({
     if (watchingRun && !detail.activeRun) setWatchingRun(false);
 
     // The rules (wait, restore, clear, sync) are in chat-state.ts, with tests.
-    const settle = settleSteers(
-      injectedLocal,
-      new Set(detail.messages.map((m) => m.id)),
-      messages.map((m) => m.id),
-    );
+    const stored = new Set([...olderRef.current.map((m) => m.id), ...detail.messages.map((m) => m.id)]);
+    const settle = settleSteers(injectedLocal, stored, messages.map((m) => m.id));
     if (settle.wait) return;
     if (settle.restore.length) void queue.enqueue(settle.restore, true);
     if (settle.clear) setInjectedLocal([]);
@@ -376,7 +418,7 @@ export function ChatSurface({
     // streamed copy and try again on the next refresh.
     if (settle.syncTranscript) {
       awaitingRefresh.current = false;
-      setMessages(detail.messages as unknown as UIMessage[]);
+      setMessages(withOlder(detail.messages as unknown as UIMessage[]));
     }
   }, [detail, injectedLocal, messages, queue.enqueue, setMessages, watchingRun]);
 
@@ -517,6 +559,17 @@ export function ChatSurface({
 
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-6 py-6 grid gap-6">
+          {hasMoreOlder ? (
+            <div className="flex justify-center">
+              <button
+                onClick={() => void loadOlder()}
+                disabled={loadingOlder}
+                className="text-xs text-kumo-subtle rounded-md px-3 py-1 ring ring-kumo-line hover:bg-kumo-elevated disabled:opacity-50"
+              >
+                {loadingOlder ? "Memuat…" : "Muat pesan sebelumnya"}
+              </button>
+            </div>
+          ) : null}
           {!messages.length ? <EmptyState onPick={setInput} providerReady={!noProvider} /> : null}
 
           {messages.map((m, mi) => (

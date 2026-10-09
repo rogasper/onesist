@@ -25,7 +25,7 @@ let startOk = true;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(() => {
-  db.run(sql`INSERT INTO projects (id, name, root_path) VALUES ('p1', 'Queue', '/tmp')`);
+  db.run(sql`INSERT OR IGNORE INTO projects (id, name, root_path) VALUES ('p1', 'Queue', '/tmp')`);
   queue.registerQueueStarter(async (_threadId, text) => {
     if (startOk) sent.push(text);
     return startOk;

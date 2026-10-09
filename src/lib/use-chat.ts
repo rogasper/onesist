@@ -68,6 +68,8 @@ export interface MessageMetadata {
 
 export interface ThreadDetail {
   thread: ThreadSummary;
+  /** The `messages` above are the newest page; older ones are fetched on demand. */
+  hasMoreMessages?: boolean;
   /** Id of the run still working on this thread, or null. Set when the client
    *  left mid-run and came back, so the transcript is known to be incomplete. */
   activeRun?: string | null;

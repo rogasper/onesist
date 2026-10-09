@@ -38,6 +38,8 @@ import {
   deleteThread,
   getThread,
   listMessages,
+  listMessagePage,
+  messageSeq,
   listThreadFiles,
   listThreadReads,
   listThreads,
@@ -196,7 +198,7 @@ router.post("chat/threads", async (ctx) => {
 router.get("chat/threads/:id", async (ctx) => {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
-  const messages = listMessages(thread.id);
+  const page = listMessagePage(thread.id);
   const provider = resolveProvider(thread.providerId);
   const root = projectRootOf(thread.projectId);
   return json({
@@ -208,7 +210,9 @@ router.get("chat/threads/:id", async (ctx) => {
     // The workspace root, so the UI can open a changed file with the OS
     // (open in default app / show in Finder) without asking the server again.
     rootPath: root,
-    messages: toUIMessages(messages),
+    messages: toUIMessages(page.rows),
+    // The newest page only; older pages come from `chat/threads/:id/messages`.
+    hasMoreMessages: page.hasMore,
     files: listThreadFiles(thread.id),
     toolCalls: listToolCalls(thread.id).map((t) => ({
       toolCallId: t.toolCallId,
@@ -859,6 +863,17 @@ router.post("chat/runs/:id/stop", async (ctx) => {
  * produced so far, then follows it live. 204 when there is nothing live to follow
  * (no run, or the run already closed); the client then keeps the saved transcript.
  */
+/** An older page of messages, before the message given in `before`. */
+router.get("chat/threads/:id/messages", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const before = String(ctx.query.get("before") ?? "");
+  const seq = before ? messageSeq(thread.id, before) : null;
+  if (before && seq == null) return json({ error: "Pesan tidak ditemukan." }, 404);
+  const page = listMessagePage(thread.id, { beforeSeq: seq ?? undefined });
+  return json({ messages: toUIMessages(page.rows), hasMore: page.hasMore });
+});
+
 router.get("chat/threads/:id/stream", async (ctx) => {
   const run = getRunForThread(ctx.params.id);
   const live = run ? subscribeRunStream(run.runId) : null;
