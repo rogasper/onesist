@@ -43,6 +43,18 @@ export function useFileList(dir: string, projectId?: string): { files: FileEntry
     setLoading(false);
   }, [dir, projectId]);
   useEffect(() => { refresh(); }, [refresh]);
+  // The list follows changes under its own folder, so a file the agent writes appears
+  // without a reload. Several changes in a burst cause one re-read.
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useFileChanged((data) => {
+    const changed = (data.path ?? "").replace(/\\/g, "/");
+    if (!changed.startsWith(`${dir.replace(/\\/g, "/")}/`)) return;
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => void refresh(), 300);
+  });
+  useEffect(() => () => {
+    if (debounce.current) clearTimeout(debounce.current);
+  }, []);
   return { files, loading, refresh };
 }
 
