@@ -61,6 +61,8 @@ interface Props {
   providers: ChatProviderOption[];
   onRefresh: () => void;
   onOpenProviders: () => void;
+  /** Opens another thread (used after forking one). */
+  onOpenThread?: (threadId: string) => void;
 }
 
 const MONO = "font-mono text-[0.8125rem]";
@@ -95,6 +97,7 @@ export function ChatSurface({
   providers,
   onRefresh,
   onOpenProviders,
+  onOpenThread,
 }: Props) {
   const projectId = detail.thread.projectId;
   const navigate = useNavigate();
@@ -137,6 +140,8 @@ export function ChatSurface({
    *  thread is trusted: a later re-read can still show a run that is in the
    *  middle of closing, and would hold the queue forever. */
   const [watchingRun, setWatchingRun] = useState(() => !!detail.activeRun);
+  /** A note about the last edit, retry or fork that did not go through. */
+  const [actionNote, setActionNote] = useState<string | null>(null);
   const activity = chatActivity({ streaming, watching: watchingRun });
   const { runningElsewhere, busy } = activity;
   // A run started elsewhere can be parked on an approval; the card must still be
@@ -522,6 +527,81 @@ export function ChatSurface({
    * doubles THIS thread's ceiling (the app default only applies to new threads,
    * so a stored value would otherwise keep cutting the same task).
    */
+  /** Resend from a user message: remove it and what follows (undoing the turns'
+   *  file changes unless told otherwise), then send the text as a new message. */
+  async function resend(messageId: string, text: string, opts: { conversationOnly?: boolean } = {}): Promise<ResendResult> {
+    if (busy) return { error: "Tunggu run yang sedang berjalan selesai, lalu edit pesan." };
+    let res: Response;
+    try {
+      res = await fetch(`/api/chat/threads/${threadId}/messages/${messageId}/truncate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ resetFiles: !opts.conversationOnly, conversationOnly: !!opts.conversationOnly }),
+        cache: "no-store",
+      });
+    } catch {
+      return { error: "Tidak bisa menghubungi server." };
+    }
+    const data = (await res.json().catch(() => ({}))) as { error?: string; removedIds?: string[]; conflicts?: { path: string }[] };
+    if (res.status === 409 && data.conflicts) return { conflicts: data.conflicts.map((c) => c.path) };
+    if (!res.ok) return { error: data.error ?? "Gagal mengirim ulang pesan." };
+
+    const removed = new Set(data.removedIds ?? []);
+    olderRef.current = olderRef.current.filter((m) => !removed.has(m.id));
+    setMessages((prev) => prev.filter((m) => !removed.has(m.id)));
+    atBottomRef.current = true;
+    setNow(Date.now());
+    onRefresh();
+    await sendMessage({ text });
+    return {};
+  }
+
+  /** Retry the newest answer: resend the user message that asked for it. */
+  async function retry(assistantId: string) {
+    const idx = messages.findIndex((m) => m.id === assistantId);
+    const asked = messages.slice(0, Math.max(idx, 0)).reverse().find((m) => m.role === "user");
+    if (!asked) return;
+    const result = await resend(asked.id, messageText(asked));
+    if (result.conflicts || result.error) {
+      setActionNote(
+        result.conflicts
+          ? `Tidak bisa dicoba ulang: ${result.conflicts.join(", ")} sudah berubah sejak giliran itu. Edit pesan untuk memilih cara lain.`
+          : result.error ?? null,
+      );
+    }
+  }
+
+  /** A new thread with the conversation up to a message. */
+  async function fork(messageId: string) {
+    try {
+      const res = await fetch(`/api/chat/threads/${threadId}/fork`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageId }),
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => ({}))) as { threadId?: string; error?: string };
+      if (res.ok && data.threadId) onOpenThread?.(data.threadId);
+      else setActionNote(data.error ?? "Gagal membuat cabang.");
+    } catch {
+      setActionNote("Tidak bisa menghubungi server.");
+    }
+  }
+
+  // Rows are memoized: these callbacks are stable, and read the latest functions.
+  const resendLatest = useRef(resend);
+  resendLatest.current = resend;
+  const stableResend = useCallback(
+    (id: string, text: string, opts?: { conversationOnly?: boolean }) => resendLatest.current(id, text, opts),
+    [],
+  );
+  const retryLatest = useRef(retry);
+  retryLatest.current = retry;
+  const stableRetry = useCallback((id: string) => void retryLatest.current(id), []);
+  const forkLatest = useRef(fork);
+  forkLatest.current = fork;
+  const stableFork = useCallback((id: string) => void forkLatest.current(id), []);
+
   // A stable callback for the transcript rows: rows are memoized, so a new
   // function per render would re-render every row on each streamed token.
   const continueLatest = useRef<() => void>(() => {});
@@ -588,6 +668,10 @@ export function ChatSurface({
               approvalById={approvalById}
               nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
               onContinueAfterLimit={stableContinueAfterLimit}
+              onResend={stableResend}
+              onRetry={stableRetry}
+              onFork={stableFork}
+              canRetry={mi === messages.length - 1 && m.role === "assistant"}
             />
           ))}
 
@@ -610,6 +694,7 @@ export function ChatSurface({
             </div>
           ))}
 
+          {actionNote ? <InlineAlert>{actionNote}</InlineAlert> : null}
           {questions.map((q) => (
             <QuestionBlock key={q.questionId} question={q} onAnswer={answerQuestion} />
           ))}
@@ -934,6 +1019,9 @@ function groupParts(parts: any[]): Block[] {
   return blocks;
 }
 
+/** Outcome of resending from a message: nothing on success, or why it did not go. */
+type ResendResult = { conflicts?: string[]; error?: string };
+
 /**
  * One transcript row. Memoized: while a reply streams, only the row that changed
  * re-renders; finished rows keep their references from useChat and skip work.
@@ -952,6 +1040,10 @@ function MessageBlockView({
   approvalById,
   nextStepLimit,
   onContinueAfterLimit,
+  onResend,
+  onRetry,
+  onFork,
+  canRetry,
 }: {
   message: UIMessage;
   streaming: boolean;
@@ -967,15 +1059,101 @@ function MessageBlockView({
    *  does it and continues the turn (FR-B11). */
   nextStepLimit?: number;
   onContinueAfterLimit?: () => void;
+  /** Edit and retry: resend from a user message; false + the conflicts when the file
+   *  changes after it cannot be undone (see ChatSurface.resend). */
+  onResend?: (messageId: string, text: string, opts?: { conversationOnly?: boolean }) => Promise<ResendResult>;
+  /** Retry the answer: resend the user message that asked for it. */
+  onRetry?: (messageId: string) => void;
+  /** A new thread with the conversation up to this message. */
+  onFork?: (messageId: string) => void;
+  /** This is the newest answer, so it can be retried. */
+  canRetry?: boolean;
 }) {
+  // Editing state: only used by user messages, but hooks are called unconditionally.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [resendNote, setResendNote] = useState<{ conflicts?: string[]; error?: string } | null>(null);
+  const [resending, setResending] = useState(false);
+
   if (message.role === "user") {
     const text = (message.parts ?? []).map((p: any) => (isTextUIPart(p) ? p.text : "")).join("");
+    const send = async (opts?: { conversationOnly?: boolean }) => {
+      if (!onResend || !draft.trim()) return;
+      setResending(true);
+      const result = await onResend(message.id, draft.trim(), opts);
+      setResending(false);
+      if (result.conflicts || result.error) {
+        setResendNote(result);
+        return;
+      }
+      setEditing(false);
+      setResendNote(null);
+    };
+    if (editing) {
+      return (
+        <div className="grid gap-2 justify-items-end">
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditing(false);
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+            }}
+            rows={3}
+            className="w-full max-w-[85%] rounded-2xl bg-kumo-base px-4 py-3 text-sm text-kumo-default ring ring-kumo-line outline-none"
+          />
+          <p className="text-xs text-kumo-subtle max-w-[85%] text-right">
+            Pesan ini dan semua yang sesudahnya dihapus. Berkas yang diubah giliran-giliran sesudahnya dikembalikan dulu.
+          </p>
+          {resendNote?.error ? <InlineAlert>{resendNote.error}</InlineAlert> : null}
+          {resendNote?.conflicts?.length ? (
+            <div className="grid gap-1.5 max-w-[85%] text-xs text-amber-400">
+              <span>Tidak bisa dikembalikan otomatis: {resendNote.conflicts.join(", ")} sudah berubah sejak giliran itu.</span>
+              <button className="justify-self-end rounded-md px-2.5 py-1 ring ring-kumo-line hover:bg-kumo-elevated" disabled={resending} onClick={() => void send({ conversationOnly: true })}>
+                Kirim tanpa mengembalikan berkas
+              </button>
+            </div>
+          ) : null}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setEditing(false)}>
+              Batal
+            </Button>
+            <Button variant="primary" disabled={resending || !draft.trim()} onClick={() => void send()}>
+              {resending ? "Mengirim…" : "Kirim ulang"}
+            </Button>
+          </div>
+        </div>
+      );
+    }
     return (
       // `group` + focus-visible so the copy affordance is reachable with the
       // keyboard too, not only on hover.
       <div className="group flex items-end justify-end gap-1">
         {text.trim() ? (
           <CopyButton text={text} variant="icon" title="Salin pesan" className="mb-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+        ) : null}
+        {onFork ? (
+          <button
+            onClick={() => onFork(message.id)}
+            title="Buat cabang percakapan dari pesan ini"
+            className="mb-1.5 text-xs text-kumo-subtle opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-kumo-default"
+          >
+            Cabang
+          </button>
+        ) : null}
+        {onResend && !streaming ? (
+          <button
+            onClick={() => {
+              setDraft(text);
+              setResendNote(null);
+              setEditing(true);
+            }}
+            title="Edit dan kirim ulang"
+            className="mb-1.5 text-xs text-kumo-subtle opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-kumo-default"
+          >
+            Edit
+          </button>
         ) : null}
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-kumo-tint px-4 py-3 text-sm text-kumo-default whitespace-pre-wrap">
           {text}
@@ -1075,6 +1253,16 @@ function MessageBlockView({
         {/* The answer prose only: reasoning, tool output and file cards are not
             part of what "copy this answer" means. A turn that never produced
             prose (tool calls only) gets no button — copying "" is not an offer. */}
+        {canRetry && onRetry && !streaming ? (
+          <button onClick={() => onRetry(message.id)} className="ml-auto hover:text-kumo-default">
+            Coba lagi
+          </button>
+        ) : null}
+        {onFork && !streaming ? (
+          <button onClick={() => onFork(message.id)} className={`${canRetry && onRetry ? "" : "ml-auto"} hover:text-kumo-default`} title="Buat cabang percakapan dari sini">
+            Cabang
+          </button>
+        ) : null}
         {answerText.trim() ? <CopyButton text={answerText} title="Salin jawaban" className="ml-auto" /> : null}
       </div>
     </div>

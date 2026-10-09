@@ -66,6 +66,7 @@ import { getApprovalDecision } from "~/server/agent/run-registry";
 import { closeRunStream, openRunStream, pushRunChunk, subscribeRunStream } from "~/server/agent/run-stream";
 import { enqueue, listQueue, registerQueueStarter, removeQueued, runQueuedNow, setPaused } from "~/server/agent/queue";
 import { applyTurnAction, attributeCheckpoints, recordCheckpoint, turnChanges } from "~/server/agent/checkpoints";
+import { forkThread, truncateFromMessage } from "~/server/agent/thread-edit";
 import { resolveChatActions } from "~/server/agent/actions";
 import { resolveSkills, skillSummaries } from "~/server/agent/skills";
 import { SUBAGENT_LIMITS, SUBAGENT_TOOLS, parseSubagent, resolveSubagents, subagentSummaries } from "~/server/agent/subagents";
@@ -912,6 +913,43 @@ for (const action of ["undo", "reapply"] as const) {
     return json(result);
   });
 }
+
+/**
+ * Removes a user message and everything after it, so its text can be sent again
+ * (edit, retry). Body `{ resetFiles?, conversationOnly? }`. When the file changes of
+ * the removed turns cannot be undone safely, nothing is removed and the conflicts
+ * come back with 409; the caller can then retry with `conversationOnly`.
+ */
+router.post("chat/threads/:id/messages/:messageId/truncate", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const root = projectRootOf(thread.projectId);
+  if (!root) return json({ error: "Project belum punya root path." }, 400);
+  const body = await ctx.body();
+  const result = truncateFromMessage({
+    threadId: thread.id,
+    root,
+    messageId: ctx.params.messageId,
+    resetFiles: body?.resetFiles !== false,
+    conversationOnly: body?.conversationOnly === true,
+  });
+  if (!result.ok) {
+    return json(result.conflicts ? { error: result.error, conflicts: result.conflicts } : { error: result.error }, result.status);
+  }
+  return json({ removedIds: result.removedIds, undone: result.undone });
+});
+
+/** A new thread with the conversation up to a message ("Cabang dari sini"). */
+router.post("chat/threads/:id/fork", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const body = await ctx.body();
+  const messageId = String(body?.messageId ?? "");
+  if (!messageId) return json({ error: "messageId wajib." }, 400);
+  const newId = forkThread({ threadId: thread.id, messageId });
+  if (!newId) return json({ error: "Pesan tidak ditemukan." }, 404);
+  return json({ threadId: newId });
+});
 
 /** An older page of messages, before the message given in `before`. */
 router.get("chat/threads/:id/messages", async (ctx) => {

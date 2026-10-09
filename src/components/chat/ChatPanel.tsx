@@ -128,6 +128,10 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
                   void refresh();
                 }}
                 onOpenProviders={() => setProvidersOpen(true)}
+                onOpenThread={(id) => {
+                  setActiveId(id);
+                  void refresh();
+                }}
               />
             </ProjectIdProvider>
           ) : null}
