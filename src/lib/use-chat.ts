@@ -290,8 +290,14 @@ export interface PendingApproval {
   toolCallId: string;
   name: string;
   preview: string;
+  /** Content to judge: the text of a write, the two sides of an edit, the command. */
+  detail?: string;
   reason?: string;
 }
+
+/** What an approval answer covers: this call, every call of this kind in the
+ *  thread, or in the project (approval-rules.ts). */
+export type ApprovalScope = "once" | "thread" | "project";
 
 /**
  * Approvals waiting on a decision.
@@ -442,17 +448,20 @@ export function usePendingApprovals(threadId: string | null, active: boolean) {
     [load],
   );
 
-  const decide = useCallback(async (toolCallId: string, decision: "approved" | "denied") => {
-    // Drop it from the list first so the card disappears immediately, then
-    // tell the server.
-    resolved.current.add(toolCallId);
-    setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
-    await api<{ runId?: string }>(`/api/chat/threads/${threadId}/approvals`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ toolCallId, decision }),
-    }).catch(() => null);
-  }, [threadId]);
+  const decide = useCallback(
+    async (toolCallId: string, decision: "approved" | "denied", opts: { scope?: ApprovalScope; feedback?: string } = {}) => {
+      // Drop it from the list first so the card disappears immediately, then
+      // tell the server.
+      resolved.current.add(toolCallId);
+      setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
+      await api<{ runId?: string }>(`/api/chat/threads/${threadId}/approvals`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId, decision, scope: opts.scope ?? "once", feedback: opts.feedback }),
+      }).catch(() => null);
+    },
+    [threadId],
+  );
 
   return { approvals, decide, handlers };
 }

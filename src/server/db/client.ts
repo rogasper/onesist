@@ -126,6 +126,15 @@ const RUNTIME_TABLES = [
     FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
   )`,
   "CREATE INDEX IF NOT EXISTS idx_chat_queue_thread ON chat_queue (thread_id, position)",
+  `CREATE TABLE IF NOT EXISTS chat_checkpoints (
+    id text PRIMARY KEY NOT NULL, thread_id text NOT NULL, run_id text NOT NULL,
+    message_id text, seq integer NOT NULL, path text NOT NULL,
+    before_kind text NOT NULL, before_text text, after_kind text NOT NULL, after_text text,
+    created_at text DEFAULT (datetime('now')),
+    FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_chat_checkpoints_message ON chat_checkpoints (thread_id, message_id)",
+  "CREATE INDEX IF NOT EXISTS idx_chat_checkpoints_run ON chat_checkpoints (run_id)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_thread_reads_thread_path ON chat_thread_reads (thread_id, path)",
   `CREATE TABLE IF NOT EXISTS subagents (
     id text PRIMARY KEY NOT NULL, name text NOT NULL, description text NOT NULL,

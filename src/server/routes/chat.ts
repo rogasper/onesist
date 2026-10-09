@@ -65,6 +65,7 @@ import { withStreamHeartbeat } from "~/server/agent/stream-heartbeat";
 import { getApprovalDecision } from "~/server/agent/run-registry";
 import { closeRunStream, openRunStream, pushRunChunk, subscribeRunStream } from "~/server/agent/run-stream";
 import { enqueue, listQueue, registerQueueStarter, removeQueued, runQueuedNow, setPaused } from "~/server/agent/queue";
+import { applyTurnAction, attributeCheckpoints, recordCheckpoint, turnChanges } from "~/server/agent/checkpoints";
 import { resolveChatActions } from "~/server/agent/actions";
 import { resolveSkills, skillSummaries } from "~/server/agent/skills";
 import { SUBAGENT_LIMITS, SUBAGENT_TOOLS, parseSubagent, resolveSubagents, subagentSummaries } from "~/server/agent/subagents";
@@ -478,6 +479,8 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
   const diffsByPath = new Map<string, string>();
   const onFileChange = (change: FileChange) => {
     diffsByPath.set(change.path, change.diff);
+    // Before and after the change, so the turn can be undone (checkpoints.ts).
+    recordCheckpoint({ threadId: current.id, runId, path: change.path, before: change.before, after: change.after });
     upsertThreadFile({
       threadId: current.id,
       path: change.path,
@@ -628,6 +631,7 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
           // reported is attributed even when the diff was empty (create).
           try {
             attributeThreadFilesToMessage({ threadId: current.id, paths: [...diffsByPath.keys()], messageId });
+            attributeCheckpoints(runId, messageId);
           } catch (err) {
             console.error("[chat] failed to attribute changed files to the turn:", err);
           }
@@ -847,7 +851,9 @@ router.post("chat/threads/:id/approvals", async (ctx) => {
 
   const run = getRunForThread(thread.id);
   if (!run) return json({ error: "Tidak ada run yang berjalan untuk percakapan ini." }, 404);
-  const ok = resolveApproval(run.runId, toolCallId, decision);
+  const scope = body.scope === "thread" || body.scope === "project" ? body.scope : "once";
+  const feedback = typeof body.feedback === "string" ? body.feedback.slice(0, 2000) : undefined;
+  const ok = resolveApproval(run.runId, toolCallId, decision, { scope, feedback });
   return json({ runId: run.runId, resolved: ok }, ok ? 200 : 404);
 });
 
@@ -863,6 +869,36 @@ router.post("chat/runs/:id/stop", async (ctx) => {
  * produced so far, then follows it live. 204 when there is nothing live to follow
  * (no run, or the run already closed); the client then keeps the saved transcript.
  */
+// ── Undo / reapply of one turn's file changes ────────────────────────────────
+
+/** The files a turn changed, and whether each can be undone or reapplied now. */
+router.get("chat/threads/:id/messages/:messageId/changes", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const root = projectRootOf(thread.projectId);
+  if (!root) return json({ error: "Project belum punya root path." }, 400);
+  return json({ files: turnChanges(thread.id, root, ctx.params.messageId) });
+});
+
+/**
+ * Undo or reapply a turn. Body `{ paths? }`: without paths the whole turn must be in
+ * the right state, or nothing is written (409 with the conflicts). With paths, the
+ * files in the right state are changed and the others are reported as skipped.
+ */
+for (const action of ["undo", "reapply"] as const) {
+  router.post(`chat/threads/:id/messages/:messageId/${action}`, async (ctx) => {
+    const thread = getThread(ctx.params.id);
+    if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+    const root = projectRootOf(thread.projectId);
+    if (!root) return json({ error: "Project belum punya root path." }, 400);
+    const body = await ctx.body();
+    const paths = Array.isArray(body?.paths) ? body.paths.map((p: unknown) => String(p)) : undefined;
+    const result = applyTurnAction(thread.id, root, ctx.params.messageId, action, paths);
+    if (!result.ok) return json({ error: "Ada berkas yang tidak bisa diubah dengan aman.", conflicts: result.conflicts }, 409);
+    return json(result);
+  });
+}
+
 /** An older page of messages, before the message given in `before`. */
 router.get("chat/threads/:id/messages", async (ctx) => {
   const thread = getThread(ctx.params.id);

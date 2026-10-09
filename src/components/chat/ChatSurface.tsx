@@ -27,6 +27,7 @@ import {
   useChatSkills,
   useMentionFiles,
   usePendingApprovals,
+  type ApprovalScope,
   useThreadTransport,
   type ChatProviderOption,
   type PendingApproval,
@@ -580,6 +581,7 @@ export function ChatSurface({
               metadata={metadataById.get(m.id ?? "")}
               projectId={projectId}
               files={filesByMessage.get(m.id ?? "")}
+              threadId={threadId}
               root={detail.rootPath ?? null}
               toolDuration={toolDuration}
               approvalById={approvalById}
@@ -939,6 +941,7 @@ function MessageBlockView({
   streaming,
   metadata,
   projectId,
+  threadId,
   files,
   root,
   toolDuration,
@@ -952,6 +955,7 @@ function MessageBlockView({
   projectId: string;
   /** Files THIS turn wrote, from the ledger (UJI-MANUAL C9b). */
   files?: ThreadFile[];
+  threadId?: string;
   root: string | null;
   toolDuration: (toolCallId: string | undefined) => number | null;
   approvalById: Map<string, string>;
@@ -1042,6 +1046,7 @@ function MessageBlockView({
       {/* The files this turn wrote, as their own section at the end of the
           answer (UJI-MANUAL C9b) — before the token footer, which is the turn's
           footnote and not part of its output. */}
+      {files?.length && threadId ? <TurnChanges threadId={threadId} messageId={message.id} /> : null}
       {files?.length ? (
         <div className="grid gap-2">
           {files.map((f) => (
@@ -1383,6 +1388,7 @@ function toolTarget(name: string, input: any): string {
 function approvalLabel(approval: string | undefined): string | null {
   if (!approval) return null;
   if (approval === "auto") return "otomatis";
+  if (approval === "rule") return "aturan tersimpan";
   if (approval === "approved") return "disetujui";
   if (approval === "denied") return "ditolak";
   if (approval === "denied-readonly") return "ditolak (hanya baca)";
@@ -1526,9 +1532,49 @@ function ToolGroup({
 
 /** Approval (FR-E4). Deliberately prominent: the only block waiting on user
  *  action, and the agent truly stops until it is answered. */
-function ApprovalBlock({ approval, onDecide }: { approval: PendingApproval; onDecide: (id: string, d: "approved" | "denied") => void }) {
+/** Approval (FR-E4). Deliberately prominent: the only block waiting on user action,
+ *  and the agent truly stops until it is answered. The user can answer once, or
+ *  remember the answer for the thread or the project (approval-rules.ts), and can
+ *  deny with a note the agent reads. Enter allows once, Esc denies. */
+function ApprovalBlock({
+  approval,
+  onDecide,
+}: {
+  approval: PendingApproval;
+  onDecide: (id: string, d: "approved" | "denied", opts?: { scope?: ApprovalScope; feedback?: string }) => void;
+}) {
+  const [noting, setNoting] = useState(false);
+  const [note, setNote] = useState("");
+  const [showDetail, setShowDetail] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // Focus the card, so Enter and Esc reach it without a click.
+  useEffect(() => {
+    boxRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const allowOnce = () => onDecide(approval.toolCallId, "approved", { scope: "once" });
+  const deny = () => onDecide(approval.toolCallId, "denied", { scope: "once" });
+  const denyWithNote = () => onDecide(approval.toolCallId, "denied", { scope: "once", feedback: note });
+  const isBash = approval.name === "bash";
+  const scopeHint = isBash ? "perintah yang diawali sama" : approval.name;
+
   return (
-    <div className="rounded-xl ring-1 ring-amber-400/50 bg-amber-400/10 px-4 py-3 grid gap-2">
+    <div
+      ref={boxRef}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (noting) return; // typing a note: keys belong to the textarea
+        if (e.key === "Enter") {
+          e.preventDefault();
+          allowOnce();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          deny();
+        }
+      }}
+      className="rounded-xl ring-1 ring-amber-400/50 bg-amber-400/10 px-4 py-3 grid gap-2 outline-none"
+    >
       <div className="grid gap-1">
         <p className="text-sm font-medium text-kumo-default">Perlu persetujuan</p>
         <p className="text-sm text-kumo-subtle">
@@ -1542,14 +1588,62 @@ function ApprovalBlock({ approval, onDecide }: { approval: PendingApproval; onDe
         </p>
         {approval.reason ? <p className="text-sm text-amber-400">{approval.reason}</p> : null}
       </div>
-      <div className="flex gap-2">
-        <Button variant="primary" onClick={() => onDecide(approval.toolCallId, "approved")}>
-          Izinkan
-        </Button>
-        <Button variant="secondary" onClick={() => onDecide(approval.toolCallId, "denied")}>
-          Tolak
-        </Button>
-      </div>
+
+      {approval.detail ? (
+        <div className="grid gap-1">
+          <button onClick={() => setShowDetail((v) => !v)} className="justify-self-start text-xs text-kumo-subtle hover:text-kumo-default">
+            {showDetail ? "Sembunyikan isi" : "Lihat isi yang akan diubah"}
+          </button>
+          {showDetail ? (
+            <pre className={`${MONO} whitespace-pre-wrap break-all max-h-60 overflow-y-auto rounded-lg bg-kumo-recessed px-3 py-2 text-kumo-default`}>
+              {approval.detail}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
+
+      {noting ? (
+        <div className="grid gap-2">
+          <textarea
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setNoting(false);
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) denyWithNote();
+            }}
+            placeholder="Beri tahu agent apa yang harus dilakukan (opsional)…"
+            rows={2}
+            className="w-full rounded-lg bg-kumo-base px-3 py-2 text-sm text-kumo-default ring ring-kumo-line outline-none"
+          />
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={denyWithNote}>
+              Tolak dengan catatan
+            </Button>
+            <Button variant="ghost" onClick={() => setNoting(false)}>
+              Batal
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" onClick={allowOnce} title="Enter">
+            Izinkan
+          </Button>
+          <Button variant="secondary" onClick={() => onDecide(approval.toolCallId, "approved", { scope: "thread" })} title={`Izinkan ${scopeHint} untuk percakapan ini`}>
+            Izinkan di thread ini
+          </Button>
+          <Button variant="secondary" onClick={() => onDecide(approval.toolCallId, "approved", { scope: "project" })} title={`Izinkan ${scopeHint} di semua percakapan project ini`}>
+            Izinkan di project ini
+          </Button>
+          <Button variant="ghost" onClick={() => setNoting(true)}>
+            Tolak…
+          </Button>
+          <Button variant="ghost" onClick={deny} title="Esc">
+            Tolak
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1623,6 +1717,83 @@ function UnattributedFiles({ detail }: { detail: ThreadDetail }) {
           {files.map((f) => (
             <FileCard key={f.id} file={f} root={detail.rootPath ?? null} projectId={detail.thread.projectId} />
           ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The undo / reapply control for one turn's file changes (checkpoints.ts). The
+ *  state of each file comes from the server; a turn with a conflict is never
+ *  undone as a whole without the user choosing the safe files. */
+function TurnChanges({ threadId, messageId }: { threadId: string; messageId: string }) {
+  const [files, setFiles] = useState<{ path: string; state: string; canUndo: boolean; canReapply: boolean }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [conflicts, setConflicts] = useState<string[]>([]);
+  const base = `/api/chat/threads/${threadId}/messages/${messageId}`;
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${base}/changes`, { cache: "no-store" });
+      if (res.ok) setFiles(((await res.json()) as { files: any[] }).files);
+    } catch {
+      /* the control is optional; the files list still shows the changes */
+    }
+  }, [base]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function act(action: "undo" | "reapply", paths?: string[]) {
+    setBusy(true);
+    setConflicts([]);
+    try {
+      const res = await fetch(`${base}/${action}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ paths }),
+        cache: "no-store",
+      });
+      if (res.status === 409) {
+        const data = (await res.json()) as { conflicts: { path: string }[] };
+        setConflicts(data.conflicts.map((c) => c.path));
+      }
+    } finally {
+      setBusy(false);
+      await load();
+    }
+  }
+
+  if (!files?.length) return null;
+  const undoable = files.filter((f) => f.canUndo).map((f) => f.path);
+  const reappliable = files.filter((f) => f.canReapply).map((f) => f.path);
+  const unsafe = files.filter((f) => !f.canUndo && !f.canReapply);
+  const btn = "rounded-md px-2.5 py-1 text-xs ring ring-kumo-line hover:bg-kumo-elevated disabled:opacity-50";
+
+  return (
+    <div className="grid gap-1.5 text-xs text-kumo-subtle">
+      <div className="flex flex-wrap items-center gap-2">
+        {undoable.length ? (
+          <button className={btn} disabled={busy} onClick={() => void act("undo")}>
+            Batalkan perubahan giliran ini
+          </button>
+        ) : null}
+        {reappliable.length && !undoable.length ? (
+          <button className={btn} disabled={busy} onClick={() => void act("reapply")}>
+            Terapkan lagi
+          </button>
+        ) : null}
+        {unsafe.length ? <span>{unsafe.length} berkas tidak bisa dibatalkan (sudah berubah sejak giliran ini, atau isinya tidak tersimpan)</span> : null}
+      </div>
+      {conflicts.length ? (
+        <div className="flex flex-wrap items-center gap-2 text-amber-400">
+          <span>Tidak dibatalkan: {conflicts.join(", ")} sudah berubah setelah giliran ini.</span>
+          {undoable.length ? (
+            <button className={btn} disabled={busy} onClick={() => void act("undo", undoable)}>
+              Batalkan yang aman saja
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

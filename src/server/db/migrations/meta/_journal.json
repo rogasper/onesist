@@ -113,6 +113,13 @@
       "when": 1791513044181,
       "tag": "0015_chat_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1791514219044,
+      "tag": "0016_chat_checkpoints",
+      "breakpoints": true
     }
   ]
 }

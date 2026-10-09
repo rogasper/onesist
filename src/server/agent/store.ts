@@ -8,7 +8,7 @@
 import crypto from "node:crypto";
 import { and, asc, desc, eq, inArray, lt, max, sql } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatMessages, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
+import { chatCheckpoints, chatMessages, chatQueue, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
 import { MAX_STEPS_DEFAULT, type FileOp, type PermissionMode, type ThreadMode } from "./types";
 
 export type ThreadRow = typeof chatThreads.$inferSelect;
@@ -86,6 +86,8 @@ export function deleteThread(id: string): void {
   // SQLITE_CONSTRAINT_FOREIGNKEY if any child is missed.
   // `chat_runs` MUST be deleted too; it was once left out.
   db.delete(chatToolCalls).where(eq(chatToolCalls.threadId, id)).run();
+  db.delete(chatQueue).where(eq(chatQueue.threadId, id)).run();
+  db.delete(chatCheckpoints).where(eq(chatCheckpoints.threadId, id)).run();
   db.delete(chatThreadFiles).where(eq(chatThreadFiles.threadId, id)).run();
   db.delete(chatThreadReads).where(eq(chatThreadReads.threadId, id)).run();
   db.delete(chatMessages).where(eq(chatMessages.threadId, id)).run();

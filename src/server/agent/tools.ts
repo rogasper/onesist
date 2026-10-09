@@ -38,6 +38,11 @@ export interface FileChange {
   linesAdded: number;
   linesRemoved: number;
   diff: string;
+  /** Content before and after the change, for undo. `null` = the file did not
+   *  exist on that side; `undefined` = not captured (large file, or a shell
+   *  command changed it without a readable snapshot). */
+  before?: string | null;
+  after?: string | null;
 }
 
 export interface TodoItem {
@@ -166,6 +171,7 @@ function recordChange(
   before: string,
   after: string,
   source: ChangeSource = "tool",
+  sides?: { before: string | null; after: string | null },
 ): DiffStat {
   const stat = diffStat(before, after);
   ctx.onFileChange?.({
@@ -176,6 +182,8 @@ function recordChange(
     linesAdded: stat.added,
     linesRemoved: stat.removed,
     diff: stat.diff,
+    before: sides ? sides.before : before,
+    after: sides ? sides.after : after,
   });
   return stat;
 }
@@ -256,10 +264,12 @@ function attributeBashChanges(
 ): void {
   if (!ctx.onFileChange) return;
   let recorded = 0;
-  const record = (rel: string, op: FileOp, beforeText: string, afterText: string) => {
+  // A side is `undefined` (not captured) when the snapshot held no text for the
+  // file; the diff then shows what it can, and the change cannot be undone.
+  const record = (rel: string, op: FileOp, beforeText: string | undefined, afterText: string | undefined) => {
     if (recorded >= BASH_CHANGE_LIMIT) return;
     recorded += 1;
-    const stat = diffStat(beforeText, afterText);
+    const stat = diffStat(beforeText ?? "", afterText ?? "");
     ctx.onFileChange?.({
       path: rel,
       route: detectRoute(rel),
@@ -268,16 +278,18 @@ function attributeBashChanges(
       linesAdded: stat.added,
       linesRemoved: stat.removed,
       diff: stat.diff,
+      before: op === "create" ? null : beforeText,
+      after: op === "delete" ? null : afterText,
     });
   };
 
   for (const [rel, meta] of after) {
     const prev = before.get(rel);
-    if (!prev) record(rel, "create", "", meta.text ?? "");
-    else if (prev.mtimeMs !== meta.mtimeMs || prev.size !== meta.size) record(rel, "update", prev.text ?? "", meta.text ?? "");
+    if (!prev) record(rel, "create", undefined, meta.text);
+    else if (prev.mtimeMs !== meta.mtimeMs || prev.size !== meta.size) record(rel, "update", prev.text, meta.text);
   }
   for (const [rel, meta] of before) {
-    if (!after.has(rel)) record(rel, "delete", meta.text ?? "", "");
+    if (!after.has(rel)) record(rel, "delete", meta.text, undefined);
   }
 }
 
@@ -456,7 +468,10 @@ export function buildTools(ctx: ToolContext): ToolSet {
           }
           fs.mkdirSync(path.dirname(abs), { recursive: true });
           fs.writeFileSync(abs, content, "utf-8");
-          const stat = recordChange(ctx, rel, exists ? "update" : "create", before, content);
+          const stat = recordChange(ctx, rel, exists ? "update" : "create", before, content, "tool", {
+            before: exists ? before : null,
+            after: content,
+          });
           return `${exists ? "Diperbarui" : "Dibuat"}: ${rel} (+${stat.added}/-${stat.removed} baris, hash=${hashContent(content)})`;
         },
       })
@@ -483,7 +498,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
           }
           const after = content.slice(0, first) + new_string + content.slice(first + old_string.length);
           fs.writeFileSync(abs, after, "utf-8");
-          const stat = recordChange(ctx, rel, "update", content, after);
+          const stat = recordChange(ctx, rel, "update", content, after, "tool", { before: content, after });
           return `Diubah: ${rel} (+${stat.added}/-${stat.removed} baris, hash=${hashContent(after)})`;
         },
       })

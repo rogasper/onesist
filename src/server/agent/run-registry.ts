@@ -23,6 +23,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { chatRuns, chatThreads, projects } from "~/server/db/schema";
 import { eventBus } from "~/server/realtime/events";
+import { rememberApproval } from "./approval-rules";
 import type { RunStatus } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -98,6 +99,10 @@ export interface PendingApproval {
   name: string;
   /** Argument summary shown on the approval card. */
   preview: string;
+  /** Content the user is approving (the text of a write, the sides of an edit). */
+  detail?: string;
+  /** The call's arguments, kept so a remembered rule can match future calls. */
+  args?: unknown;
   reason?: string;
   resolve: (decision: "approved" | "denied") => void;
   timer: ReturnType<typeof setTimeout>;
@@ -284,7 +289,7 @@ export function stopRun(runId: string): boolean {
  *  hanging is safer than executing without consent. */
 export function awaitApproval(
   runId: string,
-  info: { toolCallId: string; name: string; preview: string; reason?: string },
+  info: { toolCallId: string; name: string; preview: string; detail?: string; args?: unknown; reason?: string },
 ): Promise<"approved" | "denied"> {
   const run = RUNS.get(runId);
   if (!run) return Promise.resolve("denied");
@@ -310,13 +315,34 @@ export function awaitApproval(
   });
 }
 
-export function resolveApproval(runId: string, toolCallId: string, decision: "approved" | "denied"): boolean {
+/**
+ * Answers a pending approval. `scope` widens an approval to the thread or project
+ * (approval-rules.ts). `feedback` on a denial is handed to the run as a message, so
+ * the model reads what the user wants instead of the bare refusal.
+ */
+export function resolveApproval(
+  runId: string,
+  toolCallId: string,
+  decision: "approved" | "denied",
+  opts: { scope?: "once" | "thread" | "project"; feedback?: string } = {},
+): boolean {
   const run = RUNS.get(runId);
   const pending = run?.pending.get(toolCallId);
   if (!run || !pending) return false;
   clearTimeout(pending.timer);
   run.pending.delete(toolCallId);
   run.decisions.set(toolCallId, decision);
+  if (decision === "approved" && opts.scope && opts.scope !== "once") {
+    rememberApproval({ threadId: run.threadId, projectId: run.projectId, name: pending.name, args: pending.args, scope: opts.scope });
+  }
+  const note = opts.feedback?.trim();
+  if (decision === "denied" && note) {
+    queueUserMessage(run.threadId, {
+      id: `msg_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`,
+      role: "user",
+      parts: [{ type: "text", text: `Tindakan ${pending.name} tidak disetujui. Catatan dari user: ${note}` }],
+    });
+  }
   eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId });
   pending.resolve(decision);
   return true;
@@ -335,7 +361,7 @@ export function getApprovalDecision(runId: string, toolCallId: string): string |
 export function listPendingApprovals(runId: string) {
   const run = RUNS.get(runId);
   if (!run) return [];
-  return [...run.pending.values()].map(({ toolCallId, name, preview, reason }) => ({ toolCallId, name, preview, reason }));
+  return [...run.pending.values()].map(({ toolCallId, name, preview, detail, reason }) => ({ toolCallId, name, preview, detail, reason }));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

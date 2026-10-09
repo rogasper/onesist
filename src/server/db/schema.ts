@@ -363,6 +363,35 @@ export const chatThreads = sqliteTable(
 );
 
 /**
+ * What each change looked like before and after it was made, so a turn's file
+ * changes can be undone (and reapplied). One row per file change.
+ *
+ * `*_kind`: `absent` (the file did not exist), `text` (the content is in `*_text`),
+ * or `unknown` (not captured: large file, or a shell command changed it without a
+ * readable snapshot). An `unknown` side cannot be verified, so it cannot be undone.
+ */
+export const chatCheckpoints = sqliteTable(
+  "chat_checkpoints",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    runId: text("run_id").notNull(),
+    /** The assistant message that produced the change; set when the turn is saved. */
+    messageId: text("message_id"),
+    seq: integer("seq").notNull(),
+    path: text("path").notNull(),
+    beforeKind: text("before_kind").notNull(),
+    beforeText: text("before_text"),
+    afterKind: text("after_kind").notNull(),
+    afterText: text("after_text"),
+    createdAt: text("created_at").default("datetime('now')"),
+  },
+  (t) => [index("idx_chat_checkpoints_message").on(t.threadId, t.messageId), index("idx_chat_checkpoints_run").on(t.runId)],
+);
+
+/**
  * Messages the user queued while a run was working (or while the queue was held).
  * Held on the server so they are sent even when no client is open on the thread,
  * and so every open view of the thread shows the same queue.
