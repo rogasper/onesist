@@ -676,3 +676,11 @@ html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
   content-visibility: auto;
   contain-intrinsic-size: auto 26px;
 }
+
+/* In-thread find (ChatSurface): every match, and the one the bar is on. */
+::highlight(chat-find) {
+  background-color: rgb(250 204 21 / 0.35);
+}
+::highlight(chat-find-current) {
+  background-color: rgb(251 146 60 / 0.75);
+}

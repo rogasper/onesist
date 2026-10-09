@@ -5,7 +5,7 @@ import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { Button } from "@cloudflare/kumo";
-import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
+import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
@@ -24,6 +24,11 @@ import {
   toolFamily,
   touchedPaths,
   workSummary,
+  parseDbRows,
+  parseFetchResult,
+  parseGlobList,
+  parseSearchHits,
+  replacementPreview,
 } from "~/components/chat/chat-view";
 import { MAX_STEPS_DEFAULT, MAX_STEPS_MAX } from "~/server/agent/types";
 import {
@@ -329,6 +334,80 @@ export function ChatSurface({
     atBottomRef.current = true;
     setAwayFromBottom(false);
     setAwayUnseen(0);
+  }
+
+  // The turn rail: one tick per user prompt, placed by where it sits in the whole
+  // transcript. Positions are content offsets, so scrolling does not move them.
+  const [turnTicks, setTurnTicks] = useState<{ id: string; top: number; label: string }[]>([]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const labels = new Map(messages.map((m) => [m.id, (m.parts ?? []).map((p: any) => (isTextUIPart(p) ? p.text : "")).join("").trim()]));
+    const origin = el.getBoundingClientRect().top - el.scrollTop;
+    const total = Math.max(el.scrollHeight, 1);
+    const next = [...el.querySelectorAll<HTMLElement>("[data-user-turn]")].map((node) => {
+      const id = node.dataset.userTurn ?? "";
+      return {
+        id,
+        top: ((node.getBoundingClientRect().top - origin) / total) * 100,
+        label: (labels.get(id) ?? "").slice(0, 80),
+      };
+    });
+    setTurnTicks((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, [messages]);
+
+  function scrollToTurn(id: string) {
+    const el = scrollRef.current;
+    const node = el?.querySelector<HTMLElement>(`[data-user-turn="${CSS.escape(id)}"]`);
+    if (!el || !node) return;
+    el.scrollTop += node.getBoundingClientRect().top - el.getBoundingClientRect().top - 16;
+  }
+
+  // In-thread find. Matches are painted with the CSS Custom Highlight API, so the
+  // transcript's DOM is never changed. Only the messages loaded so far are searched.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findIndex, setFindIndex] = useState(0);
+  const [findCount, setFindCount] = useState(0);
+  const findReveal = useRef(false);
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!findOpen || !root || !findQuery) {
+      setFindCount(0);
+      clearFindPaint();
+      return;
+    }
+    const ranges = collectFindRanges(root, findQuery);
+    setFindCount(ranges.length);
+    if (!ranges.length) {
+      clearFindPaint();
+      return;
+    }
+    const current = Math.min(findIndex, ranges.length - 1);
+    paintFind(ranges, current);
+    if (findReveal.current) {
+      findReveal.current = false;
+      revealRange(root, ranges[current]);
+    }
+  }, [findOpen, findQuery, findIndex, messages]);
+
+  function changeFindQuery(query: string) {
+    setFindQuery(query);
+    setFindIndex(0);
+    findReveal.current = true;
+  }
+
+  function stepFind(direction: number) {
+    if (!findCount) return;
+    setFindIndex((i) => (((i + direction) % findCount) + findCount) % findCount);
+    findReveal.current = true;
+  }
+
+  function onRootKeyDown(e: React.KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      setFindOpen(true);
+    }
   }
 
   // Messages that arrive while the reader is scrolled up are counted, not followed.
@@ -676,7 +755,7 @@ export function ChatSurface({
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 outline-none" tabIndex={-1} onKeyDown={onRootKeyDown}>
       <WorkspacePanel
         files={mentionFiles}
         changed={detail.files}
@@ -709,8 +788,8 @@ export function ChatSurface({
           {!messages.length ? <EmptyState onPick={setInput} providerReady={!noProvider} /> : null}
 
           {messages.map((m, mi) => (
+            <div key={m.id ?? mi} data-user-turn={m.role === "user" ? m.id : undefined}>
             <MessageBlock
-              key={m.id ?? mi}
               message={m}
               streaming={streaming && mi === messages.length - 1}
               metadata={metadataById.get(m.id ?? "")}
@@ -727,6 +806,7 @@ export function ChatSurface({
               onFork={stableFork}
               canRetry={mi === messages.length - 1 && m.role === "assistant"}
             />
+            </div>
           ))}
 
           {/* Messages handed to the running turn ("Arahkan"): in the user's own
@@ -808,6 +888,30 @@ export function ChatSurface({
           ) : null}
         </div>
       </div>
+      {turnTicks.length > 1 ? (
+        <div className="absolute right-0.5 top-3 bottom-3 w-2 pointer-events-none">
+          {turnTicks.map((t) => (
+            <button
+              key={t.id}
+              title={t.label}
+              aria-label={`Ke pesan: ${t.label}`}
+              onClick={() => scrollToTurn(t.id)}
+              style={{ top: `${t.top}%` }}
+              className="pointer-events-auto absolute right-0 h-1 w-2 rounded-full bg-kumo-subtle/50 hover:bg-kumo-default"
+            />
+          ))}
+        </div>
+      ) : null}
+      {findOpen ? (
+        <FindBar
+          query={findQuery}
+          count={findCount}
+          index={Math.min(findIndex, Math.max(findCount - 1, 0))}
+          onQuery={changeFindQuery}
+          onStep={stepFind}
+          onClose={() => setFindOpen(false)}
+        />
+      ) : null}
       {awayFromBottom ? (
         <button
           onClick={jumpToBottom}
@@ -1450,34 +1554,140 @@ function SubagentBlock({ part, approval, turnEnded = false }: { part: any; appro
 
 /** The agent's step plan (FR-D5). Shown as a checklist rather than a tool row:
  *  the list IS the content, and its statuses are the reason the user looks. */
-function TodoPanel({ todos }: { todos: TodoItem[] }) {
-  const done = todos.filter((t) => t.status === "completed").length;
-  const running = todos.some((t) => t.status === "in_progress");
+/** Every case-insensitive match of `query` in the text under `root`, in reading order. */
+function collectFindRanges(root: HTMLElement, query: string): Range[] {
+  const needle = query.toLowerCase();
+  const ranges: Range[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const text = (node.textContent ?? "").toLowerCase();
+    let at = text.indexOf(needle);
+    while (at !== -1) {
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + needle.length);
+      ranges.push(range);
+      at = text.indexOf(needle, at + needle.length);
+    }
+    node = walker.nextNode();
+  }
+  return ranges;
+}
+
+function highlightRegistry(): { set(name: string, value: unknown): void; delete(name: string): void } | null {
+  const css = (globalThis as any).CSS;
+  return css?.highlights ?? null;
+}
+
+function paintFind(ranges: Range[], current: number): void {
+  const registry = highlightRegistry();
+  const Highlight = (globalThis as any).Highlight;
+  if (!registry || !Highlight) return;
+  registry.set("chat-find", new Highlight(...ranges));
+  registry.set("chat-find-current", new Highlight(...(ranges[current] ? [ranges[current]] : [])));
+}
+
+function clearFindPaint(): void {
+  const registry = highlightRegistry();
+  registry?.delete("chat-find");
+  registry?.delete("chat-find-current");
+}
+
+/** Scrolls the transcript just enough to show a match, with some room above it. */
+function revealRange(root: HTMLElement, range: Range): void {
+  const box = root.getBoundingClientRect();
+  const hit = range.getBoundingClientRect();
+  if (hit.top < box.top || hit.bottom > box.bottom) root.scrollTop += hit.top - box.top - box.height / 3;
+}
+
+/** The search field over the transcript: Enter and Shift+Enter step, Esc closes. */
+function FindBar({
+  query,
+  count,
+  index,
+  onQuery,
+  onStep,
+  onClose,
+}: {
+  query: string;
+  count: number;
+  index: number;
+  onQuery: (q: string) => void;
+  onStep: (direction: number) => void;
+  onClose: () => void;
+}) {
   return (
-    <div className="rounded-lg ring ring-kumo-line px-3 py-2.5 grid gap-1.5">
-      <p className="flex items-center gap-2 text-sm text-kumo-subtle">
+    <div className="absolute top-2 right-3 z-10 flex items-center gap-1 rounded-lg ring ring-kumo-line bg-kumo-elevated px-2 py-1 shadow text-sm">
+      <input
+        autoFocus
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onStep(e.shiftKey ? -1 : 1);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+        placeholder="Cari di percakapan"
+        className="w-48 bg-transparent outline-none text-kumo-default placeholder:text-kumo-subtle"
+      />
+      <span className="text-xs text-kumo-subtle whitespace-nowrap tabular-nums min-w-[3.5rem] text-right">
+        {query ? (count ? `${index + 1}/${count}` : "0") : ""}
+      </span>
+      <button onClick={() => onStep(-1)} disabled={!count} aria-label="Hasil sebelumnya" className="px-1 text-kumo-subtle hover:text-kumo-default disabled:opacity-40">
+        ↑
+      </button>
+      <button onClick={() => onStep(1)} disabled={!count} aria-label="Hasil berikutnya" className="px-1 text-kumo-subtle hover:text-kumo-default disabled:opacity-40">
+        ↓
+      </button>
+      <button onClick={onClose} aria-label="Tutup pencarian" className="px-1 text-kumo-subtle hover:text-kumo-default">
+        <X size={13} />
+      </button>
+    </div>
+  );
+}
+
+function TodoPanel({ todos }: { todos: TodoItem[] }) {
+  const [open, setOpen] = useState(false);
+  const done = todos.filter((t) => t.status === "completed").length;
+  const current = todos.find((t) => t.status === "in_progress");
+  return (
+    <div className="rounded-lg ring ring-kumo-line px-3 py-2 grid gap-1.5 min-w-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-2 text-sm text-kumo-subtle hover:text-kumo-default text-left min-w-0"
+      >
         <RowIcon icon={ListChecks} />
-        Rencana · {done}/{todos.length} langkah selesai
-        {running ? <Pulse /> : null}
-      </p>
-      <ChildRail>
-        <div className="grid gap-1 py-1">
-          {todos.map((t, i) => (
-            <p key={t.id ?? i} className="flex items-start gap-2 text-sm">
-              <span className="mt-0.5 shrink-0">
-                {t.status === "completed" ? (
-                  <Check size={13} className="text-green-400" />
-                ) : t.status === "in_progress" ? (
-                  <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full bg-amber-400 animate-pulse" />
-                ) : (
-                  <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full ring ring-kumo-line" />
-                )}
-              </span>
-              <span className={t.status === "completed" ? "text-kumo-subtle line-through" : "text-kumo-default"}>{t.text}</span>
-            </p>
-          ))}
-        </div>
-      </ChildRail>
+        <span className="shrink-0">Rencana diperbarui · {done}/{todos.length}</span>
+        {current ? <span className="truncate min-w-0 text-kumo-default">· {current.text}</span> : null}
+        {current ? <Pulse /> : null}
+        <span className="ml-auto shrink-0">{open ? "⌄" : "›"}</span>
+      </button>
+      {open ? (
+        <ChildRail>
+          <div className="grid gap-1 py-1">
+            {todos.map((t, i) => (
+              <p key={t.id ?? i} className="flex items-start gap-2 text-sm">
+                <span className="mt-0.5 shrink-0">
+                  {t.status === "completed" ? (
+                    <Check size={13} className="text-green-400" />
+                  ) : t.status === "in_progress" ? (
+                    <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full bg-amber-400 animate-pulse" />
+                  ) : (
+                    <span className="inline-block w-[7px] h-[7px] mt-[5px] rounded-full ring ring-kumo-line" />
+                  )}
+                </span>
+                <span className={t.status === "completed" ? "text-kumo-subtle line-through" : "text-kumo-default"}>{t.text}</span>
+              </p>
+            ))}
+          </div>
+        </ChildRail>
+      ) : null}
     </div>
   );
 }
@@ -1603,7 +1813,7 @@ function toolState(part: any, turnEnded = false): { tone: "run" | "ok" | "err" |
   return turnEnded ? { tone: "warn", label: "tidak selesai" } : { tone: "run", label: "menunggu" };
 }
 
-type ToolKind = "terminal" | "tulis" | "baca" | "cari" | "web" | "rencana" | "lain";
+type ToolKind = "terminal" | "tulis" | "baca" | "cari" | "web" | "data" | "rencana" | "lain";
 
 /** What kind of job a tool does. Used to TITLE the group — "Edit 2 files"
  *  is far more informative than a list of tool names, and it is the same
@@ -1623,6 +1833,8 @@ function toolKind(name: string): ToolKind {
       return "cari";
     case "web_fetch":
       return "web";
+    case "db_query":
+      return "data";
     case "todo_write":
       return "rencana";
     default:
@@ -1636,6 +1848,7 @@ const KIND_META: Record<ToolKind, { icon: Icon; label: string; satuan: string }>
   baca: { icon: BookOpen, label: "Baca", satuan: "berkas" },
   cari: { icon: MagnifyingGlass, label: "Cari", satuan: "pencarian" },
   web: { icon: Globe, label: "Ambil", satuan: "halaman" },
+  data: { icon: Database, label: "Data", satuan: "kueri" },
   rencana: { icon: ListChecks, label: "Rencana", satuan: "langkah" },
   lain: { icon: Wrench, label: "Tool", satuan: "langkah" },
 };
@@ -1729,6 +1942,8 @@ function toolTarget(name: string, input: any): string {
       return String(input.pattern ?? "");
     case "web_fetch":
       return String(input.url ?? "");
+    case "db_query":
+      return String(input.sql ?? "");
     case "todo_write":
       return `${Array.isArray(input.todos) ? input.todos.length : 0} langkah`;
     case "edit_file":
@@ -1752,6 +1967,158 @@ function approvalLabel(approval: string | undefined): string | null {
   if (approval === "denied-timeout") return "ditolak (tanpa jawaban)";
   if (approval === "protected-path") return "path terproteksi";
   return approval;
+}
+
+/** The changed lines of an edit: removed in red, added in green. */
+function DiffPreview({ removed, added }: { removed: string[]; added: string[] }) {
+  if (!removed.length && !added.length) return <p className="text-xs text-kumo-subtle">(tanpa perubahan teks)</p>;
+  const LIMIT = 200;
+  return (
+    <pre className={`${MONO} whitespace-pre-wrap break-all max-h-56 overflow-y-auto rounded ring ring-kumo-line p-2`}>
+      {removed.slice(0, LIMIT).map((l, i) => (
+        <span key={`r${i}`} className="block bg-red-400/10 text-red-400">{`- ${l}`}</span>
+      ))}
+      {added.slice(0, LIMIT).map((l, i) => (
+        <span key={`a${i}`} className="block bg-green-400/10 text-green-400">{`+ ${l}`}</span>
+      ))}
+    </pre>
+  );
+}
+
+/** A `db_query` result as a table, the first 50 rows; long cells are cut. */
+function RowsTable({ columns, rows }: { columns: string[]; rows: Record<string, unknown>[] }) {
+  if (!rows.length) return <p className="text-xs text-kumo-subtle">(tidak ada baris)</p>;
+  const shown = rows.slice(0, 50);
+  return (
+    <div className="max-h-56 overflow-auto">
+      <table className={`${MONO} text-xs text-kumo-default`}>
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c} className="text-left font-medium text-kumo-subtle px-2 py-1 border-b border-kumo-line whitespace-nowrap">
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((r, i) => (
+            <tr key={i}>
+              {columns.map((c) => (
+                <td key={c} className="px-2 py-1 border-b border-kumo-line/50 align-top whitespace-nowrap">
+                  {formatCell(r[c])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > shown.length ? <p className="text-xs text-kumo-subtle py-1">… {rows.length - shown.length} baris lagi</p> : null}
+    </div>
+  );
+}
+
+function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  const text = typeof value === "object" ? JSON.stringify(value) : String(value);
+  return text.length > 120 ? `${text.slice(0, 120)}…` : text;
+}
+
+/** The expanded body of a tool row. Tools whose result has a known shape get a view
+ *  of it; anything else keeps the arguments as JSON and the raw result. */
+function ToolBody({ name, input, output }: { name: string; input: any; output: string }) {
+  const raw = output ? (
+    <pre className={`${MONO} text-kumo-subtle whitespace-pre-wrap break-all max-h-56 overflow-y-auto`}>{output.slice(0, 3000)}</pre>
+  ) : null;
+  switch (name) {
+    case "edit_file": {
+      const { removed, added } = replacementPreview(input?.old_string, input?.new_string);
+      return (
+        <>
+          <DiffPreview removed={removed} added={added} />
+          {raw}
+        </>
+      );
+    }
+    case "write_file":
+      // The contents are the file itself, shown on its FileCard; the result is the summary.
+      return raw;
+    case "grep": {
+      const files = parseSearchHits(output);
+      if (!files.length) return raw;
+      return (
+        <div className="max-h-56 overflow-y-auto grid gap-1.5">
+          {files.map((f) => (
+            <div key={f.path} className="grid gap-0.5 min-w-0">
+              <p className={`${MONO} text-kumo-default truncate`} title={f.path}>
+                {f.path} <span className="text-kumo-subtle">({f.type})</span>
+              </p>
+              {f.hits.map((h) => (
+                <p key={h.line} className={`${MONO} text-kumo-subtle pl-3 truncate`} title={h.preview}>
+                  <span className="text-kumo-default">{h.line}</span> {h.preview}
+                </p>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    case "glob": {
+      const { paths, hidden } = parseGlobList(output);
+      if (!paths.length) return raw;
+      return (
+        <div className="max-h-56 overflow-y-auto grid gap-0.5">
+          {paths.map((p) => (
+            <p key={p} className={`${MONO} text-kumo-subtle truncate`} title={p}>
+              {p}
+            </p>
+          ))}
+          {hidden ? <p className="text-xs text-kumo-subtle">… {hidden} berkas lagi</p> : null}
+        </div>
+      );
+    }
+    case "web_fetch": {
+      const fetched = parseFetchResult(output);
+      let host = String(input?.url ?? "");
+      try {
+        host = new URL(host).host;
+      } catch {}
+      return (
+        <div className="grid gap-1.5 min-w-0">
+          <p className="flex items-center gap-2 text-sm min-w-0">
+            <Globe size={13} className="shrink-0 text-kumo-subtle" />
+            <span className="truncate text-kumo-default">{host}</span>
+            {fetched.status != null ? (
+              <span className={`shrink-0 ${fetched.status >= 400 ? "text-red-400" : "text-kumo-subtle"}`}>HTTP {fetched.status}</span>
+            ) : null}
+          </p>
+          {fetched.text ? (
+            <pre className={`${MONO} text-kumo-subtle whitespace-pre-wrap break-all max-h-56 overflow-y-auto`}>{fetched.text.slice(0, 3000)}</pre>
+          ) : null}
+        </div>
+      );
+    }
+    case "db_query": {
+      const table = parseDbRows(output);
+      return (
+        <>
+          {input?.sql ? (
+            <pre className={`${MONO} text-kumo-subtle whitespace-pre-wrap break-all max-h-40 overflow-y-auto`}>{String(input.sql)}</pre>
+          ) : null}
+          {table ? <RowsTable columns={table.columns} rows={table.rows} /> : raw}
+        </>
+      );
+    }
+    default:
+      return (
+        <>
+          {input ? (
+            <pre className={`${MONO} text-kumo-subtle whitespace-pre-wrap break-all max-h-40 overflow-y-auto`}>{JSON.stringify(input, null, 1)}</pre>
+          ) : null}
+          {raw}
+        </>
+      );
+  }
 }
 
 function ToolRow({
@@ -1816,14 +2183,7 @@ function ToolRow({
       </button>
       {open && hasDetail ? (
         <div className="border-t border-kumo-line/60 px-2.5 py-2 grid gap-2">
-          {part.input ? (
-            <pre className={`${MONO} text-kumo-subtle whitespace-pre-wrap break-all max-h-40 overflow-y-auto`}>
-              {JSON.stringify(part.input, null, 1)}
-            </pre>
-          ) : null}
-          {output ? (
-            <pre className={`${MONO} text-kumo-subtle whitespace-pre-wrap break-all max-h-56 overflow-y-auto`}>{output.slice(0, 3000)}</pre>
-          ) : null}
+          <ToolBody name={name} input={part.input} output={output} />
           {part.errorText ? <InlineAlert>{part.errorText}</InlineAlert> : null}
         </div>
       ) : null}

@@ -7,7 +7,22 @@
  *   bun test src/components/chat/chat-view.test.ts
  */
 import { expect, test } from "bun:test";
-import { bashExitCode, changeStats, changeTitle, exploreTitle, formatDuration, segmentBlocks, toolFamily, touchedPaths, workSummary } from "./chat-view";
+import {
+  bashExitCode,
+  changeStats,
+  changeTitle,
+  exploreTitle,
+  formatDuration,
+  parseDbRows,
+  parseFetchResult,
+  parseGlobList,
+  parseSearchHits,
+  replacementPreview,
+  segmentBlocks,
+  toolFamily,
+  touchedPaths,
+  workSummary,
+} from "./chat-view";
 
 test("consecutive work blocks form one run; the answer splits runs and stays in place", () => {
   const blocks = [
@@ -59,4 +74,39 @@ test("summaries read as the user would say them", () => {
 
 test("touched paths are distinct and ignore calls without a path", () => {
   expect(touchedPaths([{ path: "a.md" }, { path: "a.md" }, { path: "b.md" }, {}, null])).toEqual(["a.md", "b.md"]);
+});
+
+test("a grep result becomes files with their hit lines", () => {
+  const out = "output/a.md  (content)\n    3: kata kunci\n    9: lagi kata\n\nsrc/b.ts  (filename)";
+  expect(parseSearchHits(out)).toEqual([
+    { path: "output/a.md", type: "content", hits: [{ line: 3, preview: "kata kunci" }, { line: 9, preview: "lagi kata" }] },
+    { path: "src/b.ts", type: "filename", hits: [] },
+  ]);
+  expect(parseSearchHits("Tidak ada hasil untuk \"x\".")).toEqual([]);
+});
+
+test("a glob result lists its paths and how many were cut off", () => {
+  const out = "3 berkas cocok dengan \"**/*.md\":\na.md\nb/c.md\n… (1 berkas lagi)";
+  expect(parseGlobList(out)).toEqual({ paths: ["a.md", "b/c.md"], hidden: 1 });
+  expect(parseGlobList("Tidak ada berkas yang cocok dengan pola \"x\".").paths).toEqual([]);
+});
+
+test("a web fetch result separates its status from the text", () => {
+  expect(parseFetchResult("HTTP 404 — halaman tidak ada")).toEqual({ status: 404, text: "halaman tidak ada" });
+  expect(parseFetchResult("teks biasa")).toEqual({ status: null, text: "teks biasa" });
+});
+
+test("an edit preview shows only the lines that differ", () => {
+  expect(replacementPreview("a\nb\nc", "a\nB\nc")).toEqual({ removed: ["b"], added: ["B"] });
+  expect(replacementPreview("x", "")).toEqual({ removed: ["x"], added: [] });
+  expect(replacementPreview("", "baru")).toEqual({ removed: [], added: ["baru"] });
+});
+
+test("a db_query result becomes rows with their columns; anything else is not a table", () => {
+  const out = '2 baris:\n[\n {\n  "id": 1,\n  "nama": "a"\n },\n {\n  "id": 2,\n  "nama": "b"\n }\n]\n\n… dipotong pada 500 baris. Pakai LIMIT.';
+  const parsed = parseDbRows(out);
+  expect(parsed?.columns).toEqual(["id", "nama"]);
+  expect(parsed?.rows.length).toBe(2);
+  expect(parseDbRows("0 baris:\n(tidak ada baris)")).toEqual({ rows: [], columns: [] });
+  expect(parseDbRows("Query gagal: syntax error")).toBeNull();
 });
