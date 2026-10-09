@@ -14,6 +14,17 @@ import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
 import { chatActivity, markTaken, settleSteers } from "~/components/chat/chat-state";
+import {
+  bashExitCode,
+  changeStats,
+  changeTitle,
+  exploreTitle,
+  formatDuration as fmtDuration,
+  segmentBlocks,
+  toolFamily,
+  touchedPaths,
+  workSummary,
+} from "~/components/chat/chat-view";
 import { MAX_STEPS_DEFAULT, MAX_STEPS_MAX } from "~/server/agent/types";
 import {
   expandMentions,
@@ -68,13 +79,6 @@ interface Props {
 const MONO = "font-mono text-[0.8125rem]";
 
 /** Durations in readable units: 820 ms · 1.2 s · 1 min 5 s. */
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return `${Math.max(1, Math.round(ms))} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1).replace(".", ",")} dtk`;
-  const total = Math.round(ms / 1000);
-  return `${Math.floor(total / 60)} mnt ${total % 60} dtk`;
-}
-
 function elapsedSeconds(from: number, now: number): number {
   return Math.max(0, Math.floor((now - from) / 1000));
 }
@@ -243,6 +247,8 @@ export function ChatSurface({
   }, [detail.files]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [awayUnseen, setAwayUnseen] = useState(0);
   const atBottomRef = useRef(true);
 
   // Turn start time, for the "Generating reply · 12s" status line.
@@ -313,7 +319,25 @@ export function ChatSurface({
     const el = scrollRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setAwayFromBottom(!atBottomRef.current);
+    if (atBottomRef.current) setAwayUnseen(0);
   }
+
+  function jumpToBottom() {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    atBottomRef.current = true;
+    setAwayFromBottom(false);
+    setAwayUnseen(0);
+  }
+
+  // Messages that arrive while the reader is scrolled up are counted, not followed.
+  const seenCount = useRef(messages.length);
+  useEffect(() => {
+    const grew = messages.length - seenCount.current;
+    seenCount.current = messages.length;
+    if (grew > 0 && !atBottomRef.current) setAwayUnseen((n) => n + grew);
+  }, [messages.length]);
 
   const noProvider = providers.length === 0;
 
@@ -396,6 +420,23 @@ export function ChatSurface({
    * The server marks each one taken when the model receives it (`chat:steer`).
    */
   const [injectedLocal, setInjectedLocal] = useState<{ id: string; text: string; taken?: boolean }[]>([]);
+  /** The newest plan the agent wrote, for the status line while it works. */
+  const latestPlan = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const parts = (messages[i].parts ?? []) as any[];
+      for (let j = parts.length - 1; j >= 0; j--) {
+        const todos = todosOf(parts[j]);
+        if (todos) return todos;
+      }
+    }
+    return null;
+  }, [messages]);
+  const planLine = useMemo(() => {
+    if (!latestPlan) return "";
+    const done = latestPlan.filter((t) => t.status === "completed").length;
+    const current = latestPlan.find((t) => t.status === "in_progress");
+    return `Rencana ${done}/${latestPlan.length}${current ? ` · ${current.text}` : ""}`;
+  }, [latestPlan]);
   /** A steer request is in flight (the button shows "mengirim…"). */
   const [injectingId, setInjectingId] = useState<string | null>(null);
 
@@ -571,6 +612,18 @@ export function ChatSurface({
     }
   }
 
+  /** After a failed turn: send the question again, from before the failed answer. */
+  async function retryAfterError() {
+    const asked = [...messages].reverse().find((m) => m.role === "user");
+    if (!asked) return;
+    const result = await resend(asked.id, messageText(asked));
+    if (result.conflicts || result.error) {
+      setActionNote(
+        result.conflicts ? `Tidak bisa dicoba ulang: ${result.conflicts.join(", ")} sudah berubah sejak giliran itu.` : result.error ?? null,
+      );
+    }
+  }
+
   /** A new thread with the conversation up to a message. */
   async function fork(messageId: string) {
     try {
@@ -639,6 +692,7 @@ export function ChatSurface({
 
       <MemoryPanel projectId={projectId} />
 
+      <div className="relative flex-1 min-h-0 flex flex-col">
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-6 py-6 grid gap-6">
           {hasMoreOlder ? (
@@ -739,17 +793,45 @@ export function ChatSurface({
               )}
             </InlineAlert>
           ) : null}
+          {error ? (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => void retryAfterError()}>
+                Coba lagi
+              </Button>
+              <Button variant="ghost" onClick={onOpenProviders}>
+                Pengaturan provider
+              </Button>
+              <Button variant="ghost" onClick={() => void navigator.clipboard?.writeText(error.message).catch(() => {})}>
+                Salin detail
+              </Button>
+            </div>
+          ) : null}
         </div>
+      </div>
+      {awayFromBottom ? (
+        <button
+          onClick={jumpToBottom}
+          className="absolute bottom-3 right-4 rounded-full px-3 py-1 text-xs shadow ring ring-kumo-line bg-kumo-elevated text-kumo-default hover:bg-kumo-tint"
+        >
+          {awayUnseen > 0 ? `↓ ${awayUnseen} pesan baru` : "↓ Ke bawah"}
+        </button>
+      ) : null}
       </div>
 
       {streaming && startedAt ? (
         <div className="border-t border-kumo-line shrink-0">
           <div className="mx-auto w-full max-w-3xl px-6 py-1.5 flex items-center gap-2 text-xs text-kumo-subtle">
             <Pulse />
-            <span>
-              Menghasilkan balasan
+            <span className="min-w-0 truncate">
+              {planLine ? `${planLine} · ` : ""}Menghasilkan balasan
               {mode === "agent" ? " · memakai tool" : mode === "plan" ? " · menyusun rencana" : ""} · berjalan {elapsedSeconds(startedAt, now)}s
             </span>
+            <button
+              onClick={stopActiveRun}
+              className="ml-auto shrink-0 rounded-md px-2 py-0.5 ring ring-kumo-line hover:bg-kumo-elevated text-kumo-default"
+            >
+              Hentikan
+            </button>
           </div>
         </div>
       ) : null}
@@ -1176,53 +1258,91 @@ function MessageBlockView({
   const inTok = inputTokens ?? liveInput;
   const outTok = outputTokens ?? liveOutput;
 
+  /** The words for a folded run: steps, time spent in its tools, files it changed. */
+  const runSummary = (items: Block[]): string => {
+    let steps = 0;
+    let ms = 0;
+    let hasMs = false;
+    const changeInputs: unknown[] = [];
+    for (const b of items) {
+      if (b.kind === "subagent") {
+        steps += 1;
+      } else if (b.kind === "tools") {
+        for (const p of b.parts) {
+          steps += 1;
+          const d = toolDuration(p.toolCallId);
+          if (d != null) {
+            ms += d;
+            hasMs = true;
+          }
+          if (toolFamily(getToolName(p) || "") === "changes") changeInputs.push(p.input);
+        }
+      }
+    }
+    return workSummary({ steps, durationMs: hasMs ? ms : null, files: touchedPaths(changeInputs).length });
+  };
+
+  /** One block of a turn, as the transcript shows it. */
+  const renderBlock = (b: Block): React.ReactNode => {
+        if (b.kind === "reasoning")
+        return (
+          <ThinkingBlock
+            key={b.key}
+            text={b.text}
+            streaming={streaming}
+            durationMs={reasoningMs}
+            // The stored duration spans from the first to the last thinking
+            // section. When a turn has several thinking phases, that number
+            // is not one block's duration — say "total" so it does not
+            // mislead.
+            durationIsTotal={reasoningBlocks > 1}
+          />
+        );
+      if (b.kind === "notice") {
+        const limit = b.data?.kind === "stepLimit";
+        return (
+          <NoticeBlock
+            key={b.key}
+            data={b.data}
+            nextLimit={limit ? nextStepLimit : undefined}
+            onContinue={limit ? onContinueAfterLimit : undefined}
+          />
+        );
+      }
+      if (b.kind === "todos") return <TodoPanel key={b.key} todos={b.todos} />;
+      if (b.kind === "subagent")
+        return <SubagentBlock key={b.key} part={b.part} approval={approvalById.get(b.part?.toolCallId)} turnEnded={!streaming} />;
+      if (b.kind === "tools")
+        return <ToolGroup key={b.key} parts={b.parts} duration={toolDuration} approvalById={approvalById} turnEnded={!streaming} />;
+      // Answer: no box and no background — the only block read in
+      // sequence, so it must not compete with the surrounding chrome. The
+      // `chat-markdown` class supplies the hierarchy Tailwind's preflight
+      // removes (see styles.css).
+      return (
+        <div key={b.key} className="chat-markdown text-sm leading-relaxed text-kumo-default min-w-0">
+          <MarkdownViewer
+            content={b.text}
+            codeRenderer={(lang, code) => (isCardWorthyCode(lang, code) ? <CodeCard lang={lang} code={code} projectId={projectId} /> : null)}
+          />
+        </div>
+      );
+  };
+
   return (
     // One assistant turn is wrapped in ONE container, not loose blocks:
     // the eye immediately knows what belongs to one agent job.
     <div className="rounded-xl bg-kumo-recessed/60 px-4 py-3.5 grid gap-3">
-      {blocks.map((b) => {
-        if (b.kind === "reasoning")
+      {segmentBlocks(blocks).map((seg, si, all) => {
+        if (seg.work) {
+          // A finished run folds into one row; the run still in progress stays open.
+          const live = streaming && si === all.length - 1;
           return (
-            <ThinkingBlock
-              key={b.key}
-              text={b.text}
-              streaming={streaming}
-              durationMs={reasoningMs}
-              // The stored duration spans from the first to the last thinking
-              // section. When a turn has several thinking phases, that number
-              // is not one block's duration — say "total" so it does not
-              // mislead.
-              durationIsTotal={reasoningBlocks > 1}
-            />
-          );
-        if (b.kind === "notice") {
-          const limit = b.data?.kind === "stepLimit";
-          return (
-            <NoticeBlock
-              key={b.key}
-              data={b.data}
-              nextLimit={limit ? nextStepLimit : undefined}
-              onContinue={limit ? onContinueAfterLimit : undefined}
-            />
+            <WorkRun key={`work-${seg.items[0].key}`} live={live} summary={runSummary(seg.items)}>
+              {seg.items.map((item) => renderBlock(item))}
+            </WorkRun>
           );
         }
-        if (b.kind === "todos") return <TodoPanel key={b.key} todos={b.todos} />;
-        if (b.kind === "subagent")
-          return <SubagentBlock key={b.key} part={b.part} approval={approvalById.get(b.part?.toolCallId)} turnEnded={!streaming} />;
-        if (b.kind === "tools")
-          return <ToolGroup key={b.key} parts={b.parts} duration={toolDuration} approvalById={approvalById} turnEnded={!streaming} />;
-        // Answer: no box and no background — the only block read in
-        // sequence, so it must not compete with the surrounding chrome. The
-        // `chat-markdown` class supplies the hierarchy Tailwind's preflight
-        // removes (see styles.css).
-        return (
-          <div key={b.key} className="chat-markdown text-sm leading-relaxed text-kumo-default min-w-0">
-            <MarkdownViewer
-              content={b.text}
-              codeRenderer={(lang, code) => (isCardWorthyCode(lang, code) ? <CodeCard lang={lang} code={code} projectId={projectId} /> : null)}
-            />
-          </div>
-        );
+        return renderBlock(seg.item);
       })}
 
       {/* The files this turn wrote, as their own section at the end of the
@@ -1241,7 +1361,10 @@ function MessageBlockView({
           always offered, so a turn without token metadata is still copyable.
           A failed/stopped turn says so here too, no longer only when tokens
           happened to be recorded. */}
-      <div className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex items-center gap-2">
+      <div
+        className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex items-center gap-2"
+        title={typeof metadata?.createdAt === "string" ? new Date(metadata.createdAt).toLocaleString("id-ID") : undefined}
+      >
         {inTok || outTok ? (
           <>
             <span>↑{formatTokens(inTok ?? 0)} masuk</span>
@@ -1254,12 +1377,12 @@ function MessageBlockView({
             part of what "copy this answer" means. A turn that never produced
             prose (tool calls only) gets no button — copying "" is not an offer. */}
         {canRetry && onRetry && !streaming ? (
-          <button onClick={() => onRetry(message.id)} className="ml-auto hover:text-kumo-default">
+          <button onClick={() => onRetry(message.id)} className="ml-auto whitespace-nowrap hover:text-kumo-default">
             Coba lagi
           </button>
         ) : null}
         {onFork && !streaming ? (
-          <button onClick={() => onFork(message.id)} className={`${canRetry && onRetry ? "" : "ml-auto"} hover:text-kumo-default`} title="Buat cabang percakapan dari sini">
+          <button onClick={() => onFork(message.id)} className={`${canRetry && onRetry ? "" : "ml-auto"} whitespace-nowrap hover:text-kumo-default`} title="Buat cabang percakapan dari sini">
             Cabang
           </button>
         ) : null}
@@ -1539,9 +1662,45 @@ function ChildRail({ children }: { children: React.ReactNode }) {
   return <div className="ml-[21px] border-l border-kumo-line pl-3 grid">{children}</div>;
 }
 
+/** A run of work (thinking, tool calls, subagents). Once the turn has finished the run
+ *  folds into one row that says how long it took and what it did; it opens on click.
+ *  While the turn is still running, it stays open so the user can follow it. */
+function WorkRun({ summary, live, children }: { summary: string; live: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (live) return <div className="grid gap-3">{children}</div>;
+  return (
+    <div className="grid">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 py-1 pr-2 text-left text-sm text-kumo-subtle hover:text-kumo-default"
+      >
+        <RowIcon icon={Wrench} />
+        <span className="truncate">{summary}</span>
+        <span className="ml-auto shrink-0 text-xs">{open ? "sembunyikan" : "lihat"}</span>
+        <Chevron open={open} />
+      </button>
+      {open ? <div className="grid gap-3 pt-1 pb-2">{children}</div> : null}
+    </div>
+  );
+}
+
 /** Group title: if all tools are the same kind, name the kind; if mixed,
  *  just give the step count. This is what makes the group read as ONE job. */
 function groupTitle(parts: any[]): { icon: Icon; text: string } {
+  const families = parts.map((p) => toolFamily(getToolName(p) || "tool"));
+  if (families.every((f) => f === "changes")) {
+    let added = 0;
+    let removed = 0;
+    for (const p of parts) {
+      const stats = changeStats(p.output);
+      if (stats) {
+        added += stats.added;
+        removed += stats.removed;
+      }
+    }
+    return { icon: PencilSimple, text: changeTitle({ files: touchedPaths(parts.map((p) => p.input)).length, added, removed }) };
+  }
+  if (families.every((f) => f === "explore")) return { icon: MagnifyingGlass, text: exploreTitle(parts.length) };
   const kinds = parts.map((p) => toolKind(getToolName(p) || "tool"));
   const unik = [...new Set(kinds)];
   if (unik.length === 1) {
@@ -1560,6 +1719,12 @@ function toolTarget(name: string, input: any): string {
       return String(input.command ?? "");
     case "grep":
       return `${input.query ?? ""}${input.mode ? ` · ${input.mode}` : ""}`;
+    case "read_file": {
+      const path = String(input.path ?? input.file_path ?? "");
+      if (!input.offset && !input.limit) return path;
+      const from = Number(input.offset ?? 1);
+      return input.limit ? `${path}:${from}–${from + Number(input.limit) - 1}` : `${path}:${from}–`;
+    }
     case "glob":
       return String(input.pattern ?? "");
     case "web_fetch":
@@ -1609,6 +1774,8 @@ function ToolRow({
   const hasDetail = !!part.input || !!output || !!part.errorText;
   const ms = state.tone === "run" ? null : duration(part.toolCallId);
   const izin = approvalLabel(approval);
+  const exit = name === "bash" ? bashExitCode(part.output) : null;
+  const stats = name === "edit_file" || name === "write_file" ? changeStats(part.output) : null;
 
   const tint =
     state.tone === "err"
@@ -1637,6 +1804,13 @@ function ToolRow({
           {state.label}
           {ms != null ? ` · ${fmtDuration(ms)}` : ""}
           {izin ? ` · ${izin}` : ""}
+          {exit != null && exit !== 0 ? <span className="text-red-400"> · exit {exit}</span> : null}
+          {stats ? (
+            <span>
+              {" · "}
+              <span className="text-green-400">+{stats.added}</span> <span className="text-red-400">−{stats.removed}</span>
+            </span>
+          ) : null}
         </span>
         {hasDetail ? <span className="text-kumo-subtle shrink-0">{open ? "⌄" : "›"}</span> : null}
       </button>
