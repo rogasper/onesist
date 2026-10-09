@@ -14,6 +14,7 @@ import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
 import { chatActivity, markTaken, providerRetryLabel, settleSteers } from "~/components/chat/chat-state";
+import { loadDraft, promptText, quoteBlock, saveDraft } from "~/components/chat/chat-draft";
 import {
   bashExitCode,
   changeStats,
@@ -99,6 +100,11 @@ function isConnectionFailure(message: string): boolean {
  *  the send pipeline prepends. */
 function queuedPreview(text: string): string {
   return text.replace(/^Lampiran:\n[\s\S]*?\n\n/, "").replace(/\s+/g, " ").trim() || "(lampiran)";
+}
+
+/** Browser storage for drafts; null where there is no window (server render). */
+function browserStorage(): Storage | null {
+  return typeof window === "undefined" ? null : window.localStorage;
 }
 
 export function ChatSurface({
@@ -201,6 +207,39 @@ export function ChatSurface({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachBusy, setAttachBusy] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+
+  // The draft of this thread (text and attachments) survives a reload and a switch to
+  // another thread. Save is declared first: on a thread switch it must not write the old
+  // thread's text under the new id, so it waits until the new draft has been loaded.
+  const draftLoadedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (draftLoadedFor.current !== threadId) return;
+    saveDraft(browserStorage(), threadId, { text: input, attachments });
+  }, [input, attachments, threadId]);
+  useEffect(() => {
+    const stored = loadDraft(browserStorage(), threadId);
+    setInput(stored.text);
+    setAttachments(stored.attachments);
+    draftLoadedFor.current = threadId;
+  }, [threadId]);
+
+  /** A text selected in an answer, offered as a quote for the composer (M4 quote). */
+  const [quote, setQuote] = useState<{ text: string; x: number; y: number } | null>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  function onAnswerSelect() {
+    const sel = window.getSelection();
+    const frame = frameRef.current;
+    const text = sel && !sel.isCollapsed ? sel.toString().trim() : "";
+    const anchor = sel?.anchorNode ?? null;
+    const el = anchor ? (anchor.nodeType === Node.ELEMENT_NODE ? (anchor as Element) : anchor.parentElement) : null;
+    if (!sel || !frame || !text || !el?.closest(".chat-markdown")) {
+      setQuote(null);
+      return;
+    }
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const box = frame.getBoundingClientRect();
+    setQuote({ text, x: rect.left - box.left + rect.width / 2, y: rect.top - box.top });
+  }
   /** This thread's step ceiling; mirrored locally because raising it from the
    *  transcript must take effect immediately (the PUT persists it). */
   const [currentMaxSteps, setCurrentMaxSteps] = useState(detail.thread.maxSteps);
@@ -333,6 +372,7 @@ export function ChatSurface({
     const el = scrollRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setQuote(null);
     setAwayFromBottom(!atBottomRef.current);
     if (atBottomRef.current) setAwayUnseen(0);
   }
@@ -525,6 +565,16 @@ export function ChatSurface({
     const current = latestPlan.find((t) => t.status === "in_progress");
     return `Rencana ${done}/${latestPlan.length}${current ? ` · ${current.text}` : ""}`;
   }, [latestPlan]);
+  /** The prompts this thread has sent, newest first, for ↑/↓ recall in the composer. */
+  const promptHistory = useMemo(
+    () =>
+      messages
+        .filter((m) => m.role === "user")
+        .map((m) => promptText((m.parts ?? []).map((p: any) => (isTextUIPart(p) ? p.text : "")).join("")))
+        .filter(Boolean)
+        .reverse(),
+    [messages],
+  );
   /** Subagent runs that have not returned yet, across the loaded transcript. */
   const runningSubagents = useMemo(
     () =>
@@ -793,7 +843,7 @@ export function ChatSurface({
 
       <MemoryPanel projectId={projectId} />
 
-      <div className="relative flex-1 min-h-0 flex flex-col">
+      <div ref={frameRef} onMouseUp={onAnswerSelect} className="relative flex-1 min-h-0 flex flex-col">
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-6 py-6 grid gap-6">
           {hasMoreOlder ? (
@@ -933,6 +983,21 @@ export function ChatSurface({
           onStep={stepFind}
           onClose={() => setFindOpen(false)}
         />
+      ) : null}
+      {quote ? (
+        <button
+          // Keep the selection while the button is pressed, so the click still has its text.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            setInput((prev) => `${prev}${prev && !prev.endsWith("\n") ? "\n\n" : ""}${quoteBlock(quote.text)}`);
+            setQuote(null);
+            window.getSelection()?.removeAllRanges();
+          }}
+          style={{ left: quote.x, top: quote.y }}
+          className="absolute z-10 -translate-x-1/2 -translate-y-full mb-1 rounded-md px-2 py-1 text-xs shadow ring ring-kumo-line bg-kumo-elevated text-kumo-default hover:bg-kumo-tint"
+        >
+          Tambahkan ke chat
+        </button>
       ) : null}
       {awayFromBottom ? (
         <button
@@ -1098,6 +1163,7 @@ export function ChatSurface({
         actions={actions}
         actionFile={projectFile}
         skills={skills}
+        history={promptHistory}
       />
     </div>
   );

@@ -43,6 +43,10 @@ interface MentionTextareaProps {
   autoGrow?: boolean;
   /** Optional forced height (px) for callers that auto-grow. */
   maxHeightPx?: number;
+  /** Keys the popup did not take (↑/↓ outside the popup, for instance). Call
+   *  `preventDefault` to claim one; Enter is still checked after this. */
+  onExtraKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
 }
 
 /** Builds `\@([^\s\@]*)$`-style matchers for each configured trigger char. */
@@ -125,6 +129,8 @@ export function MentionTextarea({
   disabled,
   autoGrow,
   maxHeightPx,
+  onExtraKeyDown,
+  onPaste,
 }: MentionTextareaProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -235,6 +241,8 @@ export function MentionTextarea({
         return;
       }
     }
+    onExtraKeyDown?.(e);
+    if (e.defaultPrevented) return;
     if (onSubmit && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
@@ -294,6 +302,7 @@ export function MentionTextarea({
         onChange={(e) => onChange(e.target.value)}
         onInput={detectTrigger}
         onKeyDown={handleKeyDown}
+        onPaste={onPaste}
         onScroll={(e) => {
           setOpenTrigger(null);
           const el = e.currentTarget;

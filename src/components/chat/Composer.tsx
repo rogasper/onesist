@@ -4,6 +4,7 @@ import { ArrowUp, CaretDown, Check, Info, ListChecks, Paperclip, ShieldCheck, St
 import { MentionTextarea, type MentionFile, type MentionTrigger } from "~/components/docs/MentionTextarea";
 import { useFileDropZone } from "~/lib/file-drop";
 import { ModelPicker } from "~/components/chat/ModelPicker";
+import { FRESH_CURSOR, attachmentLabel, isLongPaste, pastedTextName, stepHistory, type HistoryCursor } from "~/components/chat/chat-draft";
 import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
 
 /**
@@ -80,6 +81,8 @@ interface Props {
   actionFile: ProjectActionFile;
   /** Skills for the `$` trigger (FR-F4). */
   skills: ChatSkillOption[];
+  /** Sent prompts of this thread, newest first, for ↑/↓ recall. */
+  history: string[];
 }
 
 export function Composer(props: Props) {
@@ -111,7 +114,39 @@ export function Composer(props: Props) {
     attachError,
     actions,
     actionFile,
+    history,
   } = props;
+
+  // ↑/↓ recall. The cursor restarts when the newest sent prompt changes (a send
+  // happened, or another thread is open), so a stale position never recalls the wrong text.
+  const recall = useRef<HistoryCursor>(FRESH_CURSOR);
+  const recallKey = useRef(history[0] ?? "");
+  if (recallKey.current !== (history[0] ?? "")) {
+    recallKey.current = history[0] ?? "";
+    recall.current = FRESH_CURSOR;
+  }
+
+  /** ↑ on the first line and ↓ on the last line step through the sent prompts. */
+  const onRecallKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    const ta = e.currentTarget;
+    if (e.key === "ArrowUp" && ta.value.slice(0, ta.selectionStart).includes("\n")) return;
+    if (e.key === "ArrowDown" && ta.value.slice(ta.selectionEnd).includes("\n")) return;
+    const step = stepHistory(history, recall.current, e.key === "ArrowUp" ? "older" : "newer", input);
+    if (!step) return;
+    e.preventDefault();
+    recall.current = step.cursor;
+    onInput(step.text);
+  };
+
+  /** A long paste is saved as a text attachment, so it does not flood the field. */
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData.getData("text/plain");
+    if (!text || !isLongPaste(text)) return;
+    e.preventDefault();
+    onAttach([new File([text], pastedTextName(text.split("\n").length), { type: "text/plain" })]);
+  };
 
   const fileRef = useRef<HTMLInputElement>(null);
   // The drop target is the WHOLE composer box (see the JSX below): while
@@ -213,7 +248,7 @@ export function Composer(props: Props) {
                 title={a.path}
               >
                 <Paperclip size={11} className="text-kumo-subtle shrink-0" />
-                <span className="font-mono truncate max-w-[220px]">{a.name}</span>
+                <span className="font-mono truncate max-w-[220px]">{attachmentLabel(a.name)}</span>
                 <button
                   onClick={() => onRemoveAttachment(a.path)}
                   className="rounded p-0.5 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
@@ -243,6 +278,8 @@ export function Composer(props: Props) {
             triggers={mentionTriggers}
             rows={2}
             onSubmit={onSubmit}
+            onExtraKeyDown={onRecallKey}
+            onPaste={onPaste}
             autoGrow
             maxHeightPx={176}
             // Stays editable while the agent works: Enter now queues the message
