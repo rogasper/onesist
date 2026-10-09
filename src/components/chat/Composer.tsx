@@ -286,7 +286,7 @@ export function Composer(props: Props) {
 
   return (
     <div className="border-t border-kumo-line shrink-0">
-      <div className="mx-auto w-full max-w-3xl px-6 pt-3.5 pb-4">
+      <div className="mx-auto w-full max-w-3xl px-4 @[560px]/chat:px-6 pt-3.5 pb-4">
         {!providerReady ? (
           <div className="mb-3 rounded-xl ring ring-amber-400/40 bg-amber-400/10 px-3.5 py-2.5 text-sm text-kumo-default">
             Belum ada provider yang bisa dipakai.{" "}

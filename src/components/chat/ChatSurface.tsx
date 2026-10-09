@@ -996,8 +996,8 @@ export function ChatSurface({
       <MemoryPanel projectId={projectId} />
 
       <div ref={frameRef} onMouseUp={onAnswerSelect} className="relative flex-1 min-h-0 flex flex-col">
-      <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-6 py-6 grid gap-6">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
+        <div className="mx-auto w-full max-w-3xl px-4 @[560px]/chat:px-6 py-6 grid grid-cols-1 gap-6">
           {hasMoreOlder ? (
             <div className="flex justify-center">
               <button
@@ -1038,7 +1038,7 @@ export function ChatSurface({
               Once the run closes, the stored row (same id) replaces the copy, or
               the message goes back to the queue if it was never taken. */}
           {injectedVisible.map((m) => (
-            <div key={m.id} className="grid gap-1">
+            <div key={m.id} className="grid grid-cols-1 gap-1">
               <MessageBlock
                 message={{ id: m.id, role: "user", parts: [{ type: "text", text: m.text }] } as unknown as UIMessage}
                 streaming={false}
@@ -1379,8 +1379,8 @@ function EmptyState({
   suggestions: ProjectSuggestion[];
 }) {
   return (
-    <div className="pt-8 grid gap-2">
-      <div className="grid gap-1.5">
+    <div className="pt-8 grid grid-cols-1 gap-2">
+      <div className="grid grid-cols-1 gap-1.5">
         <h2 className="text-sm font-semibold text-kumo-default">Mulai percakapan</h2>
         <p className="text-sm text-kumo-subtle">
           {providerReady
@@ -1388,14 +1388,14 @@ function EmptyState({
             : "Tambahkan provider dulu; setelah itu agent bisa membaca dan mengubah berkas project."}
         </p>
       </div>
-      <div className="grid gap-2 mt-2">
+      <div className="grid grid-cols-1 gap-2 mt-2">
         {suggestions.map((s) => (
           // Fills the composer; the user reads it and sends it, as in ZCode.
           <button
             key={s.label}
             onClick={() => onPick(s.prompt)}
             title={s.prompt}
-            className="text-left rounded-xl px-4 py-3 ring ring-kumo-line hover:bg-kumo-elevated grid gap-0.5"
+            className="text-left rounded-xl px-4 py-3 ring ring-kumo-line hover:bg-kumo-elevated grid grid-cols-1 gap-0.5"
           >
             <span className="text-sm font-medium text-kumo-default">{s.label}</span>
             <span className="text-xs text-kumo-subtle">{s.prompt}</span>
@@ -1557,7 +1557,7 @@ function MessageBlockView({
     };
     if (editing) {
       return (
-        <div className="grid gap-2 justify-items-end">
+        <div className="grid grid-cols-1 gap-2 justify-items-end">
           <textarea
             autoFocus
             value={draft}
@@ -1574,7 +1574,7 @@ function MessageBlockView({
           </p>
           {resendNote?.error ? <InlineAlert>{resendNote.error}</InlineAlert> : null}
           {resendNote?.conflicts?.length ? (
-            <div className="grid gap-1.5 max-w-[85%] text-xs text-amber-400">
+            <div className="grid grid-cols-1 gap-1.5 max-w-[85%] text-xs text-amber-400">
               <span>Tidak bisa dikembalikan otomatis: {resendNote.conflicts.join(", ")} sudah berubah sejak giliran itu.</span>
               <button className="justify-self-end rounded-md px-2.5 py-1 ring ring-kumo-line hover:bg-kumo-elevated" disabled={resending} onClick={() => void send({ conversationOnly: true })}>
                 Kirim tanpa mengembalikan berkas
@@ -1621,7 +1621,7 @@ function MessageBlockView({
             Edit
           </button>
         ) : null}
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-kumo-tint px-4 py-3 text-sm text-kumo-default whitespace-pre-wrap">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-kumo-tint px-4 py-3 text-sm text-kumo-default whitespace-pre-wrap [overflow-wrap:anywhere]">
           {pictures.length ? (
             <div className="flex flex-wrap gap-1.5 mb-2 whitespace-normal">
               {pictures.map((p: any, i: number) => (
@@ -1722,7 +1722,7 @@ function MessageBlockView({
   return (
     // One assistant turn is wrapped in ONE container, not loose blocks:
     // the eye immediately knows what belongs to one agent job.
-    <div className="group rounded-xl bg-kumo-recessed/60 px-4 py-3.5 grid gap-3">
+    <div className="group rounded-xl bg-kumo-recessed/60 px-4 py-3.5 grid grid-cols-1 gap-3">
       {segmentBlocks(blocks).map((seg, si, all) => {
         if (seg.work) {
           // A finished run folds into one row; the run still in progress stays open.
@@ -1741,7 +1741,7 @@ function MessageBlockView({
           footnote and not part of its output. */}
       {files?.length && threadId ? <TurnChanges threadId={threadId} messageId={message.id} /> : null}
       {files?.length ? (
-        <div className="grid gap-2">
+        <div className="grid grid-cols-1 gap-2">
           {files.map((f) => (
             <FileCard key={f.id} file={f} root={root} projectId={projectId} />
           ))}
@@ -1822,13 +1822,13 @@ function SubagentBlock({ part, approval, turnEnded = false }: { part: any; appro
         <span className="text-kumo-subtle shrink-0">{open ? "⌄" : "›"}</span>
       </button>
       {open ? (
-        <div className="border-t border-kumo-line/60 px-3 py-2 grid gap-2">
-          <div className="grid gap-0.5">
+        <div className="border-t border-kumo-line/60 px-3 py-2 grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-1 gap-0.5">
             <span className="text-xs text-kumo-subtle">Yang diminta</span>
             <p className="text-sm text-kumo-default whitespace-pre-wrap">{prompt || "(kosong)"}</p>
           </div>
           {output ? (
-            <div className="grid gap-0.5">
+            <div className="grid grid-cols-1 gap-0.5">
               <span className="text-xs text-kumo-subtle">Ringkasan yang dikembalikan</span>
               <pre className={`${MONO} text-kumo-default whitespace-pre-wrap max-h-72 overflow-y-auto`}>{output.slice(0, 6000)}</pre>
             </div>
@@ -1945,7 +1945,7 @@ function FindBar({
 /** The todo items, one per row: done struck through, the current step pulsing. */
 function TodoRows({ todos }: { todos: TodoItem[] }) {
   return (
-    <div className="grid gap-1 py-1">
+    <div className="grid grid-cols-1 gap-1 py-1">
       {todos.map((t, i) => (
         <p key={t.id ?? i} className="flex items-start gap-2 text-sm">
           <span className="mt-0.5 shrink-0">
@@ -1969,7 +1969,7 @@ function TodoPanel({ todos }: { todos: TodoItem[] }) {
   const done = todos.filter((t) => t.status === "completed").length;
   const current = todos.find((t) => t.status === "in_progress");
   return (
-    <div className="rounded-lg ring ring-kumo-line px-3 py-2 grid gap-1.5 min-w-0">
+    <div className="rounded-lg ring ring-kumo-line px-3 py-2 grid grid-cols-1 gap-1.5 min-w-0">
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -1998,7 +1998,7 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
     // happens mid tool call the tool never runs — the row above would otherwise
     // look like it is still working.
     return (
-      <div className="rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-kumo-default grid gap-1.5">
+      <div className="rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-kumo-default grid grid-cols-1 gap-1.5">
         <span>
           <span className="font-semibold">Jawaban terpotong oleh batas token keluaran provider{data.outputTokens ? ` (${data.outputTokens.toLocaleString("id-ID")} token)` : ""}.</span>{" "}
           Kalau potongan itu jatuh di tengah argumen sebuah tool, toolnya tidak pernah dijalankan — langkah di atas yang
@@ -2017,7 +2017,7 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
     // reason" — observed as a real report: 30 steps of skill_read/list_dir/
     // todo_write with no file written and no explanation anywhere.
     return (
-      <div className="rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-kumo-default grid gap-2">
+      <div className="rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-sm text-kumo-default grid grid-cols-1 gap-2">
         <span>
           <span className="font-semibold">Batas langkah tercapai{data.steps ? ` (${data.steps} langkah)` : ""}.</span> Agent berhenti karena kehabisan
           langkah, bukan karena tugasnya selesai. Periksa apa yang sudah dikerjakan di atas — riwayatnya tetap ada, jadi
@@ -2179,7 +2179,7 @@ function ChildRail({ children }: { children: React.ReactNode }) {
  *  While the turn is still running, it stays open so the user can follow it. */
 function WorkRun({ summary, live, children }: { summary: string; live: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  if (live) return <div className="grid gap-3">{children}</div>;
+  if (live) return <div className="grid grid-cols-1 gap-3">{children}</div>;
   return (
     <div className="grid">
       <button
@@ -2191,7 +2191,7 @@ function WorkRun({ summary, live, children }: { summary: string; live: boolean; 
         <span className="ml-auto shrink-0 text-xs">{open ? "sembunyikan" : "lihat"}</span>
         <Chevron open={open} />
       </button>
-      {open ? <div className="grid gap-3 pt-1 pb-2">{children}</div> : null}
+      {open ? <div className="grid grid-cols-1 gap-3 pt-1 pb-2">{children}</div> : null}
     </div>
   );
 }
@@ -2347,9 +2347,9 @@ function ToolBody({ name, input, output }: { name: string; input: any; output: s
       const files = parseSearchHits(output);
       if (!files.length) return raw;
       return (
-        <div className="max-h-56 overflow-y-auto grid gap-1.5">
+        <div className="max-h-56 overflow-y-auto grid grid-cols-1 gap-1.5">
           {files.map((f) => (
-            <div key={f.path} className="grid gap-0.5 min-w-0">
+            <div key={f.path} className="grid grid-cols-1 gap-0.5 min-w-0">
               <p className={`${MONO} text-kumo-default truncate`} title={f.path}>
                 {f.path} <span className="text-kumo-subtle">({f.type})</span>
               </p>
@@ -2367,7 +2367,7 @@ function ToolBody({ name, input, output }: { name: string; input: any; output: s
       const lines = codeSearchLines(output);
       if (!lines.length) return raw;
       return (
-        <div className="max-h-56 overflow-y-auto grid gap-0.5">
+        <div className="max-h-56 overflow-y-auto grid grid-cols-1 gap-0.5">
           {lines.map((l, i) => (
             <p
               key={i}
@@ -2384,7 +2384,7 @@ function ToolBody({ name, input, output }: { name: string; input: any; output: s
       const { paths, hidden } = parseGlobList(output);
       if (!paths.length) return raw;
       return (
-        <div className="max-h-56 overflow-y-auto grid gap-0.5">
+        <div className="max-h-56 overflow-y-auto grid grid-cols-1 gap-0.5">
           {paths.map((p) => (
             <p key={p} className={`${MONO} text-kumo-subtle truncate`} title={p}>
               {p}
@@ -2401,7 +2401,7 @@ function ToolBody({ name, input, output }: { name: string; input: any; output: s
         host = new URL(host).host;
       } catch {}
       return (
-        <div className="grid gap-1.5 min-w-0">
+        <div className="grid grid-cols-1 gap-1.5 min-w-0">
           <p className="flex items-center gap-2 text-sm min-w-0">
             <Globe size={13} className="shrink-0 text-kumo-subtle" />
             <span className="truncate text-kumo-default">{host}</span>
@@ -2499,7 +2499,7 @@ function ToolRow({
         {hasDetail ? <span className="text-kumo-subtle shrink-0">{open ? "⌄" : "›"}</span> : null}
       </button>
       {open && hasDetail ? (
-        <div className="border-t border-kumo-line/60 px-2.5 py-2 grid gap-2">
+        <div className="border-t border-kumo-line/60 px-2.5 py-2 grid grid-cols-1 gap-2">
           <ToolBody name={name} input={part.input} output={output} />
           {part.errorText ? <InlineAlert>{part.errorText}</InlineAlert> : null}
         </div>
@@ -2562,7 +2562,7 @@ function ToolGroup({
       </button>
       {open ? (
         <ChildRail>
-          <div className="grid gap-1 py-1">
+          <div className="grid grid-cols-1 gap-1 py-1">
             {parts.map((part, i) => (
               <ToolRow key={part.toolCallId ?? i} part={part} duration={duration} approval={approvalById.get(part.toolCallId)} turnEnded={turnEnded} />
             ))}
@@ -2616,9 +2616,9 @@ function ApprovalBlock({
           deny();
         }
       }}
-      className="rounded-xl ring-1 ring-amber-400/50 bg-amber-400/10 px-4 py-3 grid gap-2 outline-none"
+      className="rounded-xl ring-1 ring-amber-400/50 bg-amber-400/10 px-4 py-3 grid grid-cols-1 gap-2 outline-none"
     >
-      <div className="grid gap-1">
+      <div className="grid grid-cols-1 gap-1">
         <p className="text-sm font-medium text-kumo-default">Perlu persetujuan</p>
         <p className="text-sm text-kumo-subtle">
           Agent akan menjalankan <span className={`${MONO} text-kumo-default`}>{approval.name}</span>
@@ -2633,7 +2633,7 @@ function ApprovalBlock({
       </div>
 
       {approval.detail ? (
-        <div className="grid gap-1">
+        <div className="grid grid-cols-1 gap-1">
           <button onClick={() => setShowDetail((v) => !v)} className="justify-self-start text-xs text-kumo-subtle hover:text-kumo-default">
             {showDetail ? "Sembunyikan isi" : "Lihat isi yang akan diubah"}
           </button>
@@ -2646,7 +2646,7 @@ function ApprovalBlock({
       ) : null}
 
       {noting ? (
-        <div className="grid gap-2">
+        <div className="grid grid-cols-1 gap-2">
           <textarea
             autoFocus
             value={note}
@@ -2712,7 +2712,7 @@ function StaleReadsNotice({ reads }: { reads: { path: string; readAt: string | n
           </span>
         </button>
         {open ? (
-          <div className="mt-1.5 grid gap-0.5">
+          <div className="mt-1.5 grid grid-cols-1 gap-0.5">
             {reads.map((r) => (
               <p key={r.path} className="flex items-center gap-2 text-sm">
                 <span className={`${MONO} text-kumo-default truncate flex-1`} title={r.path}>
@@ -2756,7 +2756,7 @@ function UnattributedFiles({ detail }: { detail: ThreadDetail }) {
         </button>
       </div>
       {open ? (
-        <div className="mx-auto w-full max-w-3xl px-6 pb-3 grid gap-2 max-h-72 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl px-6 pb-3 grid grid-cols-1 gap-2 max-h-72 overflow-y-auto">
           {files.map((f) => (
             <FileCard key={f.id} file={f} root={detail.rootPath ?? null} projectId={detail.thread.projectId} />
           ))}
@@ -2815,7 +2815,7 @@ function TurnChanges({ threadId, messageId }: { threadId: string; messageId: str
   const btn = "rounded-md px-2.5 py-1 text-xs ring ring-kumo-line hover:bg-kumo-elevated disabled:opacity-50";
 
   return (
-    <div className="grid gap-1.5 text-xs text-kumo-subtle">
+    <div className="grid grid-cols-1 gap-1.5 text-xs text-kumo-subtle">
       <div className="flex flex-wrap items-center gap-2">
         {undoable.length ? (
           <button className={btn} disabled={busy} onClick={() => void act("undo")}>
@@ -2863,10 +2863,10 @@ function QuestionBlock({
   const setAnswer = (i: number, value: string) => setAnswers((prev) => prev.map((a, j) => (j === i ? value : a)));
 
   return (
-    <div className="rounded-xl ring-1 ring-blue-400/50 bg-blue-400/10 px-4 py-3 grid gap-3">
+    <div className="rounded-xl ring-1 ring-blue-400/50 bg-blue-400/10 px-4 py-3 grid grid-cols-1 gap-3">
       <p className="text-sm font-medium text-kumo-default">Agent menanyakan sesuatu sebelum melanjutkan</p>
       {question.questions.map((q, i) => (
-        <div key={i} className="grid gap-1.5">
+        <div key={i} className="grid grid-cols-1 gap-1.5">
           <p className="text-sm text-kumo-default">{q.question}</p>
           {q.options?.length ? (
             <div className="flex flex-wrap gap-1.5">
