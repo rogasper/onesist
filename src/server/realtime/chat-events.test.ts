@@ -63,3 +63,11 @@ test("chat:run still reaches the client over SSE", async () => {
   expect(text).toContain('"status":"done"');
   controller.abort();
 });
+
+test("chat:approval-resolved reaches the client, so a card is removed without polling", async () => {
+  const { res, controller } = await openEvents();
+  queueMicrotask(() => eventBus.emitChatApprovalResolved({ threadId: "thr_t", toolCallId: "call_9" }));
+  const text = await readUntil(res, "event: chat:approval-resolved");
+  expect(text).toContain('"toolCallId":"call_9"');
+  controller.abort();
+});

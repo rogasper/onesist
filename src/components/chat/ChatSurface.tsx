@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
@@ -144,8 +144,12 @@ export function ChatSurface({
     id: threadId,
     transport: transport!,
     messages: initialMessages,
+    // A run still working when the thread was opened is followed live from where
+    // it is (the stream route replays what came before), not only read at its end.
+    resume: !!detail.activeRun,
     onFinish: ({ isAbort, isError }) => {
       awaitingRefresh.current = true;
+      setWatchingRun(false);
       // Stop or a failure: hold the queue. Sending the next queued message right
       // after the user interrupted a run would look like the Stop did not work.
       // The exception is "Jalankan sekarang", which stops on purpose to send the
@@ -169,10 +173,13 @@ export function ChatSurface({
   const { runningElsewhere, busy } = activity;
   // A run started elsewhere can be parked on an approval; the card must still be
   // answerable here, or the run waits forever.
-  const { approvals, decide } = usePendingApprovals(threadId, activity.approvalsOn);
-  // Live events are open while this client streams, so a steer taken mid-run
-  // can be shown as taken, and while watching a run started elsewhere.
+  const approvalState = usePendingApprovals(threadId, activity.approvalsOn);
+  const { approvals, decide } = approvalState;
+  // One live-events subscription serves the run, steer and approval updates.
+  // Open while this client streams (a steer taken mid-run is shown as taken, and
+  // approvals can be answered) and while watching a run started elsewhere.
   useChatLiveEvents(threadId, activity.liveEvents, {
+    ...approvalState.handlers,
     onRunEnded: () => {
       setWatchingRun(false);
       // While this client streams, its own onFinish owns the run's end (and the
@@ -185,6 +192,7 @@ export function ChatSurface({
       setInjectedLocal((prev) => markTaken(prev, messageIds));
     },
     onOpen: () => {
+      approvalState.handlers.onOpen?.();
       // Subscribed while watching: read once more, in case the run closed before
       // we listened.
       if (!watchingRun) return;
@@ -610,6 +618,12 @@ export function ChatSurface({
    * doubles THIS thread's ceiling (the app default only applies to new threads,
    * so a stored value would otherwise keep cutting the same task).
    */
+  // A stable callback for the transcript rows: rows are memoized, so a new
+  // function per render would re-render every row on each streamed token.
+  const continueLatest = useRef<() => void>(() => {});
+  continueLatest.current = () => void continueAfterStepLimit(true);
+  const stableContinueAfterLimit = useCallback(() => continueLatest.current(), []);
+
   async function continueAfterStepLimit(raiseLimit: boolean) {
     if (streaming) return;
     if (raiseLimit) {
@@ -657,7 +671,7 @@ export function ChatSurface({
               toolDuration={toolDuration}
               approvalById={approvalById}
               nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
-              onContinueAfterLimit={() => void continueAfterStepLimit(true)}
+              onContinueAfterLimit={stableContinueAfterLimit}
             />
           ))}
 
@@ -1018,7 +1032,13 @@ function groupParts(parts: any[]): Block[] {
   return blocks;
 }
 
-function MessageBlock({
+/**
+ * One transcript row. Memoized: while a reply streams, only the row that changed
+ * re-renders; finished rows keep their references from useChat and skip work.
+ */
+const MessageBlock = memo(MessageBlockView);
+
+function MessageBlockView({
   message,
   streaming,
   metadata,

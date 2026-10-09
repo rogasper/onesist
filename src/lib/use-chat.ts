@@ -274,6 +274,8 @@ export function useThreadTransport(threadId: string | null) {
     if (!threadId) return null;
     return new DefaultChatTransport({
       api: `/api/chat/threads/${threadId}/messages`,
+      // Reattach to a run still working on this thread (see the stream route).
+      prepareReconnectToStreamRequest: () => ({ api: `/api/chat/threads/${threadId}/stream` }),
     });
   }, [threadId]);
 }
@@ -313,6 +315,10 @@ export interface PendingApproval {
 export interface ChatLiveEventHandlers {
   onRunEnded?: () => void;
   onSteerTaken?: (messageIds: string[]) => void;
+  /** A run parked on an approval: re-read the pending list. */
+  onApproval?: () => void;
+  /** An approval was answered, timed out, or its run ended. */
+  onApprovalResolved?: (toolCallId: string) => void;
   onOpen?: () => void;
 }
 
@@ -351,6 +357,13 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
           const data = forThisThread(e);
           if (data) latest.current.onSteerTaken?.(Array.isArray(data.messageIds) ? data.messageIds : []);
         });
+        source.addEventListener("chat:approval", (e) => {
+          if (forThisThread(e)) latest.current.onApproval?.();
+        });
+        source.addEventListener("chat:approval-resolved", (e) => {
+          const data = forThisThread(e);
+          if (data) latest.current.onApprovalResolved?.(String(data.toolCallId ?? ""));
+        });
         source.onerror = () => {
           failures += 1;
           if (failures >= 5) {
@@ -372,48 +385,64 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
   }, [threadId, enabled]);
 }
 
+/**
+ * Approvals waiting on a decision for this thread.
+ *
+ * Loaded once when the thread becomes active, then kept current by the thread's
+ * live events (`chat:approval`, `chat:approval-resolved`): no polling. The handlers
+ * are passed to `useChatLiveEvents`, which holds the single SSE subscription.
+ */
 export function usePendingApprovals(threadId: string | null, active: boolean) {
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Answered approvals. A read that started before the answer must not bring the
+   *  card back, so results are filtered against this set. */
+  const resolved = useRef(new Set<string>());
+
+  const load = useCallback(async () => {
+    if (!threadId) return;
+    try {
+      const res = await api<{ approvals: PendingApproval[] }>(`/api/chat/threads/${threadId}/approvals`);
+      setApprovals(res.approvals.filter((a) => !resolved.current.has(a.toolCallId)));
+    } catch {
+      /* approvals are not critical display-wise — never disturb the stream */
+    }
+  }, [threadId]);
 
   useEffect(() => {
+    resolved.current = new Set();
     if (!threadId || !active) {
       setApprovals([]);
-      if (timer.current) clearInterval(timer.current);
-      timer.current = null;
       return;
     }
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await api<{ approvals: PendingApproval[] }>(`/api/chat/threads/${threadId}/approvals`);
-        if (!cancelled) setApprovals(res.approvals);
-      } catch {
-        /* approvals are not critical display-wise — never disturb the stream */
-      }
-    };
-    void tick();
-    timer.current = setInterval(tick, 1200);
-    return () => {
-      cancelled = true;
-      if (timer.current) clearInterval(timer.current);
-      timer.current = null;
-    };
-  }, [threadId, active]);
+    void load();
+  }, [threadId, active, load]);
+
+  const handlers = useMemo<Pick<ChatLiveEventHandlers, "onApproval" | "onApprovalResolved" | "onOpen">>(
+    () => ({
+      onApproval: () => void load(),
+      onApprovalResolved: (toolCallId) => {
+        resolved.current.add(toolCallId);
+        setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
+      },
+      // Subscribed (or resubscribed): a read covers anything missed meanwhile.
+      onOpen: () => void load(),
+    }),
+    [load],
+  );
 
   const decide = useCallback(async (toolCallId: string, decision: "approved" | "denied") => {
     // Drop it from the list first so the card disappears immediately, then
     // tell the server.
+    resolved.current.add(toolCallId);
     setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
-    const res = await api<{ runId?: string }>(`/api/chat/threads/${threadId}/approvals`, {
+    await api<{ runId?: string }>(`/api/chat/threads/${threadId}/approvals`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ toolCallId, decision }),
     }).catch(() => null);
-    void res;
   }, [threadId]);
 
-  return { approvals, decide };
+  return { approvals, decide, handlers };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -225,6 +225,7 @@ export function finishRun(runId: string, status: RunStatus, error?: string): voi
     run.status = status;
     for (const pending of run.pending.values()) {
       clearTimeout(pending.timer);
+      eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId: pending.toolCallId });
       pending.resolve("denied");
     }
     run.pending.clear();
@@ -256,6 +257,7 @@ export function stopRun(runId: string): boolean {
   run.abort.abort();
   for (const pending of run.pending.values()) {
     clearTimeout(pending.timer);
+    eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId: pending.toolCallId });
     pending.resolve("denied");
   }
   run.pending.clear();
@@ -290,6 +292,7 @@ export function awaitApproval(
     const timer = setTimeout(() => {
       run.pending.delete(info.toolCallId);
       run.decisions.set(info.toolCallId, "denied-timeout");
+      eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId: info.toolCallId });
       resolve("denied");
     }, APPROVAL_TIMEOUT_MS);
     run.pending.set(info.toolCallId, { ...info, resolve, timer });
@@ -314,6 +317,7 @@ export function resolveApproval(runId: string, toolCallId: string, decision: "ap
   clearTimeout(pending.timer);
   run.pending.delete(toolCallId);
   run.decisions.set(toolCallId, decision);
+  eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId });
   pending.resolve(decision);
   return true;
 }

@@ -61,6 +61,7 @@ import {
 import { createStreamTiming, tapStream } from "~/server/agent/stream-timing";
 import { withStreamHeartbeat } from "~/server/agent/stream-heartbeat";
 import { getApprovalDecision } from "~/server/agent/run-registry";
+import { closeRunStream, openRunStream, pushRunChunk, subscribeRunStream } from "~/server/agent/run-stream";
 import { resolveChatActions } from "~/server/agent/actions";
 import { resolveSkills, skillSummaries } from "~/server/agent/skills";
 import { SUBAGENT_LIMITS, SUBAGENT_TOOLS, parseSubagent, resolveSubagents, subagentSummaries } from "~/server/agent/subagents";
@@ -560,6 +561,7 @@ async function handleSendMessage(ctx: any): Promise<Response> {
     console.log(`[chat] klien terputus; run ${runId} tetap berjalan (thread ${current.id}, langkah ${langkah})`);
   });
 
+  openRunStream(runId);
   const stream = toUIMessageStream({
     stream: tapStream(result.stream, timing),
     originalMessages: uiMessages,
@@ -702,8 +704,22 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   // `consumeSseStream` reads a second copy of the stream independently of the
   // client, so the agent loop and its onFinish (which persists the turn) run to
   // completion even when nobody is listening any more.
+  // Every chunk is also kept while the run is live, so a client that comes back
+  // (reload, thread switch) can follow it from where it left off: see the
+  // `chat/threads/:id/stream` route and run-stream.ts.
+  const recorded = stream.pipeThrough(
+    new TransformStream({
+      transform(chunk, controller) {
+        pushRunChunk(runId, chunk);
+        controller.enqueue(chunk);
+      },
+      flush() {
+        closeRunStream(runId);
+      },
+    }),
+  );
   const streamResponse = createUIMessageStreamResponse({
-    stream,
+    stream: recorded as any,
     consumeSseStream: ({ stream: sse }) => consumeStream({ stream: sse as any }),
   });
   if (!streamResponse.body) return streamResponse;
@@ -822,6 +838,24 @@ router.post("chat/threads/:id/approvals", async (ctx) => {
 router.post("chat/runs/:id/stop", async (ctx) => {
   const stopped = stopRun(ctx.params.id);
   return json({ stopped }, stopped ? 200 : 404);
+});
+
+/**
+ * Reattach to the run that is still working on this thread: replays what has been
+ * produced so far, then follows it live. 204 when there is nothing live to follow
+ * (no run, or the run already closed); the client then keeps the saved transcript.
+ */
+router.get("chat/threads/:id/stream", async (ctx) => {
+  const run = getRunForThread(ctx.params.id);
+  const live = run ? subscribeRunStream(run.runId) : null;
+  if (!live) return new Response(null, { status: 204 });
+  const response = createUIMessageStreamResponse({ stream: live as any });
+  if (!response.body) return response;
+  return new Response(withStreamHeartbeat(response.body), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 });
 
 /** Stop whatever run is active on this thread. The client needs this because a

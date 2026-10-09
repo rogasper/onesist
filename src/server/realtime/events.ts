@@ -16,7 +16,9 @@ type EventName =
   | "chat:approval"
   // A steered message was handed to the model at a step boundary. Lets the
   // open thread drop its "menunggu disisipkan" marker while the run continues.
-  | "chat:steer";
+  | "chat:steer"
+  // A pending approval was answered, timed out, or its run ended: remove the card.
+  | "chat:approval-resolved";
 
 interface EventPayload {
   type: EventName;
@@ -138,6 +140,10 @@ class AppEventBus extends EventEmitter {
   /** Steered messages the model has taken, identified by their message ids. */
   emitChatSteer(input: { threadId: string; messageIds: string[] }) {
     this.emitAppEvent({ type: "chat:steer", data: { ...input } });
+  }
+
+  emitChatApprovalResolved(input: { threadId: string; toolCallId: string }) {
+    this.emitAppEvent({ type: "chat:approval-resolved", data: { ...input } });
   }
 
   private emitAppEvent(payload: Omit<EventPayload, "timestamp">) {
