@@ -19,6 +19,9 @@ type EventName =
   | "chat:steer"
   // A pending approval was answered, timed out, or its run ended: remove the card.
   | "chat:approval-resolved"
+  // The agent asked the user something and waits for the answers.
+  | "chat:question"
+  | "chat:question-resolved"
   // The message queue of a thread changed: re-read it.
   | "chat:queue"
   // A turn started on a thread (possibly from the queue, with no client streaming
@@ -145,6 +148,14 @@ class AppEventBus extends EventEmitter {
   /** Steered messages the model has taken, identified by their message ids. */
   emitChatSteer(input: { threadId: string; messageIds: string[] }) {
     this.emitAppEvent({ type: "chat:steer", data: { ...input } });
+  }
+
+  emitChatQuestion(input: { threadId: string; runId: string; questionId: string; questions: unknown[] }) {
+    this.emitAppEvent({ type: "chat:question", data: { ...input } });
+  }
+
+  emitChatQuestionResolved(input: { threadId: string; questionId: string }) {
+    this.emitAppEvent({ type: "chat:question-resolved", data: { ...input } });
   }
 
   emitChatQueue(input: { threadId: string }) {

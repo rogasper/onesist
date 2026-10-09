@@ -68,6 +68,9 @@ export interface ToolContext {
   onFileRead?: (info: { path: string; hash: string }) => void;
   /** Called when the agent writes its step list (FR-D5). */
   onTodos?: (todos: TodoItem[]) => void;
+  /** Asks the user and waits for the answers (`ask_user`). Resolves `null` when no
+   *  answer comes (timeout, run ended). Wired by agent.ts for the main agent only. */
+  askUser?: (questions: { question: string; options?: string[] }[]) => Promise<string[] | null>;
   /** `false` = ask/readonly mode: state-changing tools are not installed. */
   includeMutating?: boolean;
   /** `false` = `no-shell`/`readonly` mode: the bash tool is not installed at all
@@ -597,6 +600,33 @@ export function buildTools(ctx: ToolContext): ToolSet {
     },
   });
 
+  const askUserTool = ctx.askUser
+    ? tool({
+        description:
+          "Tanyakan sesuatu kepada user dan tunggu jawabannya, bila informasi yang kurang tidak ada di workspace " +
+          "dan menebaknya berisiko salah. Ajukan pertanyaan yang spesifik, 1–4 sekaligus, dengan pilihan jawaban " +
+          "bila memungkinkan. Jangan dipakai untuk hal yang bisa kamu cari sendiri lewat tool.",
+        inputSchema: z.object({
+          questions: z
+            .array(
+              z.object({
+                question: z.string().describe("Pertanyaan yang jelas dan spesifik"),
+                options: z.array(z.string()).max(6).optional().describe("Pilihan jawaban (opsional)"),
+              }),
+            )
+            .min(1)
+            .max(4),
+        }),
+        execute: async ({ questions }) => {
+          const answers = await ctx.askUser!(questions);
+          if (!answers) {
+            return "Tidak ada jawaban dari user (waktu habis atau run dihentikan). Lanjutkan dengan asumsi yang masuk akal dan sebutkan asumsinya.";
+          }
+          return questions.map((q, i) => `${q.question} → ${answers[i] ?? "(tidak dijawab)"}`).join("\n");
+        },
+      })
+    : null;
+
   const todoTool = tool({
     description:
       "Tulis atau perbarui daftar langkah kerja untuk tugas ini. Pakai untuk tugas yang butuh beberapa " +
@@ -697,6 +727,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
     grep: grepTool,
     web_fetch: webFetchTool,
     todo_write: todoTool,
+    ...(askUserTool ? { ask_user: askUserTool } : {}),
     skill_read: skillReadTool,
     code_search: codeSearchTool,
     db_schema: dbSchema,

@@ -28,6 +28,7 @@ import {
   useMentionFiles,
   usePendingApprovals,
   type ApprovalScope,
+  type PendingQuestion,
   useThreadTransport,
   type ChatProviderOption,
   type PendingApproval,
@@ -143,7 +144,7 @@ export function ChatSurface({
   // The queue is the server's: re-read whenever it changes.
   const queue = useChatQueue(threadId);
   const approvalState = usePendingApprovals(threadId, activity.approvalsOn);
-  const { approvals, decide } = approvalState;
+  const { approvals, decide, questions, answerQuestion } = approvalState;
   // One live-events subscription serves the run, steer and approval updates.
   // Open while this client streams (a steer taken mid-run is shown as taken, and
   // approvals can be answered) and while watching a run started elsewhere.
@@ -609,6 +610,9 @@ export function ChatSurface({
             </div>
           ))}
 
+          {questions.map((q) => (
+            <QuestionBlock key={q.questionId} question={q} onAnswer={answerQuestion} />
+          ))}
           {approvals.map((a) => (
             <ApprovalBlock key={a.toolCallId} approval={a} onDecide={decide} />
           ))}
@@ -1796,6 +1800,65 @@ function TurnChanges({ threadId, messageId }: { threadId: string; messageId: str
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** A question the agent asked (`ask_user`). The run waits for the answers, so the
+ *  card is prominent like an approval. Options are one tap; free text always works. */
+function QuestionBlock({
+  question,
+  onAnswer,
+}: {
+  question: PendingQuestion;
+  onAnswer: (questionId: string, answers: string[]) => void;
+}) {
+  const [answers, setAnswers] = useState<string[]>(() => question.questions.map(() => ""));
+  const [sending, setSending] = useState(false);
+  const complete = answers.every((a) => a.trim().length > 0);
+  const send = () => {
+    if (!complete || sending) return;
+    setSending(true);
+    onAnswer(question.questionId, answers.map((a) => a.trim()));
+  };
+  const setAnswer = (i: number, value: string) => setAnswers((prev) => prev.map((a, j) => (j === i ? value : a)));
+
+  return (
+    <div className="rounded-xl ring-1 ring-blue-400/50 bg-blue-400/10 px-4 py-3 grid gap-3">
+      <p className="text-sm font-medium text-kumo-default">Agent menanyakan sesuatu sebelum melanjutkan</p>
+      {question.questions.map((q, i) => (
+        <div key={i} className="grid gap-1.5">
+          <p className="text-sm text-kumo-default">{q.question}</p>
+          {q.options?.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {q.options.map((opt) => (
+                <button
+                  key={opt}
+                  aria-pressed={answers[i] === opt}
+                  onClick={() => setAnswer(i, opt)}
+                  className={`rounded-lg px-2.5 py-1 text-xs ring ring-kumo-line ${answers[i] === opt ? "bg-kumo-elevated text-kumo-default" : "text-kumo-subtle hover:bg-kumo-elevated"}`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <input
+            value={answers[i]}
+            onChange={(e) => setAnswer(i, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") send();
+            }}
+            placeholder="Jawaban…"
+            className="w-full rounded-lg bg-kumo-base px-3 py-2 text-sm text-kumo-default ring ring-kumo-line outline-none"
+          />
+        </div>
+      ))}
+      <div>
+        <Button variant="primary" disabled={!complete || sending} onClick={send}>
+          Kirim jawaban
+        </Button>
+      </div>
     </div>
   );
 }

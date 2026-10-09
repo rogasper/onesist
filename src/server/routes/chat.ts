@@ -28,7 +28,7 @@ import {
 } from "~/server/agent/config";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
-import { finishRun, getRun, getRunForThread, listPendingApprovals, queueUserMessage, resolveApproval, stopRun } from "~/server/agent/run-registry";
+import { finishRun, getRun, getRunForThread, listPendingApprovals, listPendingQuestions, queueUserMessage, resolveApproval, resolveQuestion, stopRun } from "~/server/agent/run-registry";
 import {
   addTokens,
   appendMessage,
@@ -837,8 +837,22 @@ router.get("chat/threads/:id/approvals", async (ctx) => {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
   const run = getRunForThread(thread.id);
-  if (!run) return json({ runId: null, approvals: [] });
-  return json({ runId: run.runId, approvals: listPendingApprovals(run.runId) });
+  if (!run) return json({ runId: null, approvals: [], questions: [] });
+  return json({ runId: run.runId, approvals: listPendingApprovals(run.runId), questions: listPendingQuestions(run.runId) });
+});
+
+/** The user's answers to a question the agent asked (`ask_user`). */
+router.post("chat/threads/:id/questions", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const body = await ctx.body();
+  const questionId = String(body.questionId ?? "");
+  const answers = Array.isArray(body.answers) ? body.answers.map((a: unknown) => String(a ?? "").slice(0, 2000)) : null;
+  if (!questionId || !answers) return json({ error: "questionId dan answers wajib." }, 400);
+  const run = getRunForThread(thread.id);
+  if (!run) return json({ error: "Tidak ada run yang berjalan untuk percakapan ini." }, 404);
+  const ok = resolveQuestion(run.runId, questionId, answers);
+  return json({ resolved: ok }, ok ? 200 : 404);
 });
 
 router.post("chat/threads/:id/approvals", async (ctx) => {

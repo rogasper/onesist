@@ -19,7 +19,7 @@ import {
 import { buildLanguageModel, resolveMaxOutputTokens, type ProviderRow } from "./config";
 import { pruneForStep, resolveContextWindow, shouldCompact, summarizeOldest, type CompactionDecision } from "./context";
 import { ruleAllows } from "./approval-rules";
-import { awaitApproval, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun, type InjectedMessage } from "./run-registry";
+import { awaitApproval, awaitQuestion, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun, type InjectedMessage } from "./run-registry";
 import { MUTATING_TOOLS, buildTools, type FileChange, type TodoItem } from "./tools";
 import { SUBAGENT_LIMITS, findSubagent, withSubagentSlot, type SubagentInfo } from "./subagents";
 import { getAppSubagents } from "./store";
@@ -181,6 +181,8 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
     includeShell,
     onFileChange: input.onFileChange,
     onFileRead: input.onFileRead,
+    // The user is present for the main agent only; a subagent cannot ask.
+    askUser: (questions) => awaitQuestion(input.runId, questions),
     // Bounded concurrency (FR-G4): `task` calls that start together queue here.
     subagentRunner: ({ name, prompt }) =>
       withSubagentSlot(() =>

@@ -299,6 +299,12 @@ export interface PendingApproval {
  *  thread, or in the project (approval-rules.ts). */
 export type ApprovalScope = "once" | "thread" | "project";
 
+/** A question the agent asked and waits on (`ask_user`). */
+export interface PendingQuestion {
+  questionId: string;
+  questions: { question: string; options?: string[] }[];
+}
+
 /**
  * Approvals waiting on a decision.
  *
@@ -327,6 +333,9 @@ export interface ChatLiveEventHandlers {
   onApproval?: () => void;
   /** An approval was answered, timed out, or its run ended. */
   onApprovalResolved?: (toolCallId: string) => void;
+  /** The agent asked the user a question. */
+  onQuestion?: () => void;
+  onQuestionResolved?: (questionId: string) => void;
   /** The thread's message queue changed: re-read it. */
   onQueueChanged?: () => void;
   /** A turn started on this thread (possibly from the queue). */
@@ -376,6 +385,13 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
           const data = forThisThread(e);
           if (data) latest.current.onApprovalResolved?.(String(data.toolCallId ?? ""));
         });
+        source.addEventListener("chat:question", (e) => {
+          if (forThisThread(e)) latest.current.onQuestion?.();
+        });
+        source.addEventListener("chat:question-resolved", (e) => {
+          const data = forThisThread(e);
+          if (data) latest.current.onQuestionResolved?.(String(data.questionId ?? ""));
+        });
         source.addEventListener("chat:queue", (e) => {
           if (forThisThread(e)) latest.current.onQueueChanged?.();
         });
@@ -412,15 +428,20 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
  */
 export function usePendingApprovals(threadId: string | null, active: boolean) {
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [questions, setQuestions] = useState<PendingQuestion[]>([]);
   /** Answered approvals. A read that started before the answer must not bring the
    *  card back, so results are filtered against this set. */
   const resolved = useRef(new Set<string>());
+  const resolvedQuestions = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     if (!threadId) return;
     try {
-      const res = await api<{ approvals: PendingApproval[] }>(`/api/chat/threads/${threadId}/approvals`);
+      const res = await api<{ approvals: PendingApproval[]; questions?: PendingQuestion[] }>(
+        `/api/chat/threads/${threadId}/approvals`,
+      );
       setApprovals(res.approvals.filter((a) => !resolved.current.has(a.toolCallId)));
+      setQuestions((res.questions ?? []).filter((q) => !resolvedQuestions.current.has(q.questionId)));
     } catch {
       /* approvals are not critical display-wise — never disturb the stream */
     }
@@ -428,24 +449,47 @@ export function usePendingApprovals(threadId: string | null, active: boolean) {
 
   useEffect(() => {
     resolved.current = new Set();
+    resolvedQuestions.current = new Set();
     if (!threadId || !active) {
       setApprovals([]);
+      setQuestions([]);
       return;
     }
     void load();
   }, [threadId, active, load]);
 
-  const handlers = useMemo<Pick<ChatLiveEventHandlers, "onApproval" | "onApprovalResolved" | "onOpen">>(
+  const handlers = useMemo<
+    Pick<ChatLiveEventHandlers, "onApproval" | "onApprovalResolved" | "onQuestion" | "onQuestionResolved" | "onOpen">
+  >(
     () => ({
       onApproval: () => void load(),
       onApprovalResolved: (toolCallId) => {
         resolved.current.add(toolCallId);
         setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
       },
+      onQuestion: () => void load(),
+      onQuestionResolved: (questionId) => {
+        resolvedQuestions.current.add(questionId);
+        setQuestions((prev) => prev.filter((q) => q.questionId !== questionId));
+      },
       // Subscribed (or resubscribed): a read covers anything missed meanwhile.
       onOpen: () => void load(),
     }),
     [load],
+  );
+
+  /** Sends the user's answers to a question the agent is waiting on. */
+  const answerQuestion = useCallback(
+    async (questionId: string, answers: string[]) => {
+      resolvedQuestions.current.add(questionId);
+      setQuestions((prev) => prev.filter((q) => q.questionId !== questionId));
+      await api(`/api/chat/threads/${threadId}/questions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ questionId, answers }),
+      }).catch(() => null);
+    },
+    [threadId],
   );
 
   const decide = useCallback(
@@ -463,7 +507,7 @@ export function usePendingApprovals(threadId: string | null, active: boolean) {
     [threadId],
   );
 
-  return { approvals, decide, handlers };
+  return { approvals, decide, questions, answerQuestion, handlers };
 }
 
 export interface QueueItem {

@@ -84,6 +84,8 @@ export interface ActiveRun {
   startedAt: number;
   /** Approval currently awaiting the user's decision, keyed by `toolCallId`. */
   pending: Map<string, PendingApproval>;
+  /** Questions the agent asked (`ask_user`), waiting for answers. */
+  questions: Map<string, PendingQuestion>;
   /** Permission decisions per `toolCallId` — "auto" | "approved" | "denied".
    *  Kept so history can explain WHY a write went through
    *  unprompted (FR-B4), which cannot be reconstructed after the run closes. */
@@ -92,6 +94,15 @@ export interface ActiveRun {
    *  drains this between steps, which is the only point in a turn where the
    *  model's message list can still be extended. */
   inbox: InjectedMessage[];
+}
+
+/** A question the agent asked and is waiting on (`ask_user`). */
+export interface PendingQuestion {
+  questionId: string;
+  questions: { question: string; options?: string[] }[];
+  /** Answers, one per question; `null` when the question was dropped (timeout, run ended). */
+  resolve: (answers: string[] | null) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 export interface PendingApproval {
@@ -133,6 +144,7 @@ export function createRun(opts: { runId: string; threadId: string; projectId: st
     stepCount: 0,
     startedAt: Date.now(),
     pending: new Map(),
+    questions: new Map(),
     decisions: new Map(),
     inbox: [],
   };
@@ -234,6 +246,7 @@ export function finishRun(runId: string, status: RunStatus, error?: string): voi
       pending.resolve("denied");
     }
     run.pending.clear();
+    dropQuestions(run);
   }
   persistStatus(runId, status, error);
   RUNS.delete(runId);
@@ -266,6 +279,7 @@ export function stopRun(runId: string): boolean {
     pending.resolve("denied");
   }
   run.pending.clear();
+  dropQuestions(run);
   persistStatus(runId, "stopped");
   RUNS.delete(runId);
   // The client gates on window focus, so a user who pressed Stop while looking
@@ -356,6 +370,56 @@ export function recordApprovalDecision(runId: string, toolCallId: string, decisi
 
 export function getApprovalDecision(runId: string, toolCallId: string): string | null {
   return RUNS.get(runId)?.decisions.get(toolCallId) ?? null;
+}
+
+/** Ends every waiting question: the tool gets no answers and the run goes on or stops. */
+function dropQuestions(run: ActiveRun): void {
+  for (const q of run.questions.values()) {
+    clearTimeout(q.timer);
+    eventBus.emitChatQuestionResolved({ threadId: run.threadId, questionId: q.questionId });
+    q.resolve(null);
+  }
+  run.questions.clear();
+}
+
+/**
+ * Asks the user and waits for the answers (`ask_user`). Resolves with one answer per
+ * question, or `null` if nobody answers in time or the run ends first.
+ */
+export function awaitQuestion(
+  runId: string,
+  questions: { question: string; options?: string[] }[],
+): Promise<string[] | null> {
+  const run = RUNS.get(runId);
+  if (!run) return Promise.resolve(null);
+  const questionId = `q_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      run.questions.delete(questionId);
+      eventBus.emitChatQuestionResolved({ threadId: run.threadId, questionId });
+      resolve(null);
+    }, APPROVAL_TIMEOUT_MS);
+    run.questions.set(questionId, { questionId, questions, resolve, timer });
+    eventBus.emitChatQuestion({ threadId: run.threadId, runId, questionId, questions });
+  });
+}
+
+/** Answers a waiting question. `answers` is matched to the questions by position. */
+export function resolveQuestion(runId: string, questionId: string, answers: string[]): boolean {
+  const run = RUNS.get(runId);
+  const q = run?.questions.get(questionId);
+  if (!run || !q) return false;
+  clearTimeout(q.timer);
+  run.questions.delete(questionId);
+  eventBus.emitChatQuestionResolved({ threadId: run.threadId, questionId });
+  q.resolve(answers);
+  return true;
+}
+
+export function listPendingQuestions(runId: string) {
+  const run = RUNS.get(runId);
+  if (!run) return [];
+  return [...run.questions.values()].map(({ questionId, questions }) => ({ questionId, questions }));
 }
 
 export function listPendingApprovals(runId: string) {
