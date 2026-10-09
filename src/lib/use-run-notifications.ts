@@ -8,6 +8,7 @@ import {
   type ChatRunEvent,
   type RunNotification,
 } from "~/lib/run-notification";
+import { subscribe } from "~/lib/event-stream";
 
 /**
  * Reports a swallowed notification failure into the server log, once per
@@ -82,47 +83,15 @@ export function useRunNotifications(): void {
       }
     }
 
-    function handle<T>(event: MessageEvent, build: (payload: T) => RunNotification) {
-      try {
-        // The bus emits the ENVELOPE `{ type, data, timestamp }` — reading
-        // `payload.foo` here instead of `payload.data.foo` is the exact bug
-        // the index watcher had (see ROADMAP §Cara verifikasi).
-        const envelope = JSON.parse(String(event.data ?? "{}"));
-        const payload = (envelope?.data ?? {}) as T;
-        void deliver(build(payload));
-      } catch {
-        /* a malformed event must not break the subscription */
-      }
+    function handle<T>(payload: T, build: (payload: T) => RunNotification) {
+      void deliver(build(payload));
     }
 
-    async function connect() {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
-        if (!res.ok) return;
-        const { ticket } = (await res.json()) as { ticket?: string };
-        if (!ticket || disposed) return;
-        source = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
-        source.addEventListener("chat:run", (e) => handle<ChatRunEvent>(e as MessageEvent, runNotificationFor));
-        source.addEventListener("chat:approval", (e) => handle<ChatApprovalEvent>(e as MessageEvent, approvalNotificationFor));
-        // WebView auto-reconnect never gives up on its own; a dead server would
-        // otherwise be retried forever (AGENTS.md).
-        source.onerror = () => {
-          failures += 1;
-          if (failures >= 5) {
-            source?.close();
-            source = null;
-          }
-        };
-      } catch {
-        /* no SSE channel: notifications are best-effort by definition */
-      }
-    }
-
-    void connect();
-    return () => {
-      disposed = true;
-      source?.close();
-      source = null;
-    };
+    // One shared stream for the whole tab (see event-stream.ts); the payload is the bus `data`.
+    const offs = [
+      subscribe("chat:run", (data) => handle<ChatRunEvent>(data, runNotificationFor)),
+      subscribe("chat:approval", (data) => handle<ChatApprovalEvent>(data, approvalNotificationFor)),
+    ];
+    return () => offs.forEach((off) => off());
   }, []);
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MentionRef } from "~/lib/mention-ref";
 import { DefaultChatTransport, type UIMessage } from "~/lib/ai-client";
 import { useFileChanged } from "~/lib/use-file-data";
+import { subscribe } from "~/lib/event-stream";
 
 /**
  * Data hook for the Chat tab (FR-B, FR-C).
@@ -356,77 +357,24 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
 
   useEffect(() => {
     if (!threadId || !enabled) return;
-    let source: EventSource | null = null;
-    let failures = 0;
-    let disposed = false;
-
-    /** Event payloads arrive in the bus envelope `{ type, data, timestamp }`. */
-    const forThisThread = (e: Event): any | null => {
-      try {
-        const data = JSON.parse(String((e as MessageEvent).data ?? "{}"))?.data;
-        return data?.threadId === threadId ? data : null;
-      } catch {
-        return null; // a malformed event must not break the subscription
-      }
+    // Only events of the open thread count; the rest of the project's events are ignored here.
+    const mine = (handler: (data: any) => void) => (data: any) => {
+      if (data?.threadId === threadId) handler(data);
     };
-
-    async function connect() {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
-        if (!res.ok) return;
-        const { ticket } = (await res.json()) as { ticket?: string };
-        if (!ticket || disposed) return;
-        source = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
-        source.onopen = () => latest.current.onOpen?.();
-        source.addEventListener("chat:run", (e) => {
-          if (forThisThread(e)) latest.current.onRunEnded?.();
-        });
-        source.addEventListener("chat:steer", (e) => {
-          const data = forThisThread(e);
-          if (data) latest.current.onSteerTaken?.(Array.isArray(data.messageIds) ? data.messageIds : []);
-        });
-        source.addEventListener("chat:approval", (e) => {
-          if (forThisThread(e)) latest.current.onApproval?.();
-        });
-        source.addEventListener("chat:approval-resolved", (e) => {
-          const data = forThisThread(e);
-          if (data) latest.current.onApprovalResolved?.(String(data.toolCallId ?? ""));
-        });
-        source.addEventListener("chat:question", (e) => {
-          if (forThisThread(e)) latest.current.onQuestion?.();
-        });
-        source.addEventListener("chat:question-resolved", (e) => {
-          const data = forThisThread(e);
-          if (data) latest.current.onQuestionResolved?.(String(data.questionId ?? ""));
-        });
-        source.addEventListener("chat:queue", (e) => {
-          if (forThisThread(e)) latest.current.onQueueChanged?.();
-        });
-        source.addEventListener("chat:turn", (e) => {
-          if (forThisThread(e)) latest.current.onTurnStarted?.();
-        });
-        source.addEventListener("chat:provider-retry", (e) => {
-          const data = forThisThread(e);
-          if (data) latest.current.onProviderRetry?.({ status: Number(data.status), attempt: Number(data.attempt) });
-        });
-        source.onerror = () => {
-          failures += 1;
-          if (failures >= 5) {
-            source?.close();
-            source = null;
-          }
-        };
-      } catch {
-        /* without SSE the thread simply stays as loaded; reopening it refreshes */
-      }
-    }
-
-    void connect();
-    return () => {
-      disposed = true;
-      source?.close();
-      source = null;
-    };
+    const offs = [
+      subscribe("chat:run", mine(() => latest.current.onRunEnded?.())),
+      subscribe("chat:steer", mine((data) => latest.current.onSteerTaken?.(Array.isArray(data.messageIds) ? data.messageIds : []))),
+      subscribe("chat:approval", mine(() => latest.current.onApproval?.())),
+      subscribe("chat:approval-resolved", mine((data) => latest.current.onApprovalResolved?.(String(data.toolCallId ?? "")))),
+      subscribe("chat:question", mine(() => latest.current.onQuestion?.())),
+      subscribe("chat:question-resolved", mine((data) => latest.current.onQuestionResolved?.(String(data.questionId ?? "")))),
+      subscribe("chat:queue", mine(() => latest.current.onQueueChanged?.())),
+      subscribe("chat:turn", mine(() => latest.current.onTurnStarted?.())),
+      subscribe("chat:provider-retry", mine((data) => latest.current.onProviderRetry?.({ status: Number(data.status), attempt: Number(data.attempt) }))),
+    ];
+    // Read once after subscribing: an event that happened before the stream was open is not replayed.
+    latest.current.onOpen?.();
+    return () => offs.forEach((off) => off());
   }, [threadId, enabled]);
 }
 
@@ -646,37 +594,10 @@ export function useChatActivityEvents(onChange: () => void) {
   const latest = useRef(onChange);
   latest.current = onChange;
   useEffect(() => {
-    let source: EventSource | null = null;
-    let failures = 0;
-    let disposed = false;
-    const ping = () => latest.current();
-    async function connect() {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
-        if (!res.ok) return;
-        const { ticket } = (await res.json()) as { ticket?: string };
-        if (!ticket || disposed) return;
-        source = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
-        for (const name of ["chat:run", "chat:turn", "chat:approval", "chat:approval-resolved", "chat:question", "chat:question-resolved"]) {
-          source.addEventListener(name, ping);
-        }
-        source.onerror = () => {
-          failures += 1;
-          if (failures >= 5) {
-            source?.close();
-            source = null;
-          }
-        };
-      } catch {
-        /* the list stays as it was; reopening the panel reads it again */
-      }
-    }
-    void connect();
-    return () => {
-      disposed = true;
-      source?.close();
-      source = null;
-    };
+    const offs = ["chat:run", "chat:turn", "chat:approval", "chat:approval-resolved", "chat:question", "chat:question-resolved"].map((name) =>
+      subscribe(name, () => latest.current()),
+    );
+    return () => offs.forEach((off) => off());
   }, []);
 }
 

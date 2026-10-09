@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Stop, Check, CaretRight, CaretDown, X } from "@phosphor-icons/react";
 import { usePageVisible } from "~/lib/use-file-data";
 import { FeedbackBox } from "~/components/agent/FeedbackBox";
+import { onStreamStatus, subscribe, type StreamStatus } from "~/lib/event-stream";
 
 interface LogEntry {
   level: string;
@@ -183,10 +184,8 @@ export function AgentStream({ sessionId, onDone, onError, onStopped, onFeedback,
 
   useEffect(() => {
     let mounted = true;
-    let es: EventSource | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackTimer: ReturnType<typeof setInterval> | null = null;
-    let retries = 0;
+    const offs: (() => void)[] = [];
 
     // Apply buffered events newer than the applied cursor. Idempotent — safe
     // on every init, reconnect, and onopen. Returns whether a terminal event
@@ -216,105 +215,67 @@ export function AgentStream({ sessionId, onDone, onError, onStopped, onFeedback,
       }
     };
 
-    const scheduleRetry = () => {
+    // The live events come from the shared stream (event-stream.ts). Its status tells us when
+    // it reopened (replay what was missed) and when it was given up (poll the status instead).
+    const handleLive = (type: string) => (payload: any, envelope: any) => {
       if (!mounted) return;
-      retries += 1;
-      if (retries > 8) {
-        // Stream permanently dead (e.g. server restarted mid-run, history
-        // lost) — fall back to a status poll so the UI can never stay
-        // "running" forever.
-        if (!fallbackTimer) {
-          fallbackTimer = setInterval(async () => {
-            try {
-              const terminal = await applyReplayDelta();
-              if (!mounted) return;
-              if (terminal || statusRef.current !== "running") {
-                clearInterval(fallbackTimer!);
-                fallbackTimer = null;
-                return;
-              }
-              const res = await fetch("/api/agent/status", { cache: "no-store" });
-              const d = await res.json();
-              const stillRunning = Array.isArray(d?.running) && d.running.some((a: any) => a.sessionId === sessionId);
-              if (!stillRunning) {
-                clearInterval(fallbackTimer!);
-                fallbackTimer = null;
-                pushLog("error", "✗ Koneksi ke agent terputus — status tidak diketahui. Muat ulang halaman.");
-                onError?.("Koneksi ke agent terputus — status tidak diketahui. Muat ulang halaman.");
-              }
-            } catch {}
-          }, 15000);
-        }
-        return;
-      }
-      retryTimer = setTimeout(() => { void openStream(); }, 1500 * Math.min(retries, 4));
+      // The cursor needs the bus timestamp, which lives on the envelope; the handler gets the
+      // inner data for applyEvent. Passing the whole payload made every live log/status have
+      // undefined fields (the "not realtime" bug).
+      const ts = envelope?.timestamp;
+      if (!ts || ts <= appliedTsRef.current) return;
+      appliedTsRef.current = ts;
+      applyEvent(type, payload);
     };
 
-    const openStream = async () => {
-      try {
-        const ticketRes = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" }).then((r) => r.json());
-        if (!mounted) return;
-        if (!ticketRes.ticket) throw new Error("no ticket");
-        es = new EventSource(`/api/events?ticket=${ticketRes.ticket}`);
-        if (!mounted) {
-          es.close();
-          es = null;
-          return;
-        }
-
-        const handleLive = (type: string) => (e: MessageEvent) => {
-          if (!mounted) return;
+    const onStatus = (status: StreamStatus) => {
+      if (!mounted) return;
+      if (status === "open") {
+        // Close the snapshot/connect race: events emitted before the (re)connect are replayed.
+        void applyReplayDelta();
+        return;
+      }
+      // Stream permanently dead (e.g. server restarted mid-run, history lost) — fall back to a
+      // status poll so the UI can never stay "running" forever.
+      if (!fallbackTimer) {
+        fallbackTimer = setInterval(async () => {
           try {
-            const payload = JSON.parse(e.data);
-            if (!payload.timestamp || payload.timestamp <= appliedTsRef.current) return;
-            appliedTsRef.current = payload.timestamp;
-            // SSE payload is NESTED: { type, data:{level,message,sessionId}, timestamp }.
-            // applyEvent expects the INNER data — passing the whole payload made
-            // every live log/status have undefined fields (logs invisible until
-            // refresh replayed them; that was the "not realtime" bug).
-            applyEvent(type, payload.data);
+            const terminal = await applyReplayDelta();
+            if (!mounted) return;
+            if (terminal || statusRef.current !== "running") {
+              clearInterval(fallbackTimer!);
+              fallbackTimer = null;
+              return;
+            }
+            const res = await fetch("/api/agent/status", { cache: "no-store" });
+            const d = await res.json();
+            const stillRunning = Array.isArray(d?.running) && d.running.some((a: any) => a.sessionId === sessionId);
+            if (!stillRunning) {
+              clearInterval(fallbackTimer!);
+              fallbackTimer = null;
+              pushLog("error", "✗ Koneksi ke agent terputus — status tidak diketahui. Muat ulang halaman.");
+              onError?.("Koneksi ke agent terputus — status tidak diketahui. Muat ulang halaman.");
+            }
           } catch {}
-        };
-
-        es.addEventListener("agent:log", handleLive("agent:log"));
-        es.addEventListener("agent:status", handleLive("agent:status"));
-        es.addEventListener("agent:done", handleLive("agent:done"));
-        es.addEventListener("agent:error", handleLive("agent:error"));
-
-        // Close the snapshot/connect race: events emitted between the logs
-        // fetch and the live handshake are replayed once connected.
-        es.onopen = () => { void applyReplayDelta(); };
-
-        // Do NOT rely on EventSource auto-reconnect: it reuses the original
-        // ticket, which expires mid-run and then 401s forever. Close and
-        // re-init with a FRESH ticket + delta replay, so a dropped connection
-        // can never lose the completion events. Retries are capped so a dead
-        // server can't spin reconnect attempts forever.
-        es.onerror = () => {
-          es?.close();
-          es = null;
-          scheduleRetry();
-        };
-      } catch {
-        es?.close();
-        es = null;
-        scheduleRetry();
+        }, 15000);
       }
     };
 
     const init = async () => {
+      offs.push(onStreamStatus(onStatus));
+      for (const name of ["agent:log", "agent:status", "agent:done", "agent:error"]) {
+        offs.push(subscribe(name, handleLive(name)));
+      }
       await applyReplayDelta();
+      if (!mounted) return;
       setReplayPending(false);
-      await openStream();
     };
 
     if (pageVisible) void init();
 
     return () => {
       mounted = false;
-      es?.close();
-      es = null;
-      if (retryTimer) clearTimeout(retryTimer);
+      offs.forEach((off) => off());
       if (fallbackTimer) clearInterval(fallbackTimer);
     };
   }, [sessionId, pageVisible, pushLog, applyEvent, onError]);

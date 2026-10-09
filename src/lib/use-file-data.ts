@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { subscribe } from "~/lib/event-stream";
 
 export interface FileEntry {
   name: string;
@@ -88,44 +89,10 @@ export function useFileWatch(routeType: string, onFileChanged?: (path: string) =
   const pageVisible = usePageVisible();
   useEffect(() => {
     if (!pageVisible) return;
-    let disposed = false;
-    let es: EventSource | null = null;
-    let errors = 0;
-    const connect = async () => {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST" });
-        if (disposed) return;
-        const d = await res.json();
-        if (disposed || !d?.ticket) return;
-        es = new EventSource(`/api/events?ticket=${d.ticket}`);
-        if (disposed) {
-          es.close();
-          es = null;
-          return;
-        }
-        es.addEventListener("file:changed", (e) => {
-          try {
-            const data = fileChangedPayload(JSON.parse(e.data));
-            if (data.route === routeType) handlerRef.current?.(data.path ?? "");
-          } catch {}
-        });
-        // WebView/browser EventSource auto-reconnects forever; give up after
-        // a handful of failures so we don't accumulate dead streams.
-        es.onerror = () => {
-          errors += 1;
-          if (errors >= 5) {
-            es?.close();
-            es = null;
-          }
-        };
-      } catch {}
-    };
-    void connect();
-    return () => {
-      disposed = true;
-      es?.close();
-      es = null;
-    };
+    return subscribe("file:changed", (raw) => {
+      const data = fileChangedPayload(raw);
+      if (data.route === routeType) handlerRef.current?.(data.path ?? "");
+    });
   }, [routeType, pageVisible]);
 }
 
@@ -144,45 +111,7 @@ export function useFileChanged(onChange?: (data: { route?: string; path?: string
   const pageVisible = usePageVisible();
   useEffect(() => {
     if (!pageVisible) return;
-    let disposed = false;
-    let es: EventSource | null = null;
-    let errors = 0;
-    const connect = async () => {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST" });
-        if (disposed) return;
-        const d = await res.json();
-        if (disposed || !d?.ticket) return;
-        es = new EventSource(`/api/events?ticket=${d.ticket}`);
-        if (disposed) {
-          es.close();
-          es = null;
-          return;
-        }
-        es.addEventListener("file:changed", (e) => {
-          try {
-            handlerRef.current?.(fileChangedPayload(JSON.parse((e as MessageEvent).data)));
-          } catch {
-            /* malformed event: ignore */
-          }
-        });
-        es.onerror = () => {
-          errors += 1;
-          if (errors >= 5) {
-            es?.close();
-            es = null;
-          }
-        };
-      } catch {
-        /* no SSE channel: the caller keeps whatever it already loaded */
-      }
-    };
-    void connect();
-    return () => {
-      disposed = true;
-      es?.close();
-      es = null;
-    };
+    return subscribe("file:changed", (raw) => handlerRef.current?.(fileChangedPayload(raw)));
   }, [pageVisible]);
 }
 
@@ -191,41 +120,6 @@ export function useFsdConversion(onEvent?: (data: { sessionId: string; status: s
   const pageVisible = usePageVisible();
   useEffect(() => {
     if (!pageVisible) return;
-    let disposed = false;
-    let es: EventSource | null = null;
-    let errors = 0;
-    const connect = async () => {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST" });
-        if (disposed) return;
-        const d = await res.json();
-        if (disposed || !d?.ticket) return;
-        es = new EventSource(`/api/events?ticket=${d.ticket}`);
-        if (disposed) {
-          es.close();
-          es = null;
-          return;
-        }
-        es.addEventListener("fsd:conversion", (e) => {
-          try {
-            const payload = JSON.parse(e.data);
-            handlerRef.current?.(payload.data ?? payload);
-          } catch {}
-        });
-        es.onerror = () => {
-          errors += 1;
-          if (errors >= 5) {
-            es?.close();
-            es = null;
-          }
-        };
-      } catch {}
-    };
-    void connect();
-    return () => {
-      disposed = true;
-      es?.close();
-      es = null;
-    };
+    return subscribe("fsd:conversion", (data) => handlerRef.current?.(data));
   }, [pageVisible]);
 }

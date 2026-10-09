@@ -2,19 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { eventBus } from "./events";
 import { detectRoute } from "~/lib/file-router";
+import { diffSnapshot } from "./snapshot";
 
-let watcherActive = false;
-let watcherTimer: ReturnType<typeof setInterval> | null = null;
+/**
+ * Announces changes to the project folders as `file:changed` events.
+ *
+ * The old watcher scanned every watched folder synchronously every two seconds, and forced a
+ * full GC every ten. On Windows, where each file access is slow, that blocked the only server
+ * process. Now:
+ *   - a native watch (`fs.watch`, recursive) on each watched folder announces changes as they
+ *     happen, and triggers an asynchronous rescan of the root;
+ *   - a slow reconciliation (default every 30 s) rescans every root, so a missed native event
+ *     is caught; it never overlaps with a scan already running;
+ *   - the first scan of a root only records a baseline, so opening a project announces nothing.
+ * Memory is measured without forcing a GC; a GC only happens when the raw number is already
+ * over the limit.
+ */
 
-// Project roots are registered dynamically (see registerWatchRoot) so the
-// watcher scans the actual project folders — NOT SA_ROOT (home dir), which
-// caused SSE file:changed events to never fire for project files.
-//
-// Registration alone was not enough: it only happened when a project was
-// CREATED, so a project made in an earlier session was never watched after a
-// restart (the set is in-memory). The tick therefore also picks up every project
-// root from the DB — that is what makes "the tab updates by itself / a new file
-// is mentionable" true for projects the user simply opened.
 const watchRoots = new Set<string>();
 
 /** Depth limit for the per-artifact-dir scan. Artifacts are written per module
@@ -40,8 +44,29 @@ const watchDirs = [
   "output/doc", "output/docs",
 ];
 
-// fullPath -> mtime. Keyed by absolute path to avoid collisions between roots.
-const knownFiles = new Map<string, number>();
+const RECONCILE_MS = parseInt(process.env.SA_WATCH_RECONCILE_MS || "30000", 10) || 30_000;
+const NATIVE_DEBOUNCE_MS = 300;
+const MEMORY_CHECK_MS = 10_000;
+const HEARTBEAT_MS = 60_000;
+const WAL_CHECKPOINT_MS = 60_000;
+/** Testing switch: run on the timer alone, as if native watching were unavailable. */
+const FORCE_POLL = process.env.SA_WATCH_FORCE_POLL === "1";
+const DEBUG = process.env.SA_WATCH_DEBUG === "1";
+
+/** Per root: absolute file path → mtime, from the last completed scan. */
+const snapshots = new Map<string, Map<string, number>>();
+/** Native watchers, keyed by `root::dir`. */
+const nativeWatchers = new Map<string, fs.FSWatcher>();
+const scanning = new Set<string>();
+/** Roots that changed while a scan of them was running: scan again when it finishes. */
+const rescanPending = new Set<string>();
+const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+let watcherActive = false;
+let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+let memoryTimer: ReturnType<typeof setInterval> | null = null;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let walTimer: ReturnType<typeof setInterval> | null = null;
 
 // Safety net: if the process RSS balloons (a leak would otherwise run the
 // machine out of memory — observed at 100+ GB), kill ourselves so the Tauri
@@ -73,8 +98,8 @@ function rssMB(): number {
 }
 
 /** RSS after a forced GC pass. Bun/JSC holds onto freed memory lazily, so the
- *  raw RSS drifts up under dev workloads (Vite transforms, SSR renders) and
- *  would falsely trigger the watchdog. Measure *live* memory instead. */
+ *  raw RSS drifts up under dev workloads and would falsely trigger the watchdog.
+ *  Only called when the raw number is already over the limit. */
 function liveRssMB(): number {
   try {
     (globalThis as any).Bun?.gc?.(true);
@@ -82,27 +107,42 @@ function liveRssMB(): number {
   return rssMB();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Roots
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function registerWatchRoot(rootPath: string) {
   if (!rootPath) return;
-  watchRoots.add(path.resolve(rootPath));
+  const root = path.resolve(rootPath);
+  if (watchRoots.has(root)) return;
+  watchRoots.add(root);
+  if (watcherActive) void syncRoot(root);
 }
 
 export function unregisterWatchRoot(rootPath: string) {
-  watchRoots.delete(path.resolve(rootPath));
+  const root = path.resolve(rootPath);
+  watchRoots.delete(root);
+  dropNativeWatchers(root);
+  snapshots.delete(root);
+  const timer = debounceTimers.get(root);
+  if (timer) clearTimeout(timer);
+  debounceTimers.delete(root);
 }
 
 export function getWatchRoots(): string[] {
   return Array.from(watchRoots);
 }
 
-/** Project roots straight from the DB (async, never awaited by the tick).
- *
- *  Registration alone was not enough: `registerWatchRoot` only ran when a project
- *  was CREATED, so after an app restart a project the user merely opened was not
- *  watched at all — which is why a newly written file could be invisible to the
- *  `@` popup and to the artifact tabs. Reading the table every couple of seconds
- *  is one cheap local query, and it cannot go stale.
- */
+/** The roots to scan: the registered projects, or one fallback root when none is known yet
+ *  (web dev without opening a project). The fallback is scanned, never watched natively: it
+ *  can be a whole home directory. */
+function activeRoots(): string[] {
+  if (watchRoots.size > 0) return Array.from(watchRoots);
+  return [process.env.SA_ROOT ? path.resolve(process.env.SA_ROOT) : path.resolve(process.cwd(), "..")];
+}
+
+/** Project roots straight from the DB. A project merely opened after a restart must still be
+ *  watched, so the table is read on each reconciliation. Never awaited by the callers. */
 async function refreshProjectRoots(): Promise<void> {
   try {
     const { db } = await import("~/server/db/client");
@@ -110,123 +150,204 @@ async function refreshProjectRoots(): Promise<void> {
     const rows = db.select({ rootPath: projects.rootPath }).from(projects).all() as { rootPath: string | null }[];
     for (const row of rows) {
       const root = row.rootPath?.trim();
-      if (root) watchRoots.add(path.resolve(root));
+      if (root) registerWatchRoot(root);
     }
   } catch {
     /* DB unavailable: keep whatever was registered explicitly */
   }
 }
 
-export function startFileWatcher(intervalMs = 2000) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Scanning
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function walk(dirAbs: string, depth: number, out: Map<string, number>): Promise<void> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(dirAbs, { withFileTypes: true });
+  } catch {
+    return; // the folder does not exist (yet)
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const abs = path.join(dirAbs, entry.name);
+    if (entry.isDirectory()) {
+      if (depth < WATCH_DEPTH) await walk(abs, depth + 1, out);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    try {
+      const stat = await fs.promises.stat(abs);
+      out.set(abs, stat.mtimeMs);
+    } catch {
+      /* removed between readdir and stat */
+    }
+  }
+}
+
+/** Scans one root and announces what changed since the last scan of it. */
+async function scanRoot(root: string): Promise<void> {
+  if (scanning.has(root)) {
+    rescanPending.add(root);
+    return;
+  }
+  scanning.add(root);
+  try {
+    do {
+      rescanPending.delete(root);
+      const next = new Map<string, number>();
+      for (const dir of watchDirs) await walk(path.join(root, dir), 1, next);
+      // A root unregistered during the scan keeps no snapshot and announces nothing.
+      if (!watchRoots.has(root) && watchRoots.size > 0) return;
+      const prev = snapshots.get(root) ?? null;
+      snapshots.set(root, next);
+      const diff = diffSnapshot(prev, next);
+      const changed = [...diff.created, ...diff.changed, ...diff.deleted];
+      for (const abs of changed) {
+        const relPath = path.relative(root, abs);
+        eventBus.emitFileChanged(detectRoute(relPath), relPath, root);
+      }
+      if (DEBUG && changed.length) console.log(`[watcher] ${root}: ${changed.length} change(s)`);
+    } while (rescanPending.has(root));
+  } catch (err) {
+    console.error(`[watcher] scan failed for ${root}:`, err);
+  } finally {
+    scanning.delete(root);
+    rescanPending.delete(root);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Native watching
+// ─────────────────────────────────────────────────────────────────────────────
+
+function scheduleScan(root: string): void {
+  const pending = debounceTimers.get(root);
+  if (pending) clearTimeout(pending);
+  debounceTimers.set(
+    root,
+    setTimeout(() => {
+      debounceTimers.delete(root);
+      void scanRoot(root);
+    }, NATIVE_DEBOUNCE_MS),
+  );
+}
+
+/** A native event for a file under a watched folder. Hidden files and other folders are ignored. */
+function onNativeEvent(root: string, dir: string, filename: string | Buffer | null): void {
+  if (filename) {
+    const rel = path.join(dir, String(filename)).split(path.sep).join("/");
+    if (rel.split("/").some((part) => part.startsWith("."))) return;
+  }
+  scheduleScan(root);
+}
+
+/** Watches each existing watched folder of a root; folders missing now are picked up by the
+ *  next reconciliation. A platform without recursive watching simply keeps the timer only. */
+function ensureNativeWatchers(root: string): void {
+  if (FORCE_POLL) return;
+  for (const dir of watchDirs) {
+    const key = `${root}::${dir}`;
+    if (nativeWatchers.has(key)) continue;
+    const abs = path.join(root, dir);
+    if (!fs.existsSync(abs)) continue;
+    try {
+      const watcher = fs.watch(abs, { recursive: true }, (_event, filename) => onNativeEvent(root, dir, filename));
+      watcher.on("error", () => {
+        try {
+          watcher.close();
+        } catch {}
+        nativeWatchers.delete(key);
+      });
+      nativeWatchers.set(key, watcher);
+    } catch {
+      /* no recursive native watch here: the reconciliation covers this folder */
+    }
+  }
+}
+
+function dropNativeWatchers(root: string): void {
+  for (const [key, watcher] of nativeWatchers) {
+    if (!key.startsWith(`${root}::`)) continue;
+    try {
+      watcher.close();
+    } catch {}
+    nativeWatchers.delete(key);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reconciliation and lifecycle
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A root that appeared (or was registered while running): watch it and record its baseline. */
+async function syncRoot(root: string): Promise<void> {
+  ensureNativeWatchers(root);
+  if (!snapshots.has(root)) await scanRoot(root);
+}
+
+async function reconcileAll(): Promise<void> {
+  await refreshProjectRoots();
+  for (const root of activeRoots()) {
+    await syncRoot(root);
+    await scanRoot(root);
+  }
+}
+
+/** Resident memory, measured cheaply. A GC is forced only when the raw number is already
+ *  over the limit, because the forced GC itself is a synchronous stall. */
+function checkMemory(): void {
+  if (rssMB() <= MAX_RSS_MB) return;
+  const rss = liveRssMB();
+  if (rss <= MAX_RSS_MB) return;
+  if (IS_DEV) {
+    if (rss > DEV_HARD_CAP_MB) {
+      console.error(`[watcher] RSS ${rss}MB exceeds dev hard cap ${DEV_HARD_CAP_MB}MB — exiting to force a clean restart`);
+      process.exit(1);
+    }
+    console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — dev: warning only (production would restart)`);
+    return;
+  }
+  console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — exiting to force a clean restart`);
+  process.exit(1);
+}
+
+function heartbeat(): void {
+  const rss = rssMB();
+  const delta = lastRss === null ? 0 : rss - lastRss;
+  lastRss = rss;
+  console.log(`[watcher] RSS ${rss}MB (max ${MAX_RSS_MB}MB, ${delta >= 0 ? "+" : ""}${delta}MB/min)`);
+}
+
+export function startFileWatcher(intervalMs = RECONCILE_MS) {
   if (watcherActive) return;
   watcherActive = true;
 
   // Log the baseline so the watchdog's measurement is verifiable in the log
   // (a broken process.memoryUsage() in the compiled sidecar would otherwise
   // silently disable the kill).
-  console.log(`[watcher] RSS watchdog active: max=${MAX_RSS_MB}MB devHardCap=${DEV_HARD_CAP_MB}MB baseline=${rssMB()}MB`);
+  console.log(
+    `[watcher] started: reconcile every ${intervalMs}ms, native ${FORCE_POLL ? "off" : "on"}, ` +
+      `RSS watchdog max=${MAX_RSS_MB}MB devHardCap=${DEV_HARD_CAP_MB}MB baseline=${rssMB()}MB`,
+  );
 
-  // Fallback root when no project has been registered yet (web dev without
-  // opening a project).
-  const fallbackRoot = process.env.SA_ROOT
-    ? path.resolve(process.env.SA_ROOT)
-    : path.resolve(process.cwd(), "..");
-
-  let tick = 0;
-  watcherTimer = setInterval(() => {
-    tick += 1;
-    // The callback stays synchronous; the DB read for project roots is fired
-    // without awaiting so a slow read can never stall the watch loop.
-    void refreshProjectRoots();
-
-    // Memory watchdog: restart before we OOM the machine.
-    if (tick % 5 === 0) {
-      const rss = liveRssMB();
-      // Periodic RSS heartbeat + growth rate (leak = steady climb, dev bloat
-      // = plateau) so the trend is visible in the console.
-      if (tick % 30 === 0) {
-        const delta = lastRss === null ? 0 : rss - lastRss;
-        lastRss = rss;
-        console.log(`[watcher] RSS ${rss}MB (max ${MAX_RSS_MB}MB, ${delta >= 0 ? "+" : ""}${delta}MB/min)`);
-      }
-      if (rss > MAX_RSS_MB) {
-        if (IS_DEV) {
-          if (rss > DEV_HARD_CAP_MB) {
-            console.error(`[watcher] RSS ${rss}MB exceeds dev hard cap ${DEV_HARD_CAP_MB}MB — exiting to force a clean restart`);
-            process.exit(1);
-          }
-          console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — dev: warning only (production would restart)`);
-        } else {
-          console.error(`[watcher] RSS ${rss}MB exceeds ${MAX_RSS_MB}MB — exiting to force a clean restart`);
-          process.exit(1);
-        }
-      }
-    }
-
-    // Periodic WAL checkpoint so the SQLite journal doesn't grow unbounded.
-    if (tick % 30 === 0) {
-      void import("~/server/db/client").then((m) => m.checkpointWal()).catch(() => {});
-    }
-
-    let roots = Array.from(watchRoots);
-    if (roots.length === 0) roots.push(fallbackRoot);
-    const rootsSet = new Set(roots);
-
-    for (const root of roots) {
-      for (const dir of watchDirs) {
-        const fullDir = path.join(root, dir);
-        try {
-          if (!fs.existsSync(fullDir)) continue;
-          // Recursive, bounded: see WATCH_DEPTH.
-          const scan = (current: string, relPrefix: string, depth: number) => {
-            const entries = fs.readdirSync(current, { withFileTypes: true });
-            for (const entry of entries) {
-              if (entry.name.startsWith(".")) continue;
-              const relPath = relPrefix ? path.join(relPrefix, entry.name) : path.join(dir, entry.name);
-              if (entry.isDirectory()) {
-                if (depth < WATCH_DEPTH) scan(path.join(current, entry.name), relPath, depth + 1);
-                continue;
-              }
-              if (!entry.isFile()) continue;
-              const fullPath = path.join(current, entry.name);
-              const stat = fs.statSync(fullPath);
-              const mtime = stat.mtimeMs;
-              const prev = knownFiles.get(fullPath);
-              // Emit on creation (prev undefined) and on mtime change.
-              if (prev === undefined || Math.abs(mtime - prev) > 50) {
-                eventBus.emitFileChanged(detectRoute(relPath), relPath, root);
-              }
-              knownFiles.set(fullPath, mtime);
-            }
-          };
-          scan(fullDir, dir, 1);
-        } catch {}
-      }
-      // Detect deletions
-      for (const [key, val] of knownFiles) {
-        try {
-          if (!key.startsWith(root + path.sep)) continue;
-          if (!fs.existsSync(key)) {
-            const relPath = key.slice(root.length + 1);
-            const route = detectRoute(relPath);
-            eventBus.emitFileChanged(route, relPath, root);
-            knownFiles.delete(key);
-          }
-        } catch {}
-      }
-    }
-
-    // Prune knownFiles entries that belong to projects no longer registered —
-    // otherwise the Map grows forever across open/close of many projects.
-    for (const key of knownFiles.keys()) {
-      const parentRoot = Array.from(rootsSet).find((r) => key.startsWith(r + path.sep));
-      if (!parentRoot) knownFiles.delete(key);
-    }
-  }, intervalMs);
+  void reconcileAll();
+  reconcileTimer = setInterval(() => void reconcileAll(), intervalMs);
+  memoryTimer = setInterval(checkMemory, MEMORY_CHECK_MS);
+  heartbeatTimer = setInterval(heartbeat, HEARTBEAT_MS);
+  // Periodic WAL checkpoint so the SQLite journal doesn't grow unbounded.
+  walTimer = setInterval(() => {
+    void import("~/server/db/client").then((m) => m.checkpointWal()).catch(() => {});
+  }, WAL_CHECKPOINT_MS);
 }
 
 export function stopFileWatcher() {
-  if (watcherTimer) clearInterval(watcherTimer);
+  for (const timer of [reconcileTimer, memoryTimer, heartbeatTimer, walTimer]) {
+    if (timer) clearInterval(timer);
+  }
+  reconcileTimer = memoryTimer = heartbeatTimer = walTimer = null;
+  for (const root of [...new Set([...watchRoots, ...snapshots.keys()])]) dropNativeWatchers(root);
+  for (const timer of debounceTimers.values()) clearTimeout(timer);
+  debounceTimers.clear();
   watcherActive = false;
-  watcherTimer = null;
 }
