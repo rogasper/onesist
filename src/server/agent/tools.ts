@@ -24,6 +24,7 @@ import { readSkill } from "./skills";
 import { appendMemory } from "./memory";
 import { buildCodeSearchTool } from "./index/tool";
 import { buildDbTools } from "./db/tools";
+import { BrowserError, capture as captureInBrowser } from "~/server/browser/manager";
 import type { ChangeSource, FileOp } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +54,8 @@ export interface TodoItem {
 
 export interface ToolContext {
   projectId: string;
+  /** The model reads pictures (provider setting). Decides whether a capture is sent as a picture. */
+  supportsVision?: boolean;
   /** Project workspace root. All paths are relative to this. */
   root: string;
   threadId: string;
@@ -730,12 +733,72 @@ export function buildTools(ctx: ToolContext): ToolSet {
   const codeSearchTool = buildCodeSearchTool({ projectId: ctx.projectId, root: ctx.root });
   const { dbQuery, dbSchema, appWrite } = buildDbTools({ projectId: ctx.projectId, permissionMode: "auto" });
 
+  // A design or page captured in the managed browser window (P4.4). The picture itself is not
+  // stored in the transcript: only its path is. The model gets the picture when the provider
+  // can read pictures; otherwise it gets the text and the path.
+  const browserCaptureTool = tool({
+    description:
+      "Buka sebuah tautan (desain Figma, halaman web) di jendela browser Onesist, tunggu sampai tampil, lalu ambil screenshot. " +
+      "Gunakan ini saat user memberi tautan desain dan perlu melihat tampilannya. " +
+      "Tautan privat memerlukan login: jika halaman login muncul, hasilnya akan memberi tahu user.",
+    inputSchema: z.object({
+      url: z.string().url().describe("URL http/https yang dibuka"),
+    }),
+    execute: async ({ url }) => {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Hanya URL http/https yang diizinkan.");
+      let shot;
+      try {
+        shot = await captureInBrowser(parsed.toString(), { waitForCanvas: /figma\.com\/(design|file|proto|board)\//.test(url) });
+      } catch (err) {
+        if (err instanceof BrowserError) throw new Error(err.message);
+        throw new Error(`Gagal membuka tautan: ${(err as Error).message}`);
+      }
+      if (shot.loginRequired) {
+        return {
+          text: "Belum masuk di browser Onesist untuk tautan ini (halaman login muncul). Buka Pengaturan → Browser untuk tautan, masuk, lalu coba lagi.",
+          savedPath: null as string | null,
+        };
+      }
+      const host = parsed.hostname.replace(/[^a-z0-9.-]/gi, "-");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const rel = `input/assets/captures/${host}-${stamp}.png`;
+      const { abs } = resolveInRoot(ctx.root, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, shot.png);
+      const note = ctx.supportsVision
+        ? "Gambar terlampir untuk model."
+        : "Model ini belum ditandai bisa melihat gambar; hanya path yang tersimpan.";
+      return {
+        text: `Judul: ${shot.title || "(tanpa judul)"}\nURL akhir: ${shot.finalUrl}\nDisimpan di: ${rel}\n${note}`,
+        savedPath: rel as string | null,
+      };
+    },
+    toModelOutput: ({ output }) => {
+      const value = output as { text: string; savedPath: string | null };
+      if (!ctx.supportsVision || !value.savedPath) return { type: "text", value: value.text };
+      try {
+        const bytes = fs.readFileSync(resolveInRoot(ctx.root, value.savedPath).abs);
+        return {
+          type: "content",
+          value: [
+            { type: "text", text: value.text },
+            { type: "file", data: { type: "data", data: bytes.toString("base64") }, mediaType: "image/png" },
+          ],
+        };
+      } catch {
+        return { type: "text", value: value.text };
+      }
+    },
+  });
+
   const tools: ToolSet = {
     read_file: readFileTool,
     list_dir: listDirTool,
     glob: globTool,
     grep: grepTool,
     web_fetch: webFetchTool,
+    browser_capture: browserCaptureTool,
     todo_write: todoTool,
     ...(askUserTool ? { ask_user: askUserTool } : {}),
     skill_read: skillReadTool,

@@ -180,6 +180,7 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
     projectId: input.projectId,
     root: input.root,
     threadId: input.threadId,
+    supportsVision: input.provider.supportsVision,
     includeMutating,
     includeShell,
     onFileChange: input.onFileChange,
