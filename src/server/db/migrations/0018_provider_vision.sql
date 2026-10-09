@@ -1,0 +1,1 @@
+ALTER TABLE `llm_providers` ADD `supports_vision` integer DEFAULT false NOT NULL;

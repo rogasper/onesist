@@ -18,6 +18,7 @@ import { Toast, type ToastMessage } from "~/components/ui/Toast";
 import { AgentStream } from "~/components/agent/AgentStream";
 import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
 import { FeedbackBox } from "~/components/agent/FeedbackBox";
+import { subscribe } from "~/lib/event-stream";
 
 export const Route = createFileRoute("/projects/$id/spec")({
   component: SpecPage,
@@ -141,10 +142,8 @@ function SpecPage() {
   const pageVisible = usePageVisible();
   useEffect(() => {
     if (!pageVisible) return;
-    let es: EventSource | null = null;
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let errorCount = 0;
     const schedule = () => {
       if (!mounted) return;
       if (timer) clearTimeout(timer);
@@ -153,37 +152,19 @@ function SpecPage() {
         void syncFromDisk(false);
       }, 400);
     };
-    const init = async () => {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
-        const d = await res.json();
-        if (!mounted || !d.ticket) return;
-        es = new EventSource(`/api/events?ticket=${d.ticket}`);
-        if (!mounted) {
-          es.close();
-          es = null;
-          return;
-        }
-        es.addEventListener("file:changed", (e) => {
-          try {
-            const p = fileChangedPayload(JSON.parse((e as MessageEvent).data)).path ?? "";
-            const norm = p.replace(/\\/g, "/");
-            if (!norm.startsWith("output/spec") && norm !== "MASTER_SPEC_API.md") return;
-            schedule();
-          } catch {}
-        });
-        // Guard against infinite browser auto-reconnect loops.
-        es.onerror = () => {
-          errorCount += 1;
-          if (errorCount > 5) { es?.close(); es = null; }
-        };
-      } catch {}
-    };
-    void init();
+    // One shared stream for the tab (event-stream.ts); only changes to the spec files matter here.
+    const offs = [
+      subscribe("file:changed", (data) => {
+        const p = fileChangedPayload(data).path ?? "";
+        const norm = p.replace(/\\/g, "/");
+        if (!norm.startsWith("output/spec") && norm !== "MASTER_SPEC_API.md") return;
+        schedule();
+      }),
+    ];
     return () => {
       mounted = false;
       if (timer) clearTimeout(timer);
-      es?.close();
+      offs.forEach((off) => off());
     };
   }, [pageVisible, syncFromDisk]);
 

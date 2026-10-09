@@ -17,6 +17,7 @@ import { useClientErrorReporting } from "~/lib/use-client-error-report";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
+import { setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -111,9 +112,11 @@ function SidebarPersistence() {
     }
   }, [setOpen, setWidth]);
 
+  // The user's choice is remembered, not the state on screen: a fold made by the chat is not a choice.
+  const choice = useSidebarChoice();
   useEffect(() => {
-    writeStored(SIDEBAR_OPEN_KEY, state !== "collapsed" ? "true" : "false");
-  }, [state]);
+    writeStored(SIDEBAR_OPEN_KEY, choice ? "true" : "false");
+  }, [choice]);
 
   useEffect(() => {
     if (state === "expanded") writeStored(SIDEBAR_WIDTH_KEY, String(width));
@@ -124,6 +127,8 @@ function SidebarPersistence() {
 
 function RootComponent() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  // Controlled, so the project's chat can fold it on a narrow window (P3.2).
+  const sidebarOpen = useSidebarOpen();
   const location = useLocation();
   const pathname = location.pathname;
   const isDashboardActive = pathname === "/";
@@ -165,7 +170,7 @@ function RootComponent() {
         <InstanceWatch />
         <QuickOpenModal />
         <div className="flex flex-1 min-h-0">
-          <Sidebar.Provider defaultOpen collapsible="icon" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
+          <Sidebar.Provider open={sidebarOpen} onOpenChange={setSidebarOpen} collapsible="icon" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
             <SidebarPersistence />
             <Sidebar>
               <AppSidebarHeader />

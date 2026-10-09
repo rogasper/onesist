@@ -60,6 +60,7 @@ function toPublicProvider(row: ProviderRow) {
     proxyUrl: row.proxyUrl,
     skipTlsVerify: row.skipTlsVerify,
     enableThinking: row.enableThinking,
+    supportsVision: row.supportsVision,
     effortCapabilityJson: row.effortCapabilityJson,
     maxOutputTokens: row.maxOutputTokens,
     inputPricePerMTok: row.inputPricePerMTok ?? null,
@@ -172,6 +173,7 @@ router.post("providers", async (ctx) => {
         proxyUrl: body.proxyUrl ? String(body.proxyUrl) : null,
         skipTlsVerify: readBoolean(body.skipTlsVerify, false),
         enableThinking: readBoolean(body.enableThinking, false),
+        supportsVision: readBoolean(body.supportsVision, false),
         effortCapabilityJson: parseList(body, "effortCapability"),
         inputPricePerMTok: readPrice(body.inputPricePerMTok),
         outputPricePerMTok: readPrice(body.outputPricePerMTok),
@@ -222,6 +224,7 @@ router.put("providers/:id", async (ctx) => {
   if (body.proxyUrl !== undefined) patch.proxyUrl = body.proxyUrl ? String(body.proxyUrl) : null;
   if (body.skipTlsVerify !== undefined) patch.skipTlsVerify = readBoolean(body.skipTlsVerify, false);
   if (body.enableThinking !== undefined) patch.enableThinking = readBoolean(body.enableThinking, false);
+  if (body.supportsVision !== undefined) patch.supportsVision = readBoolean(body.supportsVision, false);
   if (body.isDefault !== undefined) patch.isDefault = readBoolean(body.isDefault, false);
   if (body.cliPath !== undefined) patch.cliPath = body.cliPath ? String(body.cliPath) : null;
   for (const key of ["models", "customHeaders", "effortCapability", "cliEnv"] as const) {
@@ -328,6 +331,7 @@ router.post("providers/test-draft", async (ctx) => {
     proxyUrl: body.proxyUrl ? String(body.proxyUrl) : null,
     skipTlsVerify: readBoolean(body.skipTlsVerify, false),
     enableThinking: readBoolean(body.enableThinking, false),
+    supportsVision: readBoolean(body.supportsVision, false),
     effortCapabilityJson: parseList(body, "effortCapability"),
     inputPricePerMTok: readPrice(body.inputPricePerMTok),
     outputPricePerMTok: readPrice(body.outputPricePerMTok),

@@ -156,6 +156,9 @@ html:not([data-mode="dark"]) {
 }
 .chat-markdown hr { border: none; border-top: 1px solid var(--color-kumo-line, #2a2a2a); margin: 1.25rem 0; }
 .chat-markdown a { color: var(--color-kumo-brand, #64b5f6); text-decoration: underline; text-underline-offset: 2px; }
+/* A wide diagram or picture scales down to the column (P3.1); it never widens the transcript. */
+.chat-markdown svg { max-width: 100%; height: auto; }
+.chat-markdown img { max-width: 100%; height: auto; }
 
 /* Docs preview — keep wide mermaid diagrams and tables inside the pane (no horizontal scroll). */
 .docs-preview { min-width: 0; overflow-x: hidden; }
@@ -675,4 +678,12 @@ html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
 .erd-col-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 26px;
+}
+
+/* In-thread find (ChatSurface): every match, and the one the bar is on. */
+::highlight(chat-find) {
+  background-color: rgb(250 204 21 / 0.35);
+}
+::highlight(chat-find-current) {
+  background-color: rgb(251 146 60 / 0.75);
 }

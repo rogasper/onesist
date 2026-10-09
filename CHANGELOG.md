@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.2.0 — Chat agent yang lengkap, capture desain Figma, dan performa yang lebih ringan
+
+Rilis besar: tab **Chat** per project kini punya antrean pesan di server, tanya-balik ke user di tengah run, edit dan kirim ulang, cabang thread, dan undo perubahan file per giliran. Tautan desain Figma bisa dibaca lewat browser yang dikelola Onesist.
+
+### Feat — Chat agent (paritas dengan alur ZCode)
+- **Antrean dan run di server:** pesan yang dikirim saat agent masih bekerja masuk antrean di server, dan run yang sedang berjalan bisa disambung kembali setelah halaman dimuat ulang. Persetujuan tool lewat SSE.
+- **Tanya-balik saat run (`ask_user`), edit dan kirim ulang, coba lagi jawaban, dan cabang thread** dari giliran mana pun.
+- **Undo perubahan file per giliran**, dan approval diingat sesuai cakupannya.
+- **Transkrip:** hasil tool dikelompokkan per jenis, ada rel giliran, pencarian dalam thread, dan riwayat dimuat per halaman.
+- **Composer:** referensi berkas, meter konteks, pilihan tingkat berpikir, lampiran gambar (untuk provider yang bisa membaca gambar), kutipan jawaban, draf tersimpan per thread, dan recall prompt dengan ↑/↓.
+- **Saran langkah berikutnya** untuk project, dan badge pada thread yang sedang berjalan.
+
+### Feat — Mention folder dan berkas root
+- `@` di composer kini juga menampilkan folder dan berkas di root project. Memilih folder menyisipkan `@nama/`.
+
+### Feat — Baca tautan desain Figma
+- Tool `browser_capture` membuka tautan di jendela browser yang dikelola Onesist (Chrome atau Edge, profil terpisah), lalu menyimpan screenshot ke `input/assets/captures/`.
+- Untuk tautan dengan `node-id`, hanya frame yang dipilih yang di-crop, dan UI serta komentar Figma disembunyikan.
+- Login hanya diminta untuk tautan privat, dan dilakukan sendiri di jendela itu. Onesist tidak mengetik atau menyimpan password.
+- Pengaturan provider baru: **Model bisa melihat gambar**. Hanya model yang ditandai begitu yang menerima gambar hasil capture.
+
+### Feat — Layout chat dan project
+- Panel chat bisa dibuka bersamaan dengan area project tanpa menutupi tab-nya. Di lebar yang sempit, chat menjadi overlay.
+- Sidebar otomatis terlipat saat chat dibuka dan kembali seperti semula saat ditutup.
+
+### Perf — Lag di Windows
+- **Satu stream event untuk seluruh tab** menggantikan beberapa koneksi SSE per komponen, sehingga permintaan biasa tidak lagi antre.
+- **Watcher berkas tanpa polling sinkron:** scan berjalan asinkron dan di-debounce, dan GC memori hanya jalan saat batas terlampaui.
+
+### Fix
+- Transkrip tidak lagi bisa digeser ke samping, dan bubble pesan membungkus teks panjang.
+- Daftar berkas project ikut berubah saat isi folder berubah.
+- Pesan yang hanya berisi gambar tidak lagi hilang di server.
+
+### Verifikasi
+- `bun run typecheck` bersih. Tes komponen dan lib (61 tes di 9 berkas) lulus.
+- Capture Figma dijalankan di aplikasi desktop yang di-build (debug): tool terpanggil, screenshot tersimpan dan di-crop ke frame, dan thumbnail tampil di chat.
+- **Belum diuji:** jalur Windows (tidak dilakukan selama pengembangan di macOS), dan jawaban model yang bisa membaca gambar desain (model uji yang tersedia belum ditandai bisa melihat gambar).
+- **Bump `0.1.47 → 0.2.0`**.
+
 ## v0.1.47 — macOS: quit instan, folder picker lepas dari osascript, provider BYOK dipilih saat buka project
 
 ### Fix — Quit macOS ~2 menit → di bawah 1 detik

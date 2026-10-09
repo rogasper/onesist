@@ -23,6 +23,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { chatRuns, chatThreads, projects } from "~/server/db/schema";
 import { eventBus } from "~/server/realtime/events";
+import { rememberApproval } from "./approval-rules";
 import type { RunStatus } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +84,8 @@ export interface ActiveRun {
   startedAt: number;
   /** Approval currently awaiting the user's decision, keyed by `toolCallId`. */
   pending: Map<string, PendingApproval>;
+  /** Questions the agent asked (`ask_user`), waiting for answers. */
+  questions: Map<string, PendingQuestion>;
   /** Permission decisions per `toolCallId` — "auto" | "approved" | "denied".
    *  Kept so history can explain WHY a write went through
    *  unprompted (FR-B4), which cannot be reconstructed after the run closes. */
@@ -93,11 +96,24 @@ export interface ActiveRun {
   inbox: InjectedMessage[];
 }
 
+/** A question the agent asked and is waiting on (`ask_user`). */
+export interface PendingQuestion {
+  questionId: string;
+  questions: { question: string; options?: string[] }[];
+  /** Answers, one per question; `null` when the question was dropped (timeout, run ended). */
+  resolve: (answers: string[] | null) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export interface PendingApproval {
   toolCallId: string;
   name: string;
   /** Argument summary shown on the approval card. */
   preview: string;
+  /** Content the user is approving (the text of a write, the sides of an edit). */
+  detail?: string;
+  /** The call's arguments, kept so a remembered rule can match future calls. */
+  args?: unknown;
   reason?: string;
   resolve: (decision: "approved" | "denied") => void;
   timer: ReturnType<typeof setTimeout>;
@@ -128,6 +144,7 @@ export function createRun(opts: { runId: string; threadId: string; projectId: st
     stepCount: 0,
     startedAt: Date.now(),
     pending: new Map(),
+    questions: new Map(),
     decisions: new Map(),
     inbox: [],
   };
@@ -150,6 +167,11 @@ export function createRun(opts: { runId: string; threadId: string; projectId: st
 
 export function getRun(runId: string): ActiveRun | undefined {
   return RUNS.get(runId);
+}
+
+/** Every run the registry holds, finished or not; callers filter by status. */
+export function activeRuns(): ActiveRun[] {
+  return [...RUNS.values()];
 }
 
 export function getRunForThread(threadId: string): ActiveRun | undefined {
@@ -225,9 +247,11 @@ export function finishRun(runId: string, status: RunStatus, error?: string): voi
     run.status = status;
     for (const pending of run.pending.values()) {
       clearTimeout(pending.timer);
+      eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId: pending.toolCallId });
       pending.resolve("denied");
     }
     run.pending.clear();
+    dropQuestions(run);
   }
   persistStatus(runId, status, error);
   RUNS.delete(runId);
@@ -256,9 +280,11 @@ export function stopRun(runId: string): boolean {
   run.abort.abort();
   for (const pending of run.pending.values()) {
     clearTimeout(pending.timer);
+    eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId: pending.toolCallId });
     pending.resolve("denied");
   }
   run.pending.clear();
+  dropQuestions(run);
   persistStatus(runId, "stopped");
   RUNS.delete(runId);
   // The client gates on window focus, so a user who pressed Stop while looking
@@ -282,7 +308,7 @@ export function stopRun(runId: string): boolean {
  *  hanging is safer than executing without consent. */
 export function awaitApproval(
   runId: string,
-  info: { toolCallId: string; name: string; preview: string; reason?: string },
+  info: { toolCallId: string; name: string; preview: string; detail?: string; args?: unknown; reason?: string },
 ): Promise<"approved" | "denied"> {
   const run = RUNS.get(runId);
   if (!run) return Promise.resolve("denied");
@@ -290,6 +316,7 @@ export function awaitApproval(
     const timer = setTimeout(() => {
       run.pending.delete(info.toolCallId);
       run.decisions.set(info.toolCallId, "denied-timeout");
+      eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId: info.toolCallId });
       resolve("denied");
     }, APPROVAL_TIMEOUT_MS);
     run.pending.set(info.toolCallId, { ...info, resolve, timer });
@@ -307,13 +334,35 @@ export function awaitApproval(
   });
 }
 
-export function resolveApproval(runId: string, toolCallId: string, decision: "approved" | "denied"): boolean {
+/**
+ * Answers a pending approval. `scope` widens an approval to the thread or project
+ * (approval-rules.ts). `feedback` on a denial is handed to the run as a message, so
+ * the model reads what the user wants instead of the bare refusal.
+ */
+export function resolveApproval(
+  runId: string,
+  toolCallId: string,
+  decision: "approved" | "denied",
+  opts: { scope?: "once" | "thread" | "project"; feedback?: string } = {},
+): boolean {
   const run = RUNS.get(runId);
   const pending = run?.pending.get(toolCallId);
   if (!run || !pending) return false;
   clearTimeout(pending.timer);
   run.pending.delete(toolCallId);
   run.decisions.set(toolCallId, decision);
+  if (decision === "approved" && opts.scope && opts.scope !== "once") {
+    rememberApproval({ threadId: run.threadId, projectId: run.projectId, name: pending.name, args: pending.args, scope: opts.scope });
+  }
+  const note = opts.feedback?.trim();
+  if (decision === "denied" && note) {
+    queueUserMessage(run.threadId, {
+      id: `msg_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`,
+      role: "user",
+      parts: [{ type: "text", text: `Tindakan ${pending.name} tidak disetujui. Catatan dari user: ${note}` }],
+    });
+  }
+  eventBus.emitChatApprovalResolved({ threadId: run.threadId, toolCallId });
   pending.resolve(decision);
   return true;
 }
@@ -328,10 +377,60 @@ export function getApprovalDecision(runId: string, toolCallId: string): string |
   return RUNS.get(runId)?.decisions.get(toolCallId) ?? null;
 }
 
+/** Ends every waiting question: the tool gets no answers and the run goes on or stops. */
+function dropQuestions(run: ActiveRun): void {
+  for (const q of run.questions.values()) {
+    clearTimeout(q.timer);
+    eventBus.emitChatQuestionResolved({ threadId: run.threadId, questionId: q.questionId });
+    q.resolve(null);
+  }
+  run.questions.clear();
+}
+
+/**
+ * Asks the user and waits for the answers (`ask_user`). Resolves with one answer per
+ * question, or `null` if nobody answers in time or the run ends first.
+ */
+export function awaitQuestion(
+  runId: string,
+  questions: { question: string; options?: string[] }[],
+): Promise<string[] | null> {
+  const run = RUNS.get(runId);
+  if (!run) return Promise.resolve(null);
+  const questionId = `q_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      run.questions.delete(questionId);
+      eventBus.emitChatQuestionResolved({ threadId: run.threadId, questionId });
+      resolve(null);
+    }, APPROVAL_TIMEOUT_MS);
+    run.questions.set(questionId, { questionId, questions, resolve, timer });
+    eventBus.emitChatQuestion({ threadId: run.threadId, runId, questionId, questions });
+  });
+}
+
+/** Answers a waiting question. `answers` is matched to the questions by position. */
+export function resolveQuestion(runId: string, questionId: string, answers: string[]): boolean {
+  const run = RUNS.get(runId);
+  const q = run?.questions.get(questionId);
+  if (!run || !q) return false;
+  clearTimeout(q.timer);
+  run.questions.delete(questionId);
+  eventBus.emitChatQuestionResolved({ threadId: run.threadId, questionId });
+  q.resolve(answers);
+  return true;
+}
+
+export function listPendingQuestions(runId: string) {
+  const run = RUNS.get(runId);
+  if (!run) return [];
+  return [...run.questions.values()].map(({ questionId, questions }) => ({ questionId, questions }));
+}
+
 export function listPendingApprovals(runId: string) {
   const run = RUNS.get(runId);
   if (!run) return [];
-  return [...run.pending.values()].map(({ toolCallId, name, preview, reason }) => ({ toolCallId, name, preview, reason }));
+  return [...run.pending.values()].map(({ toolCallId, name, preview, detail, reason }) => ({ toolCallId, name, preview, detail, reason }));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

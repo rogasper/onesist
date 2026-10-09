@@ -13,7 +13,23 @@ type EventName =
   // from the DB (FR-B13). See ROADMAP 5.6 for why the notification is driven
   // from here rather than from the client's own stream.
   | "chat:run"
-  | "chat:approval";
+  | "chat:approval"
+  // A steered message was handed to the model at a step boundary. Lets the
+  // open thread drop its "menunggu disisipkan" marker while the run continues.
+  | "chat:steer"
+  // A pending approval was answered, timed out, or its run ended: remove the card.
+  | "chat:approval-resolved"
+  // The agent asked the user something and waits for the answers.
+  | "chat:question"
+  | "chat:question-resolved"
+  // The message queue of a thread changed: re-read it.
+  | "chat:queue"
+  // A turn started on a thread (possibly from the queue, with no client streaming
+  // it): a client viewing the thread can reattach to the live output.
+  | "chat:turn"
+  // The provider refused a request that the SDK is retrying (429 or 5xx). Lets the
+  // status line say so instead of a silent wait. `attempt` 0 means the retries ended.
+  | "chat:provider-retry";
 
 interface EventPayload {
   type: EventName;
@@ -130,6 +146,35 @@ class AppEventBus extends EventEmitter {
     threadTitle?: string | null;
   }) {
     this.emitAppEvent({ type: "chat:approval", data: { ...input } });
+  }
+
+  /** Steered messages the model has taken, identified by their message ids. */
+  emitChatSteer(input: { threadId: string; messageIds: string[] }) {
+    this.emitAppEvent({ type: "chat:steer", data: { ...input } });
+  }
+
+  emitChatQuestion(input: { threadId: string; runId: string; questionId: string; questions: unknown[] }) {
+    this.emitAppEvent({ type: "chat:question", data: { ...input } });
+  }
+
+  emitChatQuestionResolved(input: { threadId: string; questionId: string }) {
+    this.emitAppEvent({ type: "chat:question-resolved", data: { ...input } });
+  }
+
+  emitChatQueue(input: { threadId: string }) {
+    this.emitAppEvent({ type: "chat:queue", data: { ...input } });
+  }
+
+  emitChatTurn(input: { threadId: string; runId: string }) {
+    this.emitAppEvent({ type: "chat:turn", data: { ...input } });
+  }
+
+  emitChatProviderRetry(input: { threadId: string; status: number; attempt: number }) {
+    this.emitAppEvent({ type: "chat:provider-retry", data: { ...input } });
+  }
+
+  emitChatApprovalResolved(input: { threadId: string; toolCallId: string }) {
+    this.emitAppEvent({ type: "chat:approval-resolved", data: { ...input } });
   }
 
   private emitAppEvent(payload: Omit<EventPayload, "timestamp">) {

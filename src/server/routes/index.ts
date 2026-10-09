@@ -17,6 +17,7 @@ import { router as canvasRouter } from "./canvas";
 import { router as providersRouter } from "./providers";
 import { router as chatRouter } from "./chat";
 import { router as settingsRouter } from "./settings";
+import { router as browserRouter } from "./browser";
 
 export const routers = [
   systemRouter,
@@ -38,4 +39,5 @@ export const routers = [
   providersRouter,
   chatRouter,
   settingsRouter,
+  browserRouter,
 ];

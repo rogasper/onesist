@@ -96,6 +96,7 @@ const emptyDraft = (): ProviderDraft => ({
   proxyUrl: "",
   skipTlsVerify: false,
   enableThinking: false,
+  supportsVision: false,
 });
 
 function draftFrom(p: ProviderSummary): ProviderDraft {
@@ -115,6 +116,7 @@ function draftFrom(p: ProviderSummary): ProviderDraft {
     proxyUrl: p.proxyUrl ?? "",
     skipTlsVerify: p.skipTlsVerify,
     enableThinking: p.enableThinking,
+    supportsVision: p.supportsVision,
     isDefault: p.isDefault,
   };
 }
@@ -642,6 +644,13 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
                 onChange={(v) => setDraft((d) => ({ ...d, enableThinking: v }))}
                 label="Aktifkan mode berpikir"
                 description="Model mengeluarkan proses berpikir terpisah yang ditampilkan terlipat di percakapan."
+              />
+              <Toggle
+                checked={draft.supportsVision}
+                disabled={readOnly}
+                onChange={(v) => setDraft((d) => ({ ...d, supportsVision: v }))}
+                label="Model bisa melihat gambar"
+                description="Gambar yang ditempel ke chat dan hasil tangkapan browser dikirim ke model. Aktifkan hanya jika model memang menerimanya."
               />
               <Toggle
                 checked={draft.skipTlsVerify}

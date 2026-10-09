@@ -24,6 +24,7 @@ import { readSkill } from "./skills";
 import { appendMemory } from "./memory";
 import { buildCodeSearchTool } from "./index/tool";
 import { buildDbTools } from "./db/tools";
+import { BrowserError, capture as captureInBrowser } from "~/server/browser/manager";
 import type { ChangeSource, FileOp } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,6 +39,11 @@ export interface FileChange {
   linesAdded: number;
   linesRemoved: number;
   diff: string;
+  /** Content before and after the change, for undo. `null` = the file did not
+   *  exist on that side; `undefined` = not captured (large file, or a shell
+   *  command changed it without a readable snapshot). */
+  before?: string | null;
+  after?: string | null;
 }
 
 export interface TodoItem {
@@ -48,6 +54,8 @@ export interface TodoItem {
 
 export interface ToolContext {
   projectId: string;
+  /** The model reads pictures (provider setting). Decides whether a capture is sent as a picture. */
+  supportsVision?: boolean;
   /** Project workspace root. All paths are relative to this. */
   root: string;
   threadId: string;
@@ -63,6 +71,9 @@ export interface ToolContext {
   onFileRead?: (info: { path: string; hash: string }) => void;
   /** Called when the agent writes its step list (FR-D5). */
   onTodos?: (todos: TodoItem[]) => void;
+  /** Asks the user and waits for the answers (`ask_user`). Resolves `null` when no
+   *  answer comes (timeout, run ended). Wired by agent.ts for the main agent only. */
+  askUser?: (questions: { question: string; options?: string[] }[]) => Promise<string[] | null>;
   /** `false` = ask/readonly mode: state-changing tools are not installed. */
   includeMutating?: boolean;
   /** `false` = `no-shell`/`readonly` mode: the bash tool is not installed at all
@@ -166,6 +177,7 @@ function recordChange(
   before: string,
   after: string,
   source: ChangeSource = "tool",
+  sides?: { before: string | null; after: string | null },
 ): DiffStat {
   const stat = diffStat(before, after);
   ctx.onFileChange?.({
@@ -176,6 +188,8 @@ function recordChange(
     linesAdded: stat.added,
     linesRemoved: stat.removed,
     diff: stat.diff,
+    before: sides ? sides.before : before,
+    after: sides ? sides.after : after,
   });
   return stat;
 }
@@ -256,10 +270,12 @@ function attributeBashChanges(
 ): void {
   if (!ctx.onFileChange) return;
   let recorded = 0;
-  const record = (rel: string, op: FileOp, beforeText: string, afterText: string) => {
+  // A side is `undefined` (not captured) when the snapshot held no text for the
+  // file; the diff then shows what it can, and the change cannot be undone.
+  const record = (rel: string, op: FileOp, beforeText: string | undefined, afterText: string | undefined) => {
     if (recorded >= BASH_CHANGE_LIMIT) return;
     recorded += 1;
-    const stat = diffStat(beforeText, afterText);
+    const stat = diffStat(beforeText ?? "", afterText ?? "");
     ctx.onFileChange?.({
       path: rel,
       route: detectRoute(rel),
@@ -268,16 +284,18 @@ function attributeBashChanges(
       linesAdded: stat.added,
       linesRemoved: stat.removed,
       diff: stat.diff,
+      before: op === "create" ? null : beforeText,
+      after: op === "delete" ? null : afterText,
     });
   };
 
   for (const [rel, meta] of after) {
     const prev = before.get(rel);
-    if (!prev) record(rel, "create", "", meta.text ?? "");
-    else if (prev.mtimeMs !== meta.mtimeMs || prev.size !== meta.size) record(rel, "update", prev.text ?? "", meta.text ?? "");
+    if (!prev) record(rel, "create", undefined, meta.text);
+    else if (prev.mtimeMs !== meta.mtimeMs || prev.size !== meta.size) record(rel, "update", prev.text, meta.text);
   }
   for (const [rel, meta] of before) {
-    if (!after.has(rel)) record(rel, "delete", meta.text ?? "", "");
+    if (!after.has(rel)) record(rel, "delete", meta.text, undefined);
   }
 }
 
@@ -456,7 +474,10 @@ export function buildTools(ctx: ToolContext): ToolSet {
           }
           fs.mkdirSync(path.dirname(abs), { recursive: true });
           fs.writeFileSync(abs, content, "utf-8");
-          const stat = recordChange(ctx, rel, exists ? "update" : "create", before, content);
+          const stat = recordChange(ctx, rel, exists ? "update" : "create", before, content, "tool", {
+            before: exists ? before : null,
+            after: content,
+          });
           return `${exists ? "Diperbarui" : "Dibuat"}: ${rel} (+${stat.added}/-${stat.removed} baris, hash=${hashContent(content)})`;
         },
       })
@@ -483,7 +504,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
           }
           const after = content.slice(0, first) + new_string + content.slice(first + old_string.length);
           fs.writeFileSync(abs, after, "utf-8");
-          const stat = recordChange(ctx, rel, "update", content, after);
+          const stat = recordChange(ctx, rel, "update", content, after, "tool", { before: content, after });
           return `Diubah: ${rel} (+${stat.added}/-${stat.removed} baris, hash=${hashContent(after)})`;
         },
       })
@@ -582,6 +603,43 @@ export function buildTools(ctx: ToolContext): ToolSet {
     },
   });
 
+  const askUserTool = ctx.askUser
+    ? tool({
+        description:
+          "Tanyakan sesuatu kepada user dan tunggu jawabannya, bila informasi yang kurang tidak ada di workspace " +
+          "dan menebaknya berisiko salah. Ajukan pertanyaan yang spesifik, 1–4 sekaligus, dengan pilihan jawaban " +
+          "bila memungkinkan. Jangan dipakai untuk hal yang bisa kamu cari sendiri lewat tool.",
+        inputSchema: z.object({
+          questions: z
+            .array(
+              z.object({
+                question: z.string().describe("Pertanyaan yang jelas dan spesifik"),
+                // Either the labels, or objects with a label (and a description the
+                // user does not need to see as a separate choice).
+                options: z
+                  .array(z.union([z.string(), z.object({ label: z.string(), description: z.string().optional() })]))
+                  .max(6)
+                  .optional()
+                  .describe("Pilihan jawaban (opsional)"),
+              }),
+            )
+            .min(1)
+            .max(4),
+        }),
+        execute: async ({ questions }) => {
+          const normalized = questions.map((q) => ({
+            question: q.question,
+            options: q.options?.map((o) => (typeof o === "string" ? o : o.label)),
+          }));
+          const answers = await ctx.askUser!(normalized);
+          if (!answers) {
+            return "Tidak ada jawaban dari user (waktu habis atau run dihentikan). Lanjutkan dengan asumsi yang masuk akal dan sebutkan asumsinya.";
+          }
+          return normalized.map((q, i) => `${q.question} → ${answers[i] ?? "(tidak dijawab)"}`).join("\n");
+        },
+      })
+    : null;
+
   const todoTool = tool({
     description:
       "Tulis atau perbarui daftar langkah kerja untuk tugas ini. Pakai untuk tugas yang butuh beberapa " +
@@ -675,13 +733,83 @@ export function buildTools(ctx: ToolContext): ToolSet {
   const codeSearchTool = buildCodeSearchTool({ projectId: ctx.projectId, root: ctx.root });
   const { dbQuery, dbSchema, appWrite } = buildDbTools({ projectId: ctx.projectId, permissionMode: "auto" });
 
+  // A design or page captured in the managed browser window (P4.4). The picture itself is not
+  // stored in the transcript: only its path is. The model gets the picture when the provider
+  // can read pictures; otherwise it gets the text and the path.
+  const browserCaptureTool = tool({
+    description:
+      "Buka sebuah tautan (desain Figma, halaman web) di jendela browser Onesist, tunggu sampai tampil, lalu ambil screenshot. " +
+      "Gunakan ini saat user memberi tautan desain dan perlu melihat tampilannya. " +
+      "Tautan privat memerlukan login: jika halaman login muncul, hasilnya akan memberi tahu user.",
+    inputSchema: z.object({
+      url: z.string().url().describe("URL http/https yang dibuka"),
+    }),
+    execute: async ({ url }) => {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("Hanya URL http/https yang diizinkan.");
+      let shot;
+      try {
+        // Figma design links: the editor chrome and comments are hidden. A Figma link with node-id
+        // opens with that frame selected; a taller window keeps the frame clear of the bottom
+        // toolbar, and the crop keeps just the selected frame.
+        const isFigma = /figma\.com\/(design|file|proto|board)\//.test(url);
+        const figmaNode = isFigma && /[?&]node-id=/.test(url);
+        shot = await captureInBrowser(parsed.toString(), {
+          waitForCanvas: isFigma,
+          ...(isFigma ? { hideUi: true } : {}),
+          ...(figmaNode ? { viewportHeight: 1600, cropToSelection: true } : {}),
+        });
+      } catch (err) {
+        if (err instanceof BrowserError) throw new Error(err.message);
+        throw new Error(`Gagal membuka tautan: ${(err as Error).message}`);
+      }
+      if (shot.loginRequired) {
+        return {
+          text: "Belum masuk di browser Onesist untuk tautan ini (halaman login muncul). Buka Pengaturan → Browser untuk tautan, masuk, lalu coba lagi.",
+          savedPath: null as string | null,
+        };
+      }
+      const host = parsed.hostname.replace(/[^a-z0-9.-]/gi, "-");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const rel = `input/assets/captures/${host}-${stamp}.png`;
+      const { abs } = resolveInRoot(ctx.root, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, shot.png);
+      const note = ctx.supportsVision
+        ? "Gambar terlampir untuk model."
+        : "Model ini belum ditandai bisa melihat gambar; hanya path yang tersimpan.";
+      return {
+        text: `Judul: ${shot.title || "(tanpa judul)"}\nURL akhir: ${shot.finalUrl}\nDisimpan di: ${rel}\n${note}`,
+        savedPath: rel as string | null,
+      };
+    },
+    toModelOutput: ({ output }) => {
+      const value = output as { text: string; savedPath: string | null };
+      if (!ctx.supportsVision || !value.savedPath) return { type: "text", value: value.text };
+      try {
+        const bytes = fs.readFileSync(resolveInRoot(ctx.root, value.savedPath).abs);
+        return {
+          type: "content",
+          value: [
+            { type: "text", text: value.text },
+            { type: "file", data: { type: "data", data: bytes.toString("base64") }, mediaType: "image/png" },
+          ],
+        };
+      } catch {
+        return { type: "text", value: value.text };
+      }
+    },
+  });
+
   const tools: ToolSet = {
     read_file: readFileTool,
     list_dir: listDirTool,
     glob: globTool,
     grep: grepTool,
     web_fetch: webFetchTool,
+    browser_capture: browserCaptureTool,
     todo_write: todoTool,
+    ...(askUserTool ? { ask_user: askUserTool } : {}),
     skill_read: skillReadTool,
     code_search: codeSearchTool,
     db_schema: dbSchema,

@@ -17,6 +17,7 @@ import { Toast, type ToastMessage } from "~/components/ui/Toast";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
 import { useFsdConversion, useFileList, usePageVisible } from "~/lib/use-file-data";
 import type { CompletenessResult } from "~/lib/fsd-completeness";
+import { subscribe } from "~/lib/event-stream";
 
 interface FsdSession {
   id: string;
@@ -126,10 +127,8 @@ function FsdPage() {
   const pageVisible = usePageVisible();
   useEffect(() => {
     if (!pageVisible) return;
-    let es: EventSource | null = null;
     let mounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let errorCount = 0;
     const schedule = () => {
       if (!mounted) return;
       if (timer) clearTimeout(timer);
@@ -139,37 +138,12 @@ function FsdPage() {
         void syncSessions();
       }, 400);
     };
-    const init = async () => {
-      try {
-        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
-        const d = await res.json();
-        if (!mounted || !d.ticket) return;
-        es = new EventSource(`/api/events?ticket=${d.ticket}`);
-        if (!mounted) {
-          es.close();
-          es = null;
-          return;
-        }
-        es.addEventListener("file:changed", schedule);
-        es.addEventListener("fsd:conversion", schedule);
-        // Guard against infinite browser auto-reconnect loops: if the server
-        // keeps failing (sidecar down/crash-looping), close the stream after
-        // a few errors instead of letting the WebView spin reconnect requests
-        // forever (that leaked hundreds of MB in the desktop app).
-        es.onerror = () => {
-          errorCount += 1;
-          if (errorCount > 5) {
-            es?.close();
-            es = null;
-          }
-        };
-      } catch {}
-    };
-    void init();
+    // One shared stream for the tab (event-stream.ts): file changes and conversion results.
+    const offs = [subscribe("file:changed", () => schedule()), subscribe("fsd:conversion", () => schedule())];
     return () => {
       mounted = false;
       if (timer) clearTimeout(timer);
-      es?.close();
+      offs.forEach((off) => off());
     };
   }, [refreshFsdFiles, syncSessions, pageVisible]);
 

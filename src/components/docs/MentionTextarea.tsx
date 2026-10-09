@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Sparkle } from "@phosphor-icons/react";
+import { FileText, Folder, Sparkle } from "@phosphor-icons/react";
+import { rankMentions } from "~/lib/mention-rank";
+import { isFolderPath } from "~/lib/mentions";
 
 export interface MentionFile {
   name: string;
@@ -43,6 +45,10 @@ interface MentionTextareaProps {
   autoGrow?: boolean;
   /** Optional forced height (px) for callers that auto-grow. */
   maxHeightPx?: number;
+  /** Keys the popup did not take (↑/↓ outside the popup, for instance). Call
+   *  `preventDefault` to claim one; Enter is still checked after this. */
+  onExtraKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
 }
 
 /** Builds `\@([^\s\@]*)$`-style matchers for each configured trigger char. */
@@ -125,6 +131,8 @@ export function MentionTextarea({
   disabled,
   autoGrow,
   maxHeightPx,
+  onExtraKeyDown,
+  onPaste,
 }: MentionTextareaProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -142,13 +150,13 @@ export function MentionTextarea({
   const open = openTrigger != null;
   const active = openTrigger != null ? activeTriggers[openTrigger] : null;
 
-  const filtered = useMemo(() => {
-    if (!active) return [];
-    const q = query.toLowerCase();
-    return active.items
-      .filter((i) => !q || i.path.toLowerCase().includes(q) || i.name.toLowerCase().includes(q) || (i.hint ?? "").toLowerCase().includes(q))
-      .slice(0, 20);
-  }, [active, query]);
+  const filtered = useMemo(() => (active ? rankMentions(active.items, query) : []), [active, query]);
+
+  // The highlighted row must stay in view while the arrow keys move it through a long list.
+  const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  useEffect(() => {
+    rowRefs.current[highlight]?.scrollIntoView({ block: "nearest" });
+  }, [highlight, open]);
 
   useEffect(() => {
     setHighlight(0);
@@ -235,6 +243,8 @@ export function MentionTextarea({
         return;
       }
     }
+    onExtraKeyDown?.(e);
+    if (e.defaultPrevented) return;
     if (onSubmit && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
@@ -294,6 +304,7 @@ export function MentionTextarea({
         onChange={(e) => onChange(e.target.value)}
         onInput={detectTrigger}
         onKeyDown={handleKeyDown}
+        onPaste={onPaste}
         onScroll={(e) => {
           setOpenTrigger(null);
           const el = e.currentTarget;
@@ -325,7 +336,10 @@ export function MentionTextarea({
           ) : (
             filtered.map((item, i) => (
               <button
-                key={item.path}
+                key={`${i}:${item.path}`}
+                ref={(el) => {
+                  rowRefs.current[i] = el;
+                }}
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -337,7 +351,7 @@ export function MentionTextarea({
                 }`}
               >
                 <span className="mt-0.5 shrink-0 opacity-60">
-                  {isSkillTrigger ? <Sparkle size={11} /> : <FileText size={11} />}
+                  {isSkillTrigger ? <Sparkle size={11} /> : isFolderPath(item.path) ? <Folder size={11} /> : <FileText size={11} />}
                 </span>
                 <span className="grid gap-0.5 min-w-0 flex-1">
                   <span className="flex items-center gap-2">

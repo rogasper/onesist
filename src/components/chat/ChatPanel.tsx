@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Popover } from "@cloudflare/kumo";
-import { CaretUpDown, Check, Gear, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
-import { ChatSurface, type QueuedMessage } from "~/components/chat/ChatSurface";
+import { ArrowsInSimple, ArrowsOutSimple, CaretUpDown, Check, Gear, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
+import { ChatSurface } from "~/components/chat/ChatSurface";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import { useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
 
@@ -23,6 +24,11 @@ import { usePanelResize } from "~/lib/use-panel-resize";
 const MIN_WIDTH = 320;
 const DEFAULT_WIDTH = 460;
 const MAX_WIDTH = 900;
+/** Narrowest the project area may get next to the chat before the chat floats over it. */
+const MIN_CONTENT_WIDTH = 560;
+/** Expanded, the chat covers the project area and leaves this much on the left (the sidebar). */
+const EXPANDED_OFFSET_PX = 232;
+const EXPANDED_KEY = "chat-panel-expanded";
 
 interface Props {
   visible: boolean;
@@ -32,26 +38,14 @@ interface Props {
 
 export function ChatPanel({ visible, onClose, projectId }: Props) {
   const { threads, loading, error, refresh, createThread, deleteThread } = useChatThreads(projectId);
+  // A run starting, finishing, or asking for approval changes the badges: re-read the list.
+  useChatActivityEvents(() => void refresh());
   const { providers, refresh: refreshProviders } = useChatProviders();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [providersOpen, setProvidersOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ThreadSummary | null>(null);
   const [creating, setCreating] = useState(false);
-  /**
-   * Messages typed while a run is active, per thread id.
-   *
-   * Held here, not in `ChatSurface`, because the surface is keyed by thread id
-   * and remounts on every switch: a queue that vanished because the user glanced
-   * at another conversation would be worse than no queue at all.
-   */
-  const [queues, setQueues] = useState<Record<string, QueuedMessage[]>>({});
-  const enqueue = useCallback((threadId: string, text: string) => {
-    setQueues((prev) => ({ ...prev, [threadId]: [...(prev[threadId] ?? []), { id: crypto.randomUUID(), text }] }));
-  }, []);
-  const removeQueued = useCallback((threadId: string, id: string) => {
-    setQueues((prev) => ({ ...prev, [threadId]: (prev[threadId] ?? []).filter((q) => q.id !== id) }));
-  }, []);
   const { width, dragging, handleProps: resizeHandleProps } = usePanelResize({
     min: MIN_WIDTH,
     max: MAX_WIDTH,
@@ -88,8 +82,61 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
     }
   }
 
+  // The project area must keep room (P3.2): below MIN_CONTENT_WIDTH the chat floats over it
+  // instead of squeezing it. The width of the row the panel sits in decides, not the panel's own
+  // mode, so the switch cannot flip back and forth.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [rowWidth, setRowWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const row = rootRef.current?.parentElement;
+    if (!row) return;
+    // Measured again when the panel opens or changes width: opening it may fold the app
+    // sidebar, which changes the row without any resize event on the row itself.
+    const measure = () => setRowWidth(row.clientWidth);
+    // Measured at once, and again on the next frame (the sidebar may still be moving); the frame
+    // callback alone never runs in a hidden page.
+    measure();
+    const frame = requestAnimationFrame(measure);
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [visible, width]);
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    try {
+      return typeof window !== "undefined" && window.localStorage.getItem(EXPANDED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleExpanded = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(EXPANDED_KEY, next ? "1" : "0");
+      } catch {
+        /* storage blocked: the choice simply is not remembered */
+      }
+      return next;
+    });
+  };
+  const floating = visible && (expanded || (rowWidth !== null && rowWidth - width < MIN_CONTENT_WIDTH));
+  const panelWidth = expanded ? `calc(100vw - ${EXPANDED_OFFSET_PX}px)` : width;
+
   return (
-    <div className={visible ? "flex shrink-0 h-full min-h-0" : "hidden"} style={{ width }}>
+    <div
+      ref={rootRef}
+      className={
+        !visible
+          ? "hidden"
+          : floating
+            ? "fixed top-0 bottom-0 right-0 z-40 flex min-h-0 shadow-2xl @container/chat"
+            : "flex shrink-0 h-full min-h-0 @container/chat"
+      }
+      style={{ width: panelWidth }}
+    >
       {/* Resize edge. Pointer events with capture (see usePanelResize): the drag
           must not select the transcript text it travels over. */}
       <div
@@ -111,6 +158,9 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
               <X size={13} />
             </Button>
           ) : null}
+          <Button variant="ghost" onClick={toggleExpanded} title={expanded ? "Kecilkan panel chat" : "Perluas panel chat"} aria-label={expanded ? "Kecilkan panel chat" : "Perluas panel chat"}>
+            {expanded ? <ArrowsInSimple size={14} /> : <ArrowsOutSimple size={14} />}
+          </Button>
           <Button variant="ghost" onClick={() => setProvidersOpen(true)} title="Pengaturan provider">
             <Gear size={14} />
           </Button>
@@ -137,14 +187,15 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
                 threadId={detail.thread.id}
                 detail={detail}
                 providers={providers}
-                queued={queues[detail.thread.id] ?? []}
-                onEnqueue={(text) => enqueue(detail.thread.id, text)}
-                onRemoveQueued={(id) => removeQueued(detail.thread.id, id)}
                 onRefresh={() => {
                   void refreshDetail();
                   void refresh();
                 }}
                 onOpenProviders={() => setProvidersOpen(true)}
+                onOpenThread={(id) => {
+                  setActiveId(id);
+                  void refresh();
+                }}
               />
             </ProjectIdProvider>
           ) : null}
@@ -378,6 +429,16 @@ function ThreadPicker({
             <span className="w-4 shrink-0 text-kumo-brand">{t.id === activeId ? <Check size={13} weight="bold" /> : null}</span>
             <span className="grid gap-0.5 min-w-0">
               <span className="text-sm text-kumo-default truncate">{t.title || "Percakapan baru"}</span>
+              {threadBadges(t.activity).length ? (
+                <span className="flex flex-wrap gap-x-2.5 text-xs">
+                  {threadBadges(t.activity).map((b) => (
+                    <span key={b.label} className={`inline-flex items-center gap-1 ${b.tone === "run" ? "text-blue-400" : "text-amber-400"}`}>
+                      {b.tone === "run" ? <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" /> : null}
+                      {b.label}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
               <span className="text-xs text-kumo-subtle">
                 {t.mode === "ask" ? "Menjawab" : t.mode === "plan" ? "Merencanakan" : "Mengerjakan"}
                 {t.permissionMode === "readonly"

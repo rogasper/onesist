@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MentionRef } from "~/lib/mention-ref";
 import { DefaultChatTransport, type UIMessage } from "~/lib/ai-client";
 import { useFileChanged } from "~/lib/use-file-data";
+import { subscribe } from "~/lib/event-stream";
 
 /**
  * Data hook for the Chat tab (FR-B, FR-C).
@@ -24,6 +26,10 @@ export interface ThreadSummary {
   tokensUsed: number;
   archived: boolean;
   hasSummary: boolean;
+  /** Reasoning effort picked for this thread; null = the provider's default. */
+  reasoningEffort?: "low" | "medium" | "high" | null;
+  /** What the thread is doing now: a run, and the answers it waits for (M5). */
+  activity?: { running: boolean; pendingApprovals: number; pendingQuestions: number };
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -68,6 +74,11 @@ export interface MessageMetadata {
 
 export interface ThreadDetail {
   thread: ThreadSummary;
+  /** The `messages` above are the newest page; older ones are fetched on demand. */
+  hasMoreMessages?: boolean;
+  /** Id of the run still working on this thread, or null. Set when the client
+   *  left mid-run and came back, so the transcript is known to be incomplete. */
+  activeRun?: string | null;
   /** Absolute workspace root — used to open a changed file with the OS. */
   rootPath?: string | null;
   messages: { id: string; role: "user" | "assistant" | "system"; parts: any[]; metadata?: MessageMetadata }[];
@@ -90,6 +101,8 @@ export interface ChatProviderOption {
   source: string;
   isDefault: boolean;
   apiStyle: string;
+  /** The model reads pictures (set in provider settings). */
+  supportsVision?: boolean;
   envFallback: boolean;
 }
 
@@ -271,6 +284,8 @@ export function useThreadTransport(threadId: string | null) {
     if (!threadId) return null;
     return new DefaultChatTransport({
       api: `/api/chat/threads/${threadId}/messages`,
+      // Reattach to a run still working on this thread (see the stream route).
+      prepareReconnectToStreamRequest: () => ({ api: `/api/chat/threads/${threadId}/stream` }),
     });
   }, [threadId]);
 }
@@ -283,7 +298,19 @@ export interface PendingApproval {
   toolCallId: string;
   name: string;
   preview: string;
+  /** Content to judge: the text of a write, the two sides of an edit, the command. */
+  detail?: string;
   reason?: string;
+}
+
+/** What an approval answer covers: this call, every call of this kind in the
+ *  thread, or in the project (approval-rules.ts). */
+export type ApprovalScope = "once" | "thread" | "project";
+
+/** A question the agent asked and waits on (`ask_user`). */
+export interface PendingQuestion {
+  questionId: string;
+  questions: { question: string; options?: string[] }[];
 }
 
 /**
@@ -295,48 +322,219 @@ export interface PendingApproval {
  * stops on its own once the stream finishes, so it never becomes a permanent
  * poll that would violate this app's SSE conventions.
  */
-export function usePendingApprovals(threadId: string | null, active: boolean) {
-  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+/**
+ * Live thread events from SSE, for the open thread only.
+ *
+ *   `chat:run`   — a run on this thread reached a final status
+ *   `chat:steer` — the model took one or more steered messages
+ *   open         — the channel is connected; used to re-read once, in case an
+ *                  event happened before this subscription existed
+ *
+ * Same channel and error guard as the run notifications (AGENTS.md: close after
+ * repeated errors, never poll). Handlers are read through refs, so callers can
+ * pass fresh closures without resubscribing.
+ */
+export interface ChatLiveEventHandlers {
+  onRunEnded?: () => void;
+  onSteerTaken?: (messageIds: string[]) => void;
+  /** A run parked on an approval: re-read the pending list. */
+  onApproval?: () => void;
+  /** An approval was answered, timed out, or its run ended. */
+  onApprovalResolved?: (toolCallId: string) => void;
+  /** The agent asked the user a question. */
+  onQuestion?: () => void;
+  onQuestionResolved?: (questionId: string) => void;
+  /** The thread's message queue changed: re-read it. */
+  onQueueChanged?: () => void;
+  /** A turn started on this thread (possibly from the queue). */
+  onTurnStarted?: () => void;
+  /** The provider refused a request and the SDK is retrying it; attempt 0 ends the retries. */
+  onProviderRetry?: (info: { status: number; attempt: number }) => void;
+  onOpen?: () => void;
+}
+
+export function useChatLiveEvents(threadId: string | null, enabled: boolean, handlers: ChatLiveEventHandlers) {
+  const latest = useRef(handlers);
+  latest.current = handlers;
 
   useEffect(() => {
-    if (!threadId || !active) {
-      setApprovals([]);
-      if (timer.current) clearInterval(timer.current);
-      timer.current = null;
-      return;
-    }
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await api<{ approvals: PendingApproval[] }>(`/api/chat/threads/${threadId}/approvals`);
-        if (!cancelled) setApprovals(res.approvals);
-      } catch {
-        /* approvals are not critical display-wise — never disturb the stream */
-      }
+    if (!threadId || !enabled) return;
+    // Only events of the open thread count; the rest of the project's events are ignored here.
+    const mine = (handler: (data: any) => void) => (data: any) => {
+      if (data?.threadId === threadId) handler(data);
     };
-    void tick();
-    timer.current = setInterval(tick, 1200);
-    return () => {
-      cancelled = true;
-      if (timer.current) clearInterval(timer.current);
-      timer.current = null;
-    };
-  }, [threadId, active]);
+    const offs = [
+      subscribe("chat:run", mine(() => latest.current.onRunEnded?.())),
+      subscribe("chat:steer", mine((data) => latest.current.onSteerTaken?.(Array.isArray(data.messageIds) ? data.messageIds : []))),
+      subscribe("chat:approval", mine(() => latest.current.onApproval?.())),
+      subscribe("chat:approval-resolved", mine((data) => latest.current.onApprovalResolved?.(String(data.toolCallId ?? "")))),
+      subscribe("chat:question", mine(() => latest.current.onQuestion?.())),
+      subscribe("chat:question-resolved", mine((data) => latest.current.onQuestionResolved?.(String(data.questionId ?? "")))),
+      subscribe("chat:queue", mine(() => latest.current.onQueueChanged?.())),
+      subscribe("chat:turn", mine(() => latest.current.onTurnStarted?.())),
+      subscribe("chat:provider-retry", mine((data) => latest.current.onProviderRetry?.({ status: Number(data.status), attempt: Number(data.attempt) }))),
+    ];
+    // Read once after subscribing: an event that happened before the stream was open is not replayed.
+    latest.current.onOpen?.();
+    return () => offs.forEach((off) => off());
+  }, [threadId, enabled]);
+}
 
-  const decide = useCallback(async (toolCallId: string, decision: "approved" | "denied") => {
-    // Drop it from the list first so the card disappears immediately, then
-    // tell the server.
-    setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
-    const res = await api<{ runId?: string }>(`/api/chat/threads/${threadId}/approvals`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ toolCallId, decision }),
-    }).catch(() => null);
-    void res;
+/**
+ * Approvals waiting on a decision for this thread.
+ *
+ * Loaded once when the thread becomes active, then kept current by the thread's
+ * live events (`chat:approval`, `chat:approval-resolved`): no polling. The handlers
+ * are passed to `useChatLiveEvents`, which holds the single SSE subscription.
+ */
+export function usePendingApprovals(threadId: string | null, active: boolean) {
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [questions, setQuestions] = useState<PendingQuestion[]>([]);
+  /** Answered approvals. A read that started before the answer must not bring the
+   *  card back, so results are filtered against this set. */
+  const resolved = useRef(new Set<string>());
+  const resolvedQuestions = useRef(new Set<string>());
+
+  const load = useCallback(async () => {
+    if (!threadId) return;
+    try {
+      const res = await api<{ approvals: PendingApproval[]; questions?: PendingQuestion[] }>(
+        `/api/chat/threads/${threadId}/approvals`,
+      );
+      setApprovals(res.approvals.filter((a) => !resolved.current.has(a.toolCallId)));
+      setQuestions((res.questions ?? []).filter((q) => !resolvedQuestions.current.has(q.questionId)));
+    } catch {
+      /* approvals are not critical display-wise — never disturb the stream */
+    }
   }, [threadId]);
 
-  return { approvals, decide };
+  useEffect(() => {
+    resolved.current = new Set();
+    resolvedQuestions.current = new Set();
+    if (!threadId || !active) {
+      setApprovals([]);
+      setQuestions([]);
+      return;
+    }
+    void load();
+  }, [threadId, active, load]);
+
+  const handlers = useMemo<
+    Pick<ChatLiveEventHandlers, "onApproval" | "onApprovalResolved" | "onQuestion" | "onQuestionResolved" | "onOpen">
+  >(
+    () => ({
+      onApproval: () => void load(),
+      onApprovalResolved: (toolCallId) => {
+        resolved.current.add(toolCallId);
+        setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
+      },
+      onQuestion: () => void load(),
+      onQuestionResolved: (questionId) => {
+        resolvedQuestions.current.add(questionId);
+        setQuestions((prev) => prev.filter((q) => q.questionId !== questionId));
+      },
+      // Subscribed (or resubscribed): a read covers anything missed meanwhile.
+      onOpen: () => void load(),
+    }),
+    [load],
+  );
+
+  /** Sends the user's answers to a question the agent is waiting on. */
+  const answerQuestion = useCallback(
+    async (questionId: string, answers: string[]) => {
+      resolvedQuestions.current.add(questionId);
+      setQuestions((prev) => prev.filter((q) => q.questionId !== questionId));
+      await api(`/api/chat/threads/${threadId}/questions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ questionId, answers }),
+      }).catch(() => null);
+    },
+    [threadId],
+  );
+
+  const decide = useCallback(
+    async (toolCallId: string, decision: "approved" | "denied", opts: { scope?: ApprovalScope; feedback?: string } = {}) => {
+      // Drop it from the list first so the card disappears immediately, then
+      // tell the server.
+      resolved.current.add(toolCallId);
+      setApprovals((prev) => prev.filter((a) => a.toolCallId !== toolCallId));
+      await api<{ runId?: string }>(`/api/chat/threads/${threadId}/approvals`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolCallId, decision, scope: opts.scope ?? "once", feedback: opts.feedback }),
+      }).catch(() => null);
+    },
+    [threadId],
+  );
+
+  return { approvals, decide, questions, answerQuestion, handlers };
+}
+
+export interface QueueItem {
+  id: string;
+  text: string;
+}
+
+export interface ChatQueueState {
+  items: QueueItem[];
+  /** Held after a stop or a failure: nothing is sent from the queue until resumed. */
+  paused: boolean;
+}
+
+/**
+ * The thread's message queue, held on the server (see server/agent/queue.ts).
+ * Re-read on `chat:queue`; the server starts the next turn itself, so the client
+ * only adds, removes, promotes and resumes.
+ */
+export function useChatQueue(threadId: string | null) {
+  const [state, setState] = useState<ChatQueueState>({ items: [], paused: false });
+
+  const refresh = useCallback(async () => {
+    if (!threadId) return;
+    try {
+      setState(await api<ChatQueueState>(`/api/chat/threads/${threadId}/queue`));
+    } catch {
+      /* the queue is re-read on the next event */
+    }
+  }, [threadId]);
+
+  useEffect(() => {
+    setState({ items: [], paused: false });
+    void refresh();
+  }, [threadId, refresh]);
+
+  const post = useCallback(
+    async (path: string, body?: unknown) => {
+      try {
+        await api(`/api/chat/threads/${threadId}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body ?? {}),
+        });
+      } finally {
+        await refresh();
+      }
+    },
+    [threadId, refresh],
+  );
+
+  /** Adds messages to the queue. `front` puts them ahead of what is queued. */
+  const enqueue = useCallback((texts: string[], front = false) => post("/queue", { texts, front }), [post]);
+
+  const remove = useCallback(async (id: string) => {
+    try {
+      await api(`/api/chat/threads/${threadId}/queue/${id}`, { method: "DELETE" });
+    } finally {
+      await refresh();
+    }
+  }, [threadId, refresh]);
+
+  /** "Jalankan sekarang": the item becomes the next turn; the active run is stopped. */
+  const runNow = useCallback((id: string) => post(`/queue/${id}/run-now`), [post]);
+  const resume = useCallback(() => post("/queue/resume"), [post]);
+
+  return { ...state, refresh, enqueue, remove, runNow, resume };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -356,6 +554,68 @@ export interface UploadedAttachment {
  * following the existing FSD upload pattern — this app uses no `FormData`
  * on any of these paths, and base64 in the query is safe for non-ASCII file names.
  */
+/** What the next turn would send, in estimated tokens, by part (the context meter). */
+export interface ContextUsage {
+  window: number;
+  total: number;
+  ratio: number;
+  parts: { key: string; label: string; tokens: number }[];
+  /** Whether "Ringkas sekarang" has older turns to take. */
+  compactable: boolean;
+}
+
+export async function fetchContextUsage(threadId: string): Promise<ContextUsage | null> {
+  const res = await fetch(`/api/chat/threads/${threadId}/context`, { cache: "no-store" });
+  return res.ok ? ((await res.json()) as ContextUsage) : null;
+}
+
+/** Ringkas sekarang: returns the error text when it did not go through. */
+export async function compactThread(threadId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch(`/api/chat/threads/${threadId}/compact`, { method: "POST", cache: "no-store" });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  return res.ok ? { ok: true } : { ok: false, error: data.error ?? "Gagal meringkas percakapan." };
+}
+
+/** A suggestion for an empty chat: fills the composer, is not sent by itself. */
+export interface ProjectSuggestion {
+  label: string;
+  prompt: string;
+}
+
+export async function fetchProjectSuggestions(projectId: string): Promise<ProjectSuggestion[]> {
+  const res = await fetch(`/api/chat/projects/${projectId}/suggestions`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return ((await res.json()) as { suggestions: ProjectSuggestion[] }).suggestions;
+}
+
+/**
+ * Any chat event in the project, for lists that show activity (the thread list badges).
+ * One connection, closed after repeated errors, and never polled.
+ */
+export function useChatActivityEvents(onChange: () => void) {
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  useEffect(() => {
+    const offs = ["chat:run", "chat:turn", "chat:approval", "chat:approval-resolved", "chat:question", "chat:question-resolved"].map((name) =>
+      subscribe(name, () => latest.current()),
+    );
+    return () => offs.forEach((off) => off());
+  }, []);
+}
+
+/** The `#` references a project offers the composer. */
+export async function fetchMentionRefs(projectId: string): Promise<MentionRef[]> {
+  const res = await fetch(`/api/chat/projects/${projectId}/refs`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return ((await res.json()) as { refs: MentionRef[] }).refs;
+}
+
+/** The content of one reference, clipped by the server. Null when it is gone. */
+export async function fetchMentionRef(projectId: string, kind: string, id: string): Promise<{ label: string; text: string } | null> {
+  const res = await fetch(`/api/chat/projects/${projectId}/refs/${kind}/${encodeURIComponent(id)}`, { cache: "no-store" });
+  return res.ok ? ((await res.json()) as { label: string; text: string }) : null;
+}
+
 export async function uploadAttachment(threadId: string, file: File): Promise<UploadedAttachment> {
   const filename = btoa(unescape(encodeURIComponent(file.name || "lampiran")));
   const res = await fetch(`/api/chat/threads/${threadId}/attachments?filename=${encodeURIComponent(filename)}`, {
@@ -564,37 +824,7 @@ export function useChatActions(projectId: string | undefined) {
 /** Project artifact file list (input/ + output/ + root) for the `@` popup.
  *  Same endpoint the Docs page uses, so the offered list stays
  *  consistent across the app. */
-/**
- * Expands `@name` chips back into `@dir/name` paths before a message is sent.
- *
- * The composer inserts mentions by NAME so the field shows a compact chip; the
- * agent, however, needs a path it can hand to `read_file`. Expansion only
- * happens when the name is unambiguous — with two files of the same name the
- * text is left exactly as typed, which keeps the ambiguity visible instead of
- * silently pointing at one of them. Anything already containing a slash is
- * treated as a hand-typed path and left alone.
- */
-export function expandMentions(text: string, files: { name: string; path: string }[]): string {
-  if (!text.includes("@") || !files.length) return text;
-  return text
-    .split(/(\s+)/)
-    .map((chunk) => {
-      const at = chunk.indexOf("@");
-      if (at < 0) return chunk;
-      // The `@` must not sit inside a word — an e-mail address is not a mention.
-      if (at > 0 && /[\p{L}\p{N}]/u.test(chunk[at - 1])) return chunk;
-      const after = chunk.slice(at + 1);
-      // Surrounding punctuation belongs to the sentence, not to the mention
-      // (`(@name),` must still expand).
-      const trailing = after.match(/[,.;:!?)\]}"]+$/)?.[0] ?? "";
-      const label = after.slice(0, after.length - trailing.length);
-      if (!label || label.includes("/")) return chunk;
-      const matches = files.filter((f) => f.name === label);
-      if (matches.length !== 1) return chunk;
-      return `${chunk.slice(0, at)}@${matches[0].path}${trailing}`;
-    })
-    .join("");
-}
+export { expandMentions } from "~/lib/mentions";
 
 /** Files offered by the `@` trigger. *
  *  Scope is the WHOLE project folder (not just `input/`/`output/`): the chat

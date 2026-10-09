@@ -1,6 +1,7 @@
 import { useMemo, Component } from "react";
 import type { ParsedSpecModule } from "~/lib/spec-parser";
 import { SpecEndpointCard } from "./SpecEndpointCard";
+import { useQuoteSelection } from "~/components/chat/QuoteSelection";
 
 interface SpecViewerProps {
   modules: ParsedSpecModule[];
@@ -38,8 +39,10 @@ export function SpecViewer({ modules, activeModule, totalEndpoints, onNavigateDe
     return displayed.reduce((sum, m) => sum + m.endpoints.length, 0);
   }, [displayed]);
 
+  const quote = useQuoteSelection(activeModule ? `API spec · ${activeModule}` : "API spec");
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div ref={quote.ref} onMouseUp={quote.onMouseUp} className="flex-1 overflow-y-auto relative">
+      {quote.button}
       <div className="px-4 py-3 border-b border-kumo-line">
         <div className="flex items-center gap-3">
           <span className="text-xs text-kumo-default">

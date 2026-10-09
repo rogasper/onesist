@@ -1,3 +1,4 @@
+import { BrowserSection } from "~/components/settings/BrowserSection";
 import { IndexPanel } from "~/components/settings/IndexPanel";
 import { SubagentsPanel } from "~/components/settings/SubagentsPanel";
 import { createFileRoute } from "@tanstack/react-router";
@@ -184,6 +185,7 @@ function SettingsPage() {
         <IndexPanel projectId={id} />
       </Section>
 
+      <BrowserSection />
       <Section title="Subagent">
         <SubagentsPanel projectId={id} />
       </Section>

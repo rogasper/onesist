@@ -14,8 +14,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatThreads, projects } from "~/server/db/schema";
-import { createUIMessageStreamResponse, toUIMessageStream, type UIMessage } from "~/server/agent/ai";
+import { apiEndpoints, apiSpecs, chatThreads, erds, fsdSessions, projects, tasks, testCases } from "~/server/db/schema";
+import { consumeStream, createUIMessageStreamResponse, toUIMessageStream, type UIMessage } from "~/server/agent/ai";
 import { makeRunId, startTurn } from "~/server/agent/agent";
 import {
   ENV_PROVIDER_ID,
@@ -24,11 +24,21 @@ import {
   listProviders,
   maskApiKey,
   redactSecrets,
+  buildLanguageModel,
+  resolveMaxOutputTokens,
   resolveProvider,
 } from "~/server/agent/config";
+import { convertToModelMessages } from "~/server/agent/ai";
+import { estimateTokens, resolveContextWindow, splitForCompaction, summarizeOldest } from "~/server/agent/context";
+import { dbmlTableNames, listMentionRefs, resolveMentionRef } from "~/server/agent/mention-refs";
+import { suggestionsFor } from "~/server/agent/suggestions";
+import { threadActivityOf } from "~/server/agent/thread-activity";
+import { MENTION_KINDS, type MentionKind } from "~/lib/mention-ref";
+import { parseReasoningLevel } from "~/server/agent/reasoning";
+import { imagePartProblem } from "~/lib/image-attachment";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
-import { finishRun, getRun, getRunForThread, listPendingApprovals, queueUserMessage, resolveApproval, stopRun } from "~/server/agent/run-registry";
+import { activeRuns, finishRun, getRun, getRunForThread, listPendingApprovals, listPendingQuestions, queueUserMessage, resolveApproval, resolveQuestion, stopRun } from "~/server/agent/run-registry";
 import {
   addTokens,
   appendMessage,
@@ -38,6 +48,8 @@ import {
   deleteThread,
   getThread,
   listMessages,
+  listMessagePage,
+  messageSeq,
   listThreadFiles,
   listThreadReads,
   listThreads,
@@ -57,10 +69,15 @@ import {
   toUIMessages,
   updateThread,
   upsertThreadFile,
+  type MessageRow,
 } from "~/server/agent/store";
 import { createStreamTiming, tapStream } from "~/server/agent/stream-timing";
 import { withStreamHeartbeat } from "~/server/agent/stream-heartbeat";
 import { getApprovalDecision } from "~/server/agent/run-registry";
+import { closeRunStream, openRunStream, pushRunChunk, subscribeRunStream } from "~/server/agent/run-stream";
+import { enqueue, listQueue, registerQueueStarter, removeQueued, runQueuedNow, setPaused } from "~/server/agent/queue";
+import { applyTurnAction, attributeCheckpoints, recordCheckpoint, turnChanges } from "~/server/agent/checkpoints";
+import { forkThread, truncateFromMessage } from "~/server/agent/thread-edit";
 import { resolveChatActions } from "~/server/agent/actions";
 import { resolveSkills, skillSummaries } from "~/server/agent/skills";
 import { SUBAGENT_LIMITS, SUBAGENT_TOOLS, parseSubagent, resolveSubagents, subagentSummaries } from "~/server/agent/subagents";
@@ -95,9 +112,38 @@ function publicThread(row: NonNullable<ReturnType<typeof getThread>>) {
     tokensUsed: row.tokensUsed,
     archived: row.archived,
     hasSummary: !!row.summary?.trim(),
+    reasoningEffort: row.reasoningEffort ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/** The stored messages the model still sees: those after a manual compaction's cutoff. */
+function visibleRows(thread: { id: string; summaryUptoSeq: number | null }): MessageRow[] {
+  const cutoff = thread.summaryUptoSeq ?? 0;
+  return listMessages(thread.id).filter((r) => r.seq > cutoff && r.role !== "system");
+}
+
+/** The system prompt of a thread. One builder, shared by the turn and the context meter. */
+function threadSystemPrompt(current: NonNullable<ReturnType<typeof getThread>>, root: string): string {
+  return buildSystemPrompt({
+    projectName: (db.select().from(projects).where(eq(projects.id, current.projectId)).get() as any)?.name ?? "Project",
+    root,
+    mode: current.mode as any,
+    permissionMode: current.permissionMode as any,
+    inventory: scanInventory(root),
+    summary: current.summary,
+    // Progressive disclosure (FR-F2): the prompt carries name + description only.
+    // The body is fetched with `skill_read` when the task actually needs it.
+    skills: skillSummaries(resolveSkills(root)),
+    // Both scopes, project last (FR-H1..H3): the more specific one should be the
+    // final thing the model reads when the two disagree.
+    memory: composeMemoryForPrompt(root),
+    // Subagents are advertised by name + description only; the callable list is
+    // resolved again when `task` runs, so a definition added mid-conversation is
+    // usable without a restart.
+    subagents: subagentSummaries(resolveSubagents(root, getAppSubagents()).subagents),
+  });
 }
 
 function projectRootOf(projectId: string): string | null {
@@ -165,7 +211,13 @@ router.get("chat/threads", async (ctx) => {
   const projectId = ctx.query.get("projectId");
   if (!projectId) return json({ error: "projectId wajib." }, 400);
   const includeArchived = ctx.query.get("archived") === "1";
-  return json({ threads: listThreads(projectId, includeArchived).map(publicThread) });
+  // What each thread is doing right now (a run, an approval, a question), so the list
+  // can show it without opening the thread.
+  const activity = threadActivityOf(activeRuns());
+  const idle = { running: false, pendingApprovals: 0, pendingQuestions: 0 };
+  return json({
+    threads: listThreads(projectId, includeArchived).map((t) => ({ ...publicThread(t), activity: activity.get(t.id) ?? idle })),
+  });
 });
 
 router.post("chat/threads", async (ctx) => {
@@ -194,15 +246,21 @@ router.post("chat/threads", async (ctx) => {
 router.get("chat/threads/:id", async (ctx) => {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
-  const messages = listMessages(thread.id);
+  const page = listMessagePage(thread.id);
   const provider = resolveProvider(thread.providerId);
   const root = projectRootOf(thread.projectId);
   return json({
     thread: publicThread(thread),
+    // A run may still be working after the client left (see the stream route).
+    // The UI shows that state and waits for the `chat:run` event instead of
+    // presenting the transcript as finished.
+    activeRun: getRunForThread(thread.id)?.runId ?? null,
     // The workspace root, so the UI can open a changed file with the OS
     // (open in default app / show in Finder) without asking the server again.
     rootPath: root,
-    messages: toUIMessages(messages),
+    messages: toUIMessages(page.rows),
+    // The newest page only; older pages come from `chat/threads/:id/messages`.
+    hasMoreMessages: page.hasMore,
     files: listThreadFiles(thread.id),
     toolCalls: listToolCalls(thread.id).map((t) => ({
       toolCallId: t.toolCallId,
@@ -255,7 +313,11 @@ router.put("chat/threads/:id", async (ctx) => {
   if (body.model !== undefined) patch.model = body.model ? String(body.model).trim() : null;
   if (body.archived !== undefined) patch.archived = !!body.archived;
   if (body.maxSteps !== undefined) patch.maxSteps = normalizeMaxSteps(Number(body.maxSteps));
-  if (body.clearSummary === true) patch.summary = null;
+  if (body.clearSummary === true) {
+    patch.summary = null;
+    patch.summaryUptoSeq = null;
+  }
+  if (body.reasoningEffort !== undefined) patch.reasoningEffort = parseReasoningLevel(body.reasoningEffort);
   updateThread(thread.id, patch);
   return json({ thread: publicThread(getThread(thread.id)!) });
 });
@@ -330,8 +392,13 @@ router.post("chat/threads/:id/inject", async (ctx) => {
     // ordinary turn instead — which is the right outcome, not an error to fix.
     if (!run) return json({ error: "Tidak ada run yang berjalan di percakapan ini." }, 409);
 
-    appendMessage({ threadId: thread.id, role: "user", parts, id: incoming.id });
-    queueUserMessage(thread.id, { id: incoming.id, role: "user", parts });
+    // Not persisted here. The message is stored only when the run actually hands
+    // it to the model (`onSteerConsumed`). If the run ends first, the inbox dies
+    // with it, the client does not find the id in the transcript and puts the
+    // message back into its queue, so nothing is shown as sent that was not.
+    if (!queueUserMessage(thread.id, { id: incoming.id, role: "user", parts })) {
+      return json({ error: "Tidak ada run yang berjalan di percakapan ini." }, 409);
+    }
     return json({ injected: true, runId: run.runId });
   } catch (err) {
     const message = redactSecrets(err);
@@ -342,6 +409,22 @@ router.post("chat/threads/:id/inject", async (ctx) => {
 
 async function handleSendMessage(ctx: any): Promise<Response> {
   const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+
+  const body = await ctx.body();
+  const uiMessages = (Array.isArray(body.messages) ? body.messages : []) as UIMessage[];
+  if (!uiMessages.length) return json({ error: "messages kosong." }, 400);
+  return startThreadTurn(thread.id, uiMessages, ctx.request.signal);
+}
+
+/**
+ * Starts one turn on a thread and returns its UI message stream. Used by the send
+ * route and by the server-side queue, so both follow the same rules: one run per
+ * thread, the user message is stored before the run starts, and the model reads
+ * the stored history.
+ */
+async function startThreadTurn(threadId: string, uiMessages: UIMessage[], clientSignal?: AbortSignal): Promise<Response> {
+  const thread = getThread(threadId);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
 
   const root = projectRootOf(thread.projectId);
@@ -359,10 +442,6 @@ async function handleSendMessage(ctx: any): Promise<Response> {
     );
   }
 
-  const body = await ctx.body();
-  const uiMessages = (Array.isArray(body.messages) ? body.messages : []) as UIMessage[];
-  if (!uiMessages.length) return json({ error: "messages kosong." }, 400);
-
   /**
    * Transcript markers must never reach the model.
    *
@@ -378,8 +457,6 @@ async function handleSendMessage(ctx: any): Promise<Response> {
    * The summary that actually matters is NOT one of these messages — it lives in
    * `chat_threads.summary` and is part of the system prompt (FR-B8).
    */
-  const modelMessages = uiMessages.filter((m) => m?.role !== "system");
-
   // One run per thread. Nothing used to stop a second POST from starting a
   // second run on the same thread: both would sit in RUNS, `getRunForThread`
   // would return whichever it scanned first, and approvals could resolve against
@@ -395,35 +472,35 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   // the run fails or the app closes midway.
   const lastUser = [...uiMessages].reverse().find((m) => m.role === "user");
   if (lastUser) {
-    const text = (lastUser.parts ?? [])
+    const parts = (lastUser.parts ?? []) as any[];
+    const pictureError = imagePartProblem(parts);
+    if (pictureError) return json({ error: pictureError }, 400);
+    const text = parts
       .map((p: any) => (p?.type === "text" ? p.text : ""))
       .join(" ")
       .trim();
-    if (text) {
+    // A message with only pictures is still a message.
+    const hasPicture = parts.some((p: any) => p?.type === "file");
+    if (text || hasPicture) {
       appendMessage({ threadId: thread.id, role: "user", parts: lastUser.parts, id: lastUser.id });
-      if (!thread.title) updateThread(thread.id, { title: autoTitleFrom(text) });
+      if (text && !thread.title) updateThread(thread.id, { title: autoTitleFrom(text) });
     }
   }
 
+  /**
+   * The model's history is read from the database, not from the request body.
+   *
+   * The client used to send its whole transcript, so anything it did not hold
+   * was invisible to the model: a steer the run had consumed, or a turn that was
+   * saved after the client's copy was taken. The stored history is the record of
+   * what really happened, so it is the input. Notices (role "system") are dropped
+   * here as well; they are display markers only.
+   */
+  const stored = toUIMessages(visibleRows(thread)).filter((m) => m.role !== "system") as UIMessage[];
+  const modelMessages = lastUser && !stored.some((m) => m.id === lastUser.id) ? [...stored, lastUser as UIMessage] : stored;
+
   const current = getThread(thread.id)!;
-  const system = buildSystemPrompt({
-    projectName: (db.select().from(projects).where(eq(projects.id, current.projectId)).get() as any)?.name ?? "Project",
-    root,
-    mode: current.mode as any,
-    permissionMode: current.permissionMode as any,
-    inventory: scanInventory(root),
-    summary: current.summary,
-    // Progressive disclosure (FR-F2): the prompt carries name + description only.
-    // The body is fetched with `skill_read` when the task actually needs it.
-    skills: skillSummaries(resolveSkills(root)),
-    // Both scopes, project last (FR-H1..H3): the more specific one should be the
-    // final thing the model reads when the two disagree.
-    memory: composeMemoryForPrompt(root),
-    // Subagents are advertised by name + description only; the callable list is
-    // resolved again when `task` runs, so a definition added mid-conversation is
-    // usable without a restart.
-    subagents: subagentSummaries(resolveSubagents(root, getAppSubagents()).subagents),
-  });
+  const system = threadSystemPrompt(current, root);
 
   const runId = makeRunId();
   let errorText: string | null = null;
@@ -441,6 +518,8 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   const diffsByPath = new Map<string, string>();
   const onFileChange = (change: FileChange) => {
     diffsByPath.set(change.path, change.diff);
+    // Before and after the change, so the turn can be undone (checkpoints.ts).
+    recordCheckpoint({ threadId: current.id, runId, path: change.path, before: change.before, after: change.after });
     upsertThreadFile({
       threadId: current.id,
       path: change.path,
@@ -475,6 +554,7 @@ async function handleSendMessage(ctx: any): Promise<Response> {
       permissionMode: current.permissionMode as any,
       maxSteps: stepBudget,
       mode: current.mode as any,
+      reasoningLevel: parseReasoningLevel(current.reasoningEffort),
       system,
       messages: modelMessages,
       summary: current.summary,
@@ -515,6 +595,14 @@ async function handleSendMessage(ctx: any): Promise<Response> {
          * (FR-B11). */
         lastStepCount = stepCount;
       },
+      onSteerConsumed: (steered) => {
+        // Persisted at the moment the model receives it (FR-B20 wording: "pesan
+        // diambil pada batas langkah"), so the transcript and the model agree.
+        for (const m of steered) {
+          appendMessage({ threadId: current.id, role: "user", parts: m.parts, id: m.id });
+        }
+        eventBus.emitChatSteer({ threadId: current.id, messageIds: steered.map((m) => m.id) });
+      },
     });
   } catch (err) {
     // Failure BEFORE the stream starts (e.g. incomplete provider config) still
@@ -523,17 +611,18 @@ async function handleSendMessage(ctx: any): Promise<Response> {
     return json({ error: redactSecrets(err, provider.apiKey) }, 400);
   }
 
-  // Client disconnected: do not leave the run hanging as `running`.
-  ctx.request.signal.addEventListener("abort", () => {
-    // Logged, not just recorded in the DB: "the run just died" was a report with
-    // no trace anywhere (the sidecar's output is not visible in the terminal),
-    // so the moment the connection drops is exactly what has to appear in
-    // server.err.log — with the step it happened at.
+  // Client disconnected (window reload, thread switch, network blip). The run is
+  // NOT stopped: the agent keeps going and the turn is saved when it ends, so the
+  // transcript is complete the next time the thread is opened. An explicit Stop
+  // goes through `chat/threads/:id/stop`. Logged so a disconnect can still be
+  // traced to the step it happened at.
+  clientSignal?.addEventListener("abort", () => {
     const langkah = getRun(runId)?.stepCount ?? 0;
-    console.error(`[chat] klien memutuskan koneksi di tengah run ${runId} (thread ${current.id}, langkah ${langkah})`);
-    finishRun(runId, "stopped", "Koneksi klien terputus.");
+    console.log(`[chat] klien terputus; run ${runId} tetap berjalan (thread ${current.id}, langkah ${langkah})`);
   });
 
+  openRunStream(runId);
+  eventBus.emitChatTurn({ threadId: current.id, runId });
   const stream = toUIMessageStream({
     stream: tapStream(result.stream, timing),
     originalMessages: uiMessages,
@@ -582,6 +671,7 @@ async function handleSendMessage(ctx: any): Promise<Response> {
           // reported is attributed even when the diff was empty (create).
           try {
             attributeThreadFilesToMessage({ threadId: current.id, paths: [...diffsByPath.keys()], messageId });
+            attributeCheckpoints(runId, messageId);
           } catch (err) {
             console.error("[chat] failed to attribute changed files to the turn:", err);
           }
@@ -673,7 +763,27 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   // "klien memutuskan koneksi" with the panel saying "Load failed" (measured
   // 2026-09-17). The wrapper injects SSE comments (`: ping`) into the RESPONSE
   // BYTES, i.e. after the SDK serialised its chunks; the payload is untouched.
-  const streamResponse = createUIMessageStreamResponse({ stream });
+  // `consumeSseStream` reads a second copy of the stream independently of the
+  // client, so the agent loop and its onFinish (which persists the turn) run to
+  // completion even when nobody is listening any more.
+  // Every chunk is also kept while the run is live, so a client that comes back
+  // (reload, thread switch) can follow it from where it left off: see the
+  // `chat/threads/:id/stream` route and run-stream.ts.
+  const recorded = stream.pipeThrough(
+    new TransformStream({
+      transform(chunk, controller) {
+        pushRunChunk(runId, chunk);
+        controller.enqueue(chunk);
+      },
+      flush() {
+        closeRunStream(runId);
+      },
+    }),
+  );
+  const streamResponse = createUIMessageStreamResponse({
+    stream: recorded as any,
+    consumeSseStream: ({ stream: sse }) => consumeStream({ stream: sse as any }),
+  });
   if (!streamResponse.body) return streamResponse;
   return new Response(withStreamHeartbeat(streamResponse.body), {
     status: streamResponse.status,
@@ -767,8 +877,22 @@ router.get("chat/threads/:id/approvals", async (ctx) => {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
   const run = getRunForThread(thread.id);
-  if (!run) return json({ runId: null, approvals: [] });
-  return json({ runId: run.runId, approvals: listPendingApprovals(run.runId) });
+  if (!run) return json({ runId: null, approvals: [], questions: [] });
+  return json({ runId: run.runId, approvals: listPendingApprovals(run.runId), questions: listPendingQuestions(run.runId) });
+});
+
+/** The user's answers to a question the agent asked (`ask_user`). */
+router.post("chat/threads/:id/questions", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const body = await ctx.body();
+  const questionId = String(body.questionId ?? "");
+  const answers = Array.isArray(body.answers) ? body.answers.map((a: unknown) => String(a ?? "").slice(0, 2000)) : null;
+  if (!questionId || !answers) return json({ error: "questionId dan answers wajib." }, 400);
+  const run = getRunForThread(thread.id);
+  if (!run) return json({ error: "Tidak ada run yang berjalan untuk percakapan ini." }, 404);
+  const ok = resolveQuestion(run.runId, questionId, answers);
+  return json({ resolved: ok }, ok ? 200 : 404);
 });
 
 router.post("chat/threads/:id/approvals", async (ctx) => {
@@ -781,7 +905,9 @@ router.post("chat/threads/:id/approvals", async (ctx) => {
 
   const run = getRunForThread(thread.id);
   if (!run) return json({ error: "Tidak ada run yang berjalan untuk percakapan ini." }, 404);
-  const ok = resolveApproval(run.runId, toolCallId, decision);
+  const scope = body.scope === "thread" || body.scope === "project" ? body.scope : "once";
+  const feedback = typeof body.feedback === "string" ? body.feedback.slice(0, 2000) : undefined;
+  const ok = resolveApproval(run.runId, toolCallId, decision, { scope, feedback });
   return json({ runId: run.runId, resolved: ok }, ok ? 200 : 404);
 });
 
@@ -789,6 +915,158 @@ router.post("chat/threads/:id/approvals", async (ctx) => {
 
 router.post("chat/runs/:id/stop", async (ctx) => {
   const stopped = stopRun(ctx.params.id);
+  return json({ stopped }, stopped ? 200 : 404);
+});
+
+/**
+ * Reattach to the run that is still working on this thread: replays what has been
+ * produced so far, then follows it live. 204 when there is nothing live to follow
+ * (no run, or the run already closed); the client then keeps the saved transcript.
+ */
+// ── Undo / reapply of one turn's file changes ────────────────────────────────
+
+/** The files a turn changed, and whether each can be undone or reapplied now. */
+router.get("chat/threads/:id/messages/:messageId/changes", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const root = projectRootOf(thread.projectId);
+  if (!root) return json({ error: "Project belum punya root path." }, 400);
+  return json({ files: turnChanges(thread.id, root, ctx.params.messageId) });
+});
+
+/**
+ * Undo or reapply a turn. Body `{ paths? }`: without paths the whole turn must be in
+ * the right state, or nothing is written (409 with the conflicts). With paths, the
+ * files in the right state are changed and the others are reported as skipped.
+ */
+for (const action of ["undo", "reapply"] as const) {
+  router.post(`chat/threads/:id/messages/:messageId/${action}`, async (ctx) => {
+    const thread = getThread(ctx.params.id);
+    if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+    const root = projectRootOf(thread.projectId);
+    if (!root) return json({ error: "Project belum punya root path." }, 400);
+    const body = await ctx.body();
+    const paths = Array.isArray(body?.paths) ? body.paths.map((p: unknown) => String(p)) : undefined;
+    const result = applyTurnAction(thread.id, root, ctx.params.messageId, action, paths);
+    if (!result.ok) return json({ error: "Ada berkas yang tidak bisa diubah dengan aman.", conflicts: result.conflicts }, 409);
+    return json(result);
+  });
+}
+
+/**
+ * Removes a user message and everything after it, so its text can be sent again
+ * (edit, retry). Body `{ resetFiles?, conversationOnly? }`. When the file changes of
+ * the removed turns cannot be undone safely, nothing is removed and the conflicts
+ * come back with 409; the caller can then retry with `conversationOnly`.
+ */
+router.post("chat/threads/:id/messages/:messageId/truncate", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const root = projectRootOf(thread.projectId);
+  if (!root) return json({ error: "Project belum punya root path." }, 400);
+  const body = await ctx.body();
+  const result = truncateFromMessage({
+    threadId: thread.id,
+    root,
+    messageId: ctx.params.messageId,
+    resetFiles: body?.resetFiles !== false,
+    conversationOnly: body?.conversationOnly === true,
+  });
+  if (!result.ok) {
+    return json(result.conflicts ? { error: result.error, conflicts: result.conflicts } : { error: result.error }, result.status);
+  }
+  return json({ removedIds: result.removedIds, undone: result.undone });
+});
+
+/** A new thread with the conversation up to a message ("Cabang dari sini"). */
+router.post("chat/threads/:id/fork", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const body = await ctx.body();
+  const messageId = String(body?.messageId ?? "");
+  if (!messageId) return json({ error: "messageId wajib." }, 400);
+  const newId = forkThread({ threadId: thread.id, messageId });
+  if (!newId) return json({ error: "Pesan tidak ditemukan." }, 404);
+  return json({ threadId: newId });
+});
+
+/** An older page of messages, before the message given in `before`. */
+router.get("chat/threads/:id/messages", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const before = String(ctx.query.get("before") ?? "");
+  const seq = before ? messageSeq(thread.id, before) : null;
+  if (before && seq == null) return json({ error: "Pesan tidak ditemukan." }, 404);
+  const page = listMessagePage(thread.id, { beforeSeq: seq ?? undefined });
+  return json({ messages: toUIMessages(page.rows), hasMore: page.hasMore });
+});
+
+router.get("chat/threads/:id/stream", async (ctx) => {
+  const run = getRunForThread(ctx.params.id);
+  const live = run ? subscribeRunStream(run.runId) : null;
+  if (!live) return new Response(null, { status: 204 });
+  const response = createUIMessageStreamResponse({ stream: live as any });
+  if (!response.body) return response;
+  return new Response(withStreamHeartbeat(response.body), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+});
+
+// ── Message queue (server-side) ──────────────────────────────────────────────
+
+/** The queue starts turns itself when a run ends. The turn's stream is read here:
+ *  nobody else reads it, and the run only saves its reply while the stream is read. */
+registerQueueStarter(async (threadId, text) => {
+  const response = await startThreadTurn(threadId, [
+    { id: newId("msg"), role: "user", parts: [{ type: "text", text }] } as unknown as UIMessage,
+  ]);
+  if (response.status !== 200 || !response.body) return false;
+  void response.body.pipeTo(new WritableStream()).catch(() => {});
+  return true;
+});
+
+router.get("chat/threads/:id/queue", async (ctx) => {
+  if (!getThread(ctx.params.id)) return json({ error: "Thread tidak ditemukan." }, 404);
+  return json(listQueue(ctx.params.id));
+});
+
+/** Adds messages to the queue. `front: true` puts them ahead of what is queued. */
+router.post("chat/threads/:id/queue", async (ctx) => {
+  if (!getThread(ctx.params.id)) return json({ error: "Thread tidak ditemukan." }, 404);
+  const body = await ctx.body();
+  const texts = Array.isArray(body.texts) ? body.texts.map((t: unknown) => String(t ?? "")) : [];
+  if (!texts.some((t: string) => t.trim())) return json({ error: "texts wajib diisi." }, 400);
+  const ids = enqueue(ctx.params.id, texts, body.front === true);
+  return json({ ids });
+});
+
+router.delete("chat/threads/:id/queue/:itemId", async (ctx) => {
+  const removed = removeQueued(ctx.params.id, ctx.params.itemId);
+  return json({ removed }, removed ? 200 : 404);
+});
+
+/** "Jalankan sekarang": the item becomes the next turn; the active run is stopped. */
+router.post("chat/threads/:id/queue/:itemId/run-now", async (ctx) => {
+  const ok = runQueuedNow(ctx.params.id, ctx.params.itemId);
+  return json({ ok }, ok ? 200 : 404);
+});
+
+/** Lanjutkan: releases a held queue. */
+router.post("chat/threads/:id/queue/resume", async (ctx) => {
+  if (!getThread(ctx.params.id)) return json({ error: "Thread tidak ditemukan." }, 404);
+  setPaused(ctx.params.id, false);
+  return json(listQueue(ctx.params.id));
+});
+
+/** Stop whatever run is active on this thread. The client needs this because a
+ *  dropped connection no longer stops a run (see the stream response below), so
+ *  an explicit Stop is the only way to end one from the UI. */
+router.post("chat/threads/:id/stop", async (ctx) => {
+  const run = getRunForThread(ctx.params.id);
+  if (!run) return json({ stopped: false }, 404);
+  const stopped = stopRun(run.runId);
   return json({ stopped }, stopped ? 200 : 404);
 });
 
@@ -998,6 +1276,7 @@ router.get("chat/providers", async () => {
   return json({
     providers: all.filter(isProviderUsable).map((p) => ({
       id: p.id,
+      supportsVision: p.supportsVision,
       name: p.name,
       model: p.model,
       // The stored model list is sent along so the model picker can show
@@ -1023,3 +1302,127 @@ function parseModelList(raw: unknown): string[] {
     return [];
   }
 }
+
+// ── Context meter, manual compaction, #references (M4) ─────────────────────
+
+const estTokens = (text: string) => Math.ceil(text.length / 4);
+
+/** What the next turn would send, in estimated tokens, by part. The system part is the
+ *  prompt minus the parts that are shown on their own (memory, skills, summary). */
+router.get("chat/threads/:id/context", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const root = projectRootOf(thread.projectId);
+  const provider = resolveProvider(thread.providerId);
+  const windowSize = resolveContextWindow(provider?.contextWindow);
+  const history = await convertToModelMessages(toUIMessages(visibleRows(thread)).filter((m) => m.role !== "system") as any);
+  const system = root ? threadSystemPrompt(thread, root) : "";
+  const memory = root ? composeMemoryForPrompt(root) : "";
+  const skills = root ? JSON.stringify(skillSummaries(resolveSkills(root))) : "";
+  const summary = thread.summary ?? "";
+  const parts = [
+    { key: "system", label: "Instruksi sistem", tokens: Math.max(0, estTokens(system) - estTokens(memory) - estTokens(skills) - estTokens(summary)) },
+    { key: "memory", label: "Memori project", tokens: estTokens(memory) },
+    { key: "skills", label: "Skill", tokens: estTokens(skills) },
+    { key: "summary", label: "Ringkasan percakapan", tokens: estTokens(summary) },
+    { key: "messages", label: "Pesan", tokens: estimateTokens(history) },
+  ];
+  const total = parts.reduce((n, p) => n + p.tokens, 0);
+  return json({
+    window: windowSize,
+    total,
+    ratio: total / windowSize,
+    parts,
+    compactable: !!splitForCompaction(visibleRows(thread)),
+  });
+});
+
+/** Ringkas sekarang: summarise the older turns into the thread summary and leave them out
+ *  of the model's history from now on. The newest two turns stay as they are. */
+router.post("chat/threads/:id/compact", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  if (getRunForThread(thread.id)) {
+    return json({ error: "Masih ada run yang berjalan. Tunggu sampai selesai atau hentikan dulu." }, 409);
+  }
+  const provider = resolveProvider(thread.providerId);
+  if (!provider) return json({ error: "Belum ada provider yang bisa dipakai untuk meringkas." }, 400);
+  const plan = splitForCompaction(visibleRows(thread));
+  if (!plan) return json({ error: "Belum ada percakapan lama yang bisa diringkas." }, 400);
+
+  const model = buildLanguageModel(provider, { sessionId: thread.id });
+  const messages = await convertToModelMessages(toUIMessages(plan.old).filter((m) => m.role !== "system") as any);
+  const result = await summarizeOldest({
+    model,
+    messages,
+    previousSummary: thread.summary,
+    keepRecent: 0,
+    maxOutputTokens: resolveMaxOutputTokens(provider),
+  });
+  if (!result) return json({ error: "Ringkasan gagal dibuat. Percakapan tidak diubah." }, 502);
+
+  setThreadSummary(thread.id, result.summary);
+  updateThread(thread.id, { summaryUptoSeq: plan.cutoffSeq });
+  appendMessage({
+    threadId: thread.id,
+    role: "system",
+    kind: "compactNotice",
+    parts: [
+      {
+        type: "data-notice",
+        data: { kind: "compacted", estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter, manual: true },
+      },
+    ],
+  });
+  return json({ compacted: plan.old.length, estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter });
+});
+
+/** The `#` references a project offers the composer. */
+router.get("chat/projects/:id/refs", async (ctx) => {
+  return json({ refs: listMentionRefs(ctx.params.id) });
+});
+
+/** One reference's content, clipped, for the message it is attached to. */
+router.get("chat/projects/:id/refs/:kind/:refId", async (ctx) => {
+  const kind = String(ctx.params.kind);
+  if (!(MENTION_KINDS as readonly string[]).includes(kind)) return json({ error: "Jenis referensi tidak dikenal." }, 400);
+  const root = projectRootOf(ctx.params.id) ?? "";
+  const found = resolveMentionRef(ctx.params.id, root, kind as MentionKind, String(ctx.params.refId));
+  if (!found) return json({ error: "Referensi tidak ditemukan." }, 404);
+  return json(found);
+});
+
+/** The state-aware suggestions of an empty chat (M5 item 22). */
+router.get("chat/projects/:id/suggestions", async (ctx) => {
+  const projectId = ctx.params.id;
+  const fsdRows = db.select().from(fsdSessions).where(eq(fsdSessions.projectId, projectId)).all();
+  const specRows = db.select().from(apiSpecs).where(eq(apiSpecs.projectId, projectId)).all();
+  const endpointCount = db
+    .select({ id: apiEndpoints.id })
+    .from(apiEndpoints)
+    .innerJoin(apiSpecs, eq(apiSpecs.id, apiEndpoints.specId))
+    .where(eq(apiSpecs.projectId, projectId))
+    .all().length;
+  const erdTableCount = db
+    .select()
+    .from(erds)
+    .where(eq(erds.projectId, projectId))
+    .all()
+    .reduce((n: number, e: { dbmlContent: string }) => n + dbmlTableNames(e.dbmlContent).length, 0);
+  const taskCount = db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, projectId)).all().length;
+  const testCaseCount = db.select({ id: testCases.id }).from(testCases).where(eq(testCases.projectId, projectId)).all().length;
+  const newest = (rows: { updatedAt: string | null }[]) => rows.reduce((m, r) => ((r.updatedAt ?? "") > m ? (r.updatedAt ?? "") : m), "");
+  const newestFsd = newest(fsdRows);
+  const newestSpec = newest(specRows);
+  return json({
+    suggestions: suggestionsFor({
+      fsdCount: fsdRows.length,
+      endpointCount,
+      erdTableCount,
+      taskCount,
+      testCaseCount,
+      fsdNewerThanSpec: newestFsd !== "" && newestFsd > newestSpec,
+    }),
+  });
+});
+

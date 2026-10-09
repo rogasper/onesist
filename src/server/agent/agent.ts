@@ -17,8 +17,10 @@ import {
   type UIMessage,
 } from "./ai";
 import { buildLanguageModel, resolveMaxOutputTokens, type ProviderRow } from "./config";
+import { reasoningProviderOptions, type ReasoningLevel } from "./reasoning";
 import { pruneForStep, resolveContextWindow, shouldCompact, summarizeOldest, type CompactionDecision } from "./context";
-import { awaitApproval, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun } from "./run-registry";
+import { ruleAllows } from "./approval-rules";
+import { awaitApproval, awaitQuestion, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun, type InjectedMessage } from "./run-registry";
 import { MUTATING_TOOLS, buildTools, type FileChange, type TodoItem } from "./tools";
 import { SUBAGENT_LIMITS, findSubagent, withSubagentSlot, type SubagentInfo } from "./subagents";
 import { getAppSubagents } from "./store";
@@ -30,6 +32,10 @@ export { recoverInterruptedRuns, stopRun, getApprovalSecret };
 export interface TurnInput {
   runId: string;
   threadId: string;
+  /** Called with the steered messages the model actually received at a step
+   *  boundary. Only these are persisted: a steer the run never reached stays out
+   *  of the transcript and goes back to the client's queue (see chat route). */
+  onSteerConsumed?: (messages: InjectedMessage[]) => void;
   projectId: string;
   root: string;
   provider: ProviderRow;
@@ -41,6 +47,8 @@ export interface TurnInput {
   /** Conversation history as UI messages. */
   messages: UIMessage[];
   summary?: string | null;
+  /** Reasoning effort the thread asked for; null = the provider's default. */
+  reasoningLevel?: ReasoningLevel | null;
   /** Called on every successful write — routes use it to send the list of
    *  changed files to the UI in the same stream (FR-C5). */
   onFileChange?: (change: FileChange) => void;
@@ -64,6 +72,19 @@ function approvalPreview(name: string, input: any): string {
   if (name === "write_file") return `${p} (${String(input.content ?? "").length} karakter)`;
   if (name === "edit_file") return `${p} — ganti ${String(input.old_string ?? "").length} → ${String(input.new_string ?? "").length} karakter`;
   return `${p}`.trim() || JSON.stringify(input).slice(0, 200);
+}
+
+/** What the user is approving, in full enough to judge: the content of a write, the
+ *  two sides of an edit, the command. Bounded: the card is for judging, not storage. */
+function approvalDetail(name: string, input: any): string {
+  if (!input || typeof input !== "object") return "";
+  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} karakter lagi)` : text);
+  if (name === "bash") return clip(String(input.command ?? ""), 2000);
+  if (name === "write_file") return clip(String(input.content ?? ""), 2000);
+  if (name === "edit_file") {
+    return clip(`- ${String(input.old_string ?? "")}\n+ ${String(input.new_string ?? "")}`, 2000);
+  }
+  return "";
 }
 
 /** Does this write touch a protected path (FR-E3)? Protected paths require
@@ -159,10 +180,13 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
     projectId: input.projectId,
     root: input.root,
     threadId: input.threadId,
+    supportsVision: input.provider.supportsVision,
     includeMutating,
     includeShell,
     onFileChange: input.onFileChange,
     onFileRead: input.onFileRead,
+    // The user is present for the main agent only; a subagent cannot ask.
+    askUser: (questions) => awaitQuestion(input.runId, questions),
     // Bounded concurrency (FR-G4): `task` calls that start together queue here.
     subagentRunner: ({ name, prompt }) =>
       withSubagentSlot(() =>
@@ -190,6 +214,8 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
     // in history or the user could inject a role via messages.
     instructions: input.system,
     allowSystemInMessages: false,
+    // The SDK types options as its own JSON objects; the shape is checked in reasoning.test.ts.
+    providerOptions: reasoningProviderOptions({ apiStyle: input.provider.apiStyle, level: input.reasoningLevel ?? null, maxOutputTokens }) as any,
     tools,
     stopWhen: isStepCount(input.maxSteps),
     toolApproval: async ({ toolCall }) => {
@@ -209,6 +235,13 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
         return "approved";
       }
 
+      // A rule the user already chose (this thread or this project) covers the call,
+      // unless it touches a protected path: those always ask (FR-E3).
+      if (!isProtected && ruleAllows({ threadId: input.threadId, projectId: input.projectId, name, args })) {
+        recordApprovalDecision(input.runId, toolCallId, "rule");
+        return "approved";
+      }
+
       const reason = isProtected
         ? `Menyentuh path terproteksi — perubahan di sini bisa merusak dokumen sumber atau konfigurasi skill.`
         : undefined;
@@ -217,6 +250,8 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
         toolCallId,
         name,
         preview: approvalPreview(name, args),
+        detail: approvalDetail(name, args),
+        args,
         reason,
       });
     },
@@ -263,6 +298,7 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
       if (injected.length) {
         try {
           next = [...next, ...((await convertToModelMessages(injected as any)) as ModelMessage[])];
+          input.onSteerConsumed?.(injected);
         } catch (err) {
           // A malformed injected message must not kill a run that is otherwise
           // healthy; it stays in the transcript, it just does not reach the model.

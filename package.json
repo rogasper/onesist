@@ -1,6 +1,6 @@
 {
   "name": "sa-dashboard",
-  "version": "0.1.47",
+  "version": "0.2.0",
   "description": "System Analyst Dashboard — ERD, API Spec, Wiki, FSD Analysis, Task Management",
   "license": "MIT",
   "private": true,
@@ -17,7 +17,8 @@
     "generate:routes": "node scripts/generate-routes.mjs",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.54",

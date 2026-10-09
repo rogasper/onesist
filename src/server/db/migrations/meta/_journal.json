@@ -106,6 +106,34 @@
       "when": 1789700312916,
       "tag": "0014_white_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1791513044181,
+      "tag": "0015_chat_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1791514219044,
+      "tag": "0016_chat_checkpoints",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791517430560,
+      "tag": "0017_chat_thread_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791525006964,
+      "tag": "0018_provider_vision",
+      "breakpoints": true
     }
   ]
 }

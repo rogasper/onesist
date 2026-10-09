@@ -38,19 +38,6 @@ function ErdPage() {
   const { files, loading: filesLoading, refresh: refreshFiles } = useFileList("output/erd", id);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
-  // Silent auto-refresh for new project on Windows: files may appear shortly after agent writes
-  // (file-watcher race + Windows path normalize). If empty after load, retry up to 3 times.
-  useEffect(() => {
-    if (!filesLoading && files.length === 0) {
-      let attempts = 0;
-      const timer = setInterval(() => {
-        attempts += 1;
-        if (attempts > 3) { clearInterval(timer); return; }
-        void refreshFiles();
-      }, 900);
-      return () => clearInterval(timer);
-    }
-  }, [filesLoading, files.length, refreshFiles]);
   const [fileSearch, setFileSearch] = useState("");
   const { content: dbmlText, refresh: refreshContent } = useFileContent(selectedFile, id);
   const [localText, setLocalText] = useState("");

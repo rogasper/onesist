@@ -168,3 +168,17 @@ export async function summarizeOldest(opts: {
     return null;
   }
 }
+
+/**
+ * Which stored messages a manual compaction takes: everything before the last `keepTurns`
+ * user prompts, so the kept part starts at a user message and the model never sees an
+ * answer without the question it answers. Null when there is no older turn to take.
+ */
+export function splitForCompaction<T extends { role: string; seq: number }>(rows: T[], keepTurns = 2): { old: T[]; cutoffSeq: number } | null {
+  const userAt = rows.flatMap((r, i) => (r.role === "user" ? [i] : []));
+  if (userAt.length <= keepTurns) return null;
+  const keepFrom = userAt[userAt.length - keepTurns];
+  const old = rows.slice(0, keepFrom);
+  if (!old.length) return null;
+  return { old, cutoffSeq: old[old.length - 1].seq };
+}

@@ -25,6 +25,7 @@ export interface ProviderSummary {
   proxyUrl: string | null;
   skipTlsVerify: boolean;
   enableThinking: boolean;
+  supportsVision: boolean;
   effortCapabilityJson: string | null;
   maxOutputTokens: number | null;
   contextWindow: number | null;
@@ -90,6 +91,7 @@ export interface ProviderDraft {
   proxyUrl: string;
   skipTlsVerify: boolean;
   enableThinking: boolean;
+  supportsVision: boolean;
   isDefault?: boolean;
 }
 

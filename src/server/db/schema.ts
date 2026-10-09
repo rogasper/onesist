@@ -303,6 +303,8 @@ export const llmProviders = sqliteTable("llm_providers", {
   proxyUrl: text("proxy_url"),
   skipTlsVerify: integer("skip_tls_verify", { mode: "boolean" }).notNull().default(false),
   enableThinking: integer("enable_thinking", { mode: "boolean" }).notNull().default(false),
+  /** The model accepts pictures in messages (P4.1). Set by the user; not guessed from the name. */
+  supportsVision: integer("supports_vision", { mode: "boolean" }).notNull().default(false),
   /** Supported effort-control shape + where the info came from (FR-A12). */
   effortCapabilityJson: text("effort_capability_json"),
   /** REQUIRED when in use: without an explicit value, registry providers
@@ -348,15 +350,73 @@ export const chatThreads = sqliteTable(
     permissionMode: text("permission_mode").notNull().default("ask"),
     /** Summary of old messages once the context budget is exceeded (FR-B8 layer 2). */
     summary: text("summary"),
+    /** Manual compaction (M4 ringkas): messages up to this seq are represented by
+     *  `summary` and are left out of the model's history. Null = none left out. */
+    summaryUptoSeq: integer("summary_upto_seq"),
+    /** Reasoning effort the user picked for this thread (low | medium | high).
+     *  Null = the provider's default. Only sent to providers that support it. */
+    reasoningEffort: text("reasoning_effort"),
     /** Step limit per turn (FR-L7). Default 60, clamped 5..500; the ceiling is
      *  reported in the transcript when reached, and the notice can raise it. */
     maxSteps: integer("max_steps").notNull().default(60),
     tokensUsed: integer("tokens_used").notNull().default(0),
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+    /** The message queue is held: nothing is sent from it until resumed. Set when a
+     *  run is stopped or fails, so the next queued message does not go out on its own. */
+    queuePaused: integer("queue_paused", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").default("datetime('now')"),
     updatedAt: text("updated_at").default("datetime('now')"),
   },
   (t) => [index("idx_chat_threads_project").on(t.projectId)],
+);
+
+/**
+ * What each change looked like before and after it was made, so a turn's file
+ * changes can be undone (and reapplied). One row per file change.
+ *
+ * `*_kind`: `absent` (the file did not exist), `text` (the content is in `*_text`),
+ * or `unknown` (not captured: large file, or a shell command changed it without a
+ * readable snapshot). An `unknown` side cannot be verified, so it cannot be undone.
+ */
+export const chatCheckpoints = sqliteTable(
+  "chat_checkpoints",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    runId: text("run_id").notNull(),
+    /** The assistant message that produced the change; set when the turn is saved. */
+    messageId: text("message_id"),
+    seq: integer("seq").notNull(),
+    path: text("path").notNull(),
+    beforeKind: text("before_kind").notNull(),
+    beforeText: text("before_text"),
+    afterKind: text("after_kind").notNull(),
+    afterText: text("after_text"),
+    createdAt: text("created_at").default("datetime('now')"),
+  },
+  (t) => [index("idx_chat_checkpoints_message").on(t.threadId, t.messageId), index("idx_chat_checkpoints_run").on(t.runId)],
+);
+
+/**
+ * Messages the user queued while a run was working (or while the queue was held).
+ * Held on the server so they are sent even when no client is open on the thread,
+ * and so every open view of the thread shows the same queue.
+ */
+export const chatQueue = sqliteTable(
+  "chat_queue",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    /** Lower goes first. "Jalankan sekarang" moves an item to the front. */
+    position: integer("position").notNull(),
+    text: text("text").notNull(),
+    createdAt: text("created_at").default("datetime('now')"),
+  },
+  (t) => [index("idx_chat_queue_thread").on(t.threadId, t.position)],
 );
 
 export const chatMessages = sqliteTable(
