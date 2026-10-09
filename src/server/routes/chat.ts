@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { chatThreads, projects } from "~/server/db/schema";
-import { createUIMessageStreamResponse, toUIMessageStream, type UIMessage } from "~/server/agent/ai";
+import { consumeStream, createUIMessageStreamResponse, toUIMessageStream, type UIMessage } from "~/server/agent/ai";
 import { makeRunId, startTurn } from "~/server/agent/agent";
 import {
   ENV_PROVIDER_ID,
@@ -199,6 +199,10 @@ router.get("chat/threads/:id", async (ctx) => {
   const root = projectRootOf(thread.projectId);
   return json({
     thread: publicThread(thread),
+    // A run may still be working after the client left (see the stream route).
+    // The UI shows that state and waits for the `chat:run` event instead of
+    // presenting the transcript as finished.
+    activeRun: getRunForThread(thread.id)?.runId ?? null,
     // The workspace root, so the UI can open a changed file with the OS
     // (open in default app / show in Finder) without asking the server again.
     rootPath: root,
@@ -330,8 +334,13 @@ router.post("chat/threads/:id/inject", async (ctx) => {
     // ordinary turn instead — which is the right outcome, not an error to fix.
     if (!run) return json({ error: "Tidak ada run yang berjalan di percakapan ini." }, 409);
 
-    appendMessage({ threadId: thread.id, role: "user", parts, id: incoming.id });
-    queueUserMessage(thread.id, { id: incoming.id, role: "user", parts });
+    // Not persisted here. The message is stored only when the run actually hands
+    // it to the model (`onSteerConsumed`). If the run ends first, the inbox dies
+    // with it, the client does not find the id in the transcript and puts the
+    // message back into its queue, so nothing is shown as sent that was not.
+    if (!queueUserMessage(thread.id, { id: incoming.id, role: "user", parts })) {
+      return json({ error: "Tidak ada run yang berjalan di percakapan ini." }, 409);
+    }
     return json({ injected: true, runId: run.runId });
   } catch (err) {
     const message = redactSecrets(err);
@@ -378,8 +387,6 @@ async function handleSendMessage(ctx: any): Promise<Response> {
    * The summary that actually matters is NOT one of these messages — it lives in
    * `chat_threads.summary` and is part of the system prompt (FR-B8).
    */
-  const modelMessages = uiMessages.filter((m) => m?.role !== "system");
-
   // One run per thread. Nothing used to stop a second POST from starting a
   // second run on the same thread: both would sit in RUNS, `getRunForThread`
   // would return whichever it scanned first, and approvals could resolve against
@@ -404,6 +411,18 @@ async function handleSendMessage(ctx: any): Promise<Response> {
       if (!thread.title) updateThread(thread.id, { title: autoTitleFrom(text) });
     }
   }
+
+  /**
+   * The model's history is read from the database, not from the request body.
+   *
+   * The client used to send its whole transcript, so anything it did not hold
+   * was invisible to the model: a steer the run had consumed, or a turn that was
+   * saved after the client's copy was taken. The stored history is the record of
+   * what really happened, so it is the input. Notices (role "system") are dropped
+   * here as well; they are display markers only.
+   */
+  const stored = toUIMessages(listMessages(thread.id)).filter((m) => m.role !== "system") as UIMessage[];
+  const modelMessages = lastUser && !stored.some((m) => m.id === lastUser.id) ? [...stored, lastUser as UIMessage] : stored;
 
   const current = getThread(thread.id)!;
   const system = buildSystemPrompt({
@@ -515,6 +534,14 @@ async function handleSendMessage(ctx: any): Promise<Response> {
          * (FR-B11). */
         lastStepCount = stepCount;
       },
+      onSteerConsumed: (steered) => {
+        // Persisted at the moment the model receives it (FR-B20 wording: "pesan
+        // diambil pada batas langkah"), so the transcript and the model agree.
+        for (const m of steered) {
+          appendMessage({ threadId: current.id, role: "user", parts: m.parts, id: m.id });
+        }
+        eventBus.emitChatSteer({ threadId: current.id, messageIds: steered.map((m) => m.id) });
+      },
     });
   } catch (err) {
     // Failure BEFORE the stream starts (e.g. incomplete provider config) still
@@ -523,15 +550,14 @@ async function handleSendMessage(ctx: any): Promise<Response> {
     return json({ error: redactSecrets(err, provider.apiKey) }, 400);
   }
 
-  // Client disconnected: do not leave the run hanging as `running`.
+  // Client disconnected (window reload, thread switch, network blip). The run is
+  // NOT stopped: the agent keeps going and the turn is saved when it ends, so the
+  // transcript is complete the next time the thread is opened. An explicit Stop
+  // goes through `chat/threads/:id/stop`. Logged so a disconnect can still be
+  // traced to the step it happened at.
   ctx.request.signal.addEventListener("abort", () => {
-    // Logged, not just recorded in the DB: "the run just died" was a report with
-    // no trace anywhere (the sidecar's output is not visible in the terminal),
-    // so the moment the connection drops is exactly what has to appear in
-    // server.err.log — with the step it happened at.
     const langkah = getRun(runId)?.stepCount ?? 0;
-    console.error(`[chat] klien memutuskan koneksi di tengah run ${runId} (thread ${current.id}, langkah ${langkah})`);
-    finishRun(runId, "stopped", "Koneksi klien terputus.");
+    console.log(`[chat] klien terputus; run ${runId} tetap berjalan (thread ${current.id}, langkah ${langkah})`);
   });
 
   const stream = toUIMessageStream({
@@ -673,7 +699,13 @@ async function handleSendMessage(ctx: any): Promise<Response> {
   // "klien memutuskan koneksi" with the panel saying "Load failed" (measured
   // 2026-09-17). The wrapper injects SSE comments (`: ping`) into the RESPONSE
   // BYTES, i.e. after the SDK serialised its chunks; the payload is untouched.
-  const streamResponse = createUIMessageStreamResponse({ stream });
+  // `consumeSseStream` reads a second copy of the stream independently of the
+  // client, so the agent loop and its onFinish (which persists the turn) run to
+  // completion even when nobody is listening any more.
+  const streamResponse = createUIMessageStreamResponse({
+    stream,
+    consumeSseStream: ({ stream: sse }) => consumeStream({ stream: sse as any }),
+  });
   if (!streamResponse.body) return streamResponse;
   return new Response(withStreamHeartbeat(streamResponse.body), {
     status: streamResponse.status,
@@ -789,6 +821,16 @@ router.post("chat/threads/:id/approvals", async (ctx) => {
 
 router.post("chat/runs/:id/stop", async (ctx) => {
   const stopped = stopRun(ctx.params.id);
+  return json({ stopped }, stopped ? 200 : 404);
+});
+
+/** Stop whatever run is active on this thread. The client needs this because a
+ *  dropped connection no longer stops a run (see the stream response below), so
+ *  an explicit Stop is the only way to end one from the UI. */
+router.post("chat/threads/:id/stop", async (ctx) => {
+  const run = getRunForThread(ctx.params.id);
+  if (!run) return json({ stopped: false }, 404);
+  const stopped = stopRun(run.runId);
   return json({ stopped }, stopped ? 200 : 404);
 });
 

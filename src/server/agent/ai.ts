@@ -29,6 +29,7 @@ export {
   readUIMessageStream,
   validateUIMessages,
   safeValidateUIMessages,
+  consumeStream,
 } from "ai";
 
 // ── Continuing the loop after approval (FR-E4) ──────────────────────────────

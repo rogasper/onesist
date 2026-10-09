@@ -13,7 +13,10 @@ type EventName =
   // from the DB (FR-B13). See ROADMAP 5.6 for why the notification is driven
   // from here rather than from the client's own stream.
   | "chat:run"
-  | "chat:approval";
+  | "chat:approval"
+  // A steered message was handed to the model at a step boundary. Lets the
+  // open thread drop its "menunggu disisipkan" marker while the run continues.
+  | "chat:steer";
 
 interface EventPayload {
   type: EventName;
@@ -130,6 +133,11 @@ class AppEventBus extends EventEmitter {
     threadTitle?: string | null;
   }) {
     this.emitAppEvent({ type: "chat:approval", data: { ...input } });
+  }
+
+  /** Steered messages the model has taken, identified by their message ids. */
+  emitChatSteer(input: { threadId: string; messageIds: string[] }) {
+    this.emitAppEvent({ type: "chat:steer", data: { ...input } });
   }
 
   private emitAppEvent(payload: Omit<EventPayload, "timestamp">) {

@@ -13,6 +13,7 @@ import { FileCard } from "~/components/chat/FileCard";
 import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
 import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment } from "~/components/chat/Composer";
+import { chatActivity, markTaken, planQueueStep, settleSteers, shouldPauseQueue, type ScheduledSend } from "~/components/chat/chat-state";
 import { MAX_STEPS_DEFAULT, MAX_STEPS_MAX } from "~/server/agent/types";
 import {
   expandMentions,
@@ -20,6 +21,7 @@ import {
   messageText,
   uploadAttachment,
   useChatActions,
+  useChatLiveEvents,
   useChatSkills,
   useMentionFiles,
   usePendingApprovals,
@@ -59,6 +61,16 @@ interface Props {
   onRemoveQueued?: (id: string) => void;
   onRefresh: () => void;
   onOpenProviders: () => void;
+  /** The queue is held: nothing is sent automatically until resumed. Set after a
+   *  Stop or a failed run, so the queue never fires into a state the user just
+   *  interrupted. */
+  queuePaused?: boolean;
+  onPauseQueue?: () => void;
+  onResumeQueue?: () => void;
+  /** Messages a run did not take in; they go back to the front of the queue. */
+  onRestoreQueued?: (texts: string[]) => void;
+  /** Moves a queued message to the front of the queue ("Jalankan sekarang"). */
+  onPromoteQueued?: (id: string) => void;
 }
 
 /** A message the user wrote while the agent was still working. */
@@ -102,21 +114,84 @@ function queuedPreview(text: string): string {
   return text.replace(/^Lampiran:\n[\s\S]*?\n\n/, "").replace(/\s+/g, " ").trim() || "(lampiran)";
 }
 
-export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, onRemoveQueued, onRefresh, onOpenProviders }: Props) {
+export function ChatSurface({
+  threadId,
+  detail,
+  providers,
+  queued,
+  onEnqueue,
+  onRemoveQueued,
+  onRefresh,
+  onOpenProviders,
+  queuePaused = false,
+  onPauseQueue,
+  onResumeQueue,
+  onRestoreQueued,
+  onPromoteQueued,
+}: Props) {
   const projectId = detail.thread.projectId;
   const navigate = useNavigate();
   const transport = useThreadTransport(threadId);
   const initialMessages = useMemo(() => detail.messages as unknown as UIMessage[], []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { messages, sendMessage, status, stop, error } = useChat({
+  /** A run ended and the transcript has not been re-read since. The re-read is
+   *  what settles steers and the reply, so the flag stays up until it happens. */
+  const awaitingRefresh = useRef(false);
+  /** The Stop about to happen was asked for by "Jalankan sekarang": do not pause. */
+  const runNowRef = useRef(false);
+
+  const { messages, sendMessage, status, stop, error, setMessages } = useChat({
     id: threadId,
     transport: transport!,
     messages: initialMessages,
-    onFinish: () => onRefresh(),
+    onFinish: ({ isAbort, isError }) => {
+      awaitingRefresh.current = true;
+      // Stop or a failure: hold the queue. Sending the next queued message right
+      // after the user interrupted a run would look like the Stop did not work.
+      // The exception is "Jalankan sekarang", which stops on purpose to send the
+      // promoted message next.
+      if (shouldPauseQueue({ isAbort, isError }, runNowRef.current)) onPauseQueue?.();
+      runNowRef.current = false;
+      onRefresh();
+    },
   });
 
   const streaming = status === "streaming" || status === "submitted";
-  const { approvals, decide } = usePendingApprovals(threadId, streaming);
+  const streamingRef = useRef(false);
+  streamingRef.current = streaming;
+  /** A run on this thread was still going when the thread was opened, and this
+   *  client did not start it (the user left mid-run and came back). Queued
+   *  messages wait for its `chat:run` event. Only the value from opening the
+   *  thread is trusted: a later re-read can still show a run that is in the
+   *  middle of closing, and would hold the queue forever. */
+  const [watchingRun, setWatchingRun] = useState(() => !!detail.activeRun);
+  const activity = chatActivity({ streaming, watching: watchingRun });
+  const { runningElsewhere, busy } = activity;
+  // A run started elsewhere can be parked on an approval; the card must still be
+  // answerable here, or the run waits forever.
+  const { approvals, decide } = usePendingApprovals(threadId, activity.approvalsOn);
+  // Live events are open while this client streams, so a steer taken mid-run
+  // can be shown as taken, and while watching a run started elsewhere.
+  useChatLiveEvents(threadId, activity.liveEvents, {
+    onRunEnded: () => {
+      setWatchingRun(false);
+      // While this client streams, its own onFinish owns the run's end (and the
+      // pause decision); only a run started elsewhere is settled here.
+      if (!streamingRef.current) runNowRef.current = false;
+      awaitingRefresh.current = true;
+      onRefresh();
+    },
+    onSteerTaken: (messageIds) => {
+      setInjectedLocal((prev) => markTaken(prev, messageIds));
+    },
+    onOpen: () => {
+      // Subscribed while watching: read once more, in case the run closed before
+      // we listened.
+      if (!watchingRun) return;
+      awaitingRefresh.current = true;
+      onRefresh();
+    },
+  });
 
   const [input, setInput] = useState("");
   const [mode, setMode] = useState(detail.thread.mode);
@@ -282,7 +357,7 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
     // dropped: the composer used to be disabled, so anything typed mid-run was
     // lost on the floor. Attachments travel with it — they are already uploaded
     // into the workspace, so the `@path` line is valid whenever it is sent.
-    if (streaming) {
+    if (busy) {
       if (payload) onEnqueue?.(payload);
       return;
     }
@@ -300,6 +375,8 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
    */
   const queueTriesRef = useRef(0);
   const queueInFlightRef = useRef<{ id: string; at: number } | null>(null);
+  /** The pending delayed send for the queue head, if one is scheduled. */
+  const sendTimerRef = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [queueStuckId, setQueueStuckId] = useState<string | null>(null);
   const [injectingId, setInjectingId] = useState<string | null>(null);
   /**
@@ -307,38 +384,72 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
    * until the refresh at the end of the run reads them back from the database
    * (same id, so `injectedVisible` drops the local copy instead of doubling it).
    */
-  const [injectedLocal, setInjectedLocal] = useState<{ id: string; text: string }[]>([]);
+  const [injectedLocal, setInjectedLocal] = useState<{ id: string; text: string; taken?: boolean }[]>([]);
   // Re-evaluates the queue while a send is in flight and nothing else changes.
   const [queueTick, setQueueTick] = useState(0);
 
   useEffect(() => {
-    if (!queued?.length || streaming || noProvider) return;
+    if (!queued?.length || busy || noProvider || queuePaused) return;
     const t = setInterval(() => setQueueTick((n) => n + 1), 500);
     return () => clearInterval(t);
-  }, [queued?.length, streaming, noProvider]);
+  }, [queued?.length, busy, noProvider, queuePaused]);
 
+  // The send timer is NOT cleared by this effect's re-runs. `queueTick` re-runs
+  // the effect every 500 ms while the queue waits; with a cleanup that cleared the
+  // timer, the 600 ms delay was reset on every tick and the queued message was
+  // never sent. The timer is only cancelled when its head is no longer the next
+  // thing to send, or when the panel unmounts (see below).
   useEffect(() => {
     const head = queued?.[0];
-    if (!head || streaming || noProvider) return;
-    if (queueStuckId === head.id) return;
-
-    const inFlight = queueInFlightRef.current?.id === head.id;
-    if (inFlight) {
-      if (Date.now() - (queueInFlightRef.current?.at ?? 0) < QUEUE_GRACE_MS) return;
+    const scheduled = sendTimerRef.current;
+    const step = planQueueStep({
+      headId: head?.id ?? null,
+      blocked: busy || noProvider || queuePaused || queueStuckId === head?.id,
+      scheduledId: scheduled?.id ?? null,
+      inFlightId: queueInFlightRef.current?.id ?? null,
+      inFlightAt: queueInFlightRef.current?.at ?? 0,
+      now: Date.now(),
+      tries: queueTriesRef.current,
+      graceMs: QUEUE_GRACE_MS,
+      maxTries: QUEUE_MAX_TRIES,
+    });
+    // A timer for a head that is no longer next is stale, whatever the step says.
+    if (scheduled && scheduled.id !== head?.id) {
+      clearTimeout(scheduled.timer);
+      sendTimerRef.current = null;
+    }
+    if (step.kind === "idle") {
+      if (scheduled && scheduled.id === head?.id) clearTimeout(scheduled.timer);
+      sendTimerRef.current = null;
+      return;
+    }
+    if (step.kind === "keep" || step.kind === "wait") return;
+    if (step.kind === "stuck") {
+      setQueueStuckId(head!.id);
+      return;
+    }
+    if (step.retry) {
       queueInFlightRef.current = null;
       queueTriesRef.current += 1;
-      if (queueTriesRef.current >= QUEUE_MAX_TRIES) {
-        setQueueStuckId(head.id);
-        return;
-      }
     }
-
+    const target = head!;
     const timer = setTimeout(() => {
-      queueInFlightRef.current = { id: head.id, at: Date.now() };
-      void sendMessage({ text: head.text });
+      sendTimerRef.current = null;
+      queueInFlightRef.current = { id: target.id, at: Date.now() };
+      void sendMessage({ text: target.text });
     }, QUEUE_SEND_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [queued, streaming, noProvider, queueTick, queueStuckId, sendMessage]);
+    sendTimerRef.current = { id: target.id, timer } satisfies ScheduledSend;
+  }, [queued, busy, noProvider, queuePaused, queueTick, queueStuckId, sendMessage]);
+
+  // Leaving the thread must not fire a queued send into a conversation the user
+  // is no longer looking at.
+  useEffect(
+    () => () => {
+      if (sendTimerRef.current) clearTimeout(sendTimerRef.current.timer);
+      sendTimerRef.current = null;
+    },
+    [],
+  );
 
   // The turn started: the queued message is a real message now.
   useEffect(() => {
@@ -350,6 +461,55 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
     setQueueStuckId(null);
     onRemoveQueued?.(head.id);
   }, [streaming, queued, onRemoveQueued]);
+
+  /**
+   * Settle the turn once the stored transcript has been re-read after a run.
+   *
+   * The database decides, not the stream: a steer counts as taken exactly when
+   * the server persisted it (at the step boundary). Anything still held locally
+   * was never taken and goes back to the front of the queue, where the normal
+   * sender delivers it as the next turn. Nothing is dropped and nothing shows as
+   * sent that the model did not get.
+   */
+  useEffect(() => {
+    if (!awaitingRefresh.current || streamingRef.current) return;
+    // A re-read that shows no active run ends the watch, even if the event was missed.
+    if (watchingRun && !detail.activeRun) setWatchingRun(false);
+
+    // The rules (wait, restore, clear, sync) are in chat-state.ts, with tests.
+    const settle = settleSteers(
+      injectedLocal,
+      new Set(detail.messages.map((m) => m.id)),
+      messages.map((m) => m.id),
+    );
+    if (settle.wait) return;
+    if (settle.restore.length) onRestoreQueued?.(settle.restore);
+    if (settle.clear) setInjectedLocal([]);
+
+    // Replace the live transcript with the stored one only when every streamed
+    // message is already stored. If the final reply is not saved yet, keep the
+    // streamed copy and try again on the next refresh.
+    if (settle.syncTranscript) {
+      awaitingRefresh.current = false;
+      setMessages(detail.messages as unknown as UIMessage[]);
+    }
+  }, [detail, injectedLocal, messages, onRestoreQueued, setMessages, watchingRun]);
+
+  /** Ends the run on the server and this client's view of it. The explicit call
+   *  is needed because a dropped connection no longer stops a run. */
+  function stopActiveRun() {
+    void fetch(`/api/chat/threads/${threadId}/stop`, { method: "POST", cache: "no-store" }).catch(() => {});
+    stop();
+  }
+
+  /** "Jalankan sekarang": the queued message becomes the next turn. The run is
+   *  stopped, and the queue sends the promoted message once it has closed. */
+  function runNow(q: QueuedMessage) {
+    if (!busy) return;
+    runNowRef.current = true;
+    onPromoteQueued?.(q.id);
+    stopActiveRun();
+  }
 
   function retryQueued(id: string) {
     if (queueStuckId !== id) return;
@@ -501,20 +661,23 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
             />
           ))}
 
-          {/* Messages handed to the running turn ("Kirim sekarang"): in the
-              user's own words right away, replaced by the stored row — same id —
-              when the end of the run refreshes the transcript. */}
+          {/* Messages handed to the running turn ("Arahkan"): in the user's own
+              words right away, labelled as pending until the model takes them.
+              Once the run closes, the stored row (same id) replaces the copy, or
+              the message goes back to the queue if it was never taken. */}
           {injectedVisible.map((m) => (
-            <MessageBlock
-              key={m.id}
-              message={{ id: m.id, role: "user", parts: [{ type: "text", text: m.text }] } as unknown as UIMessage}
-              streaming={false}
-              projectId={projectId}
-              root={detail.rootPath ?? null}
-              toolDuration={toolDuration}
-              approvalById={approvalById}
-              nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
-            />
+            <div key={m.id} className="grid gap-1">
+              <MessageBlock
+                message={{ id: m.id, role: "user", parts: [{ type: "text", text: m.text }] } as unknown as UIMessage}
+                streaming={false}
+                projectId={projectId}
+                root={detail.rootPath ?? null}
+                toolDuration={toolDuration}
+                approvalById={approvalById}
+                nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
+              />
+              {m.taken ? null : <p className="text-right text-xs text-kumo-subtle">menunggu disisipkan…</p>}
+            </div>
           ))}
 
           {approvals.map((a) => (
@@ -573,6 +736,15 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
         </div>
       ) : null}
 
+      {runningElsewhere ? (
+        <div className="border-t border-kumo-line shrink-0">
+          <div className="mx-auto w-full max-w-3xl px-6 py-1.5 flex items-center gap-2 text-xs text-kumo-subtle">
+            <Pulse />
+            <span>Agent masih bekerja di percakapan ini. Transkrip akan dilengkapi begitu run selesai.</span>
+          </div>
+        </div>
+      ) : null}
+
       {detail.staleReads?.length ? <StaleReadsNotice reads={detail.staleReads} /> : null}
 
       <UnattributedFiles detail={detail} />
@@ -587,9 +759,20 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
               the remove button off the edge (reported 2026-09-27). In a flex
               column the chip is stretched to the container instead. */}
           <div className="mx-auto w-full max-w-3xl px-6 pt-2 pb-1 flex flex-col gap-1">
-            <p className="text-xs text-kumo-subtle">
-              Antrian · {queued.length} — dikirim otomatis setelah run ini selesai
-            </p>
+            {queuePaused ? (
+              <div className="flex items-center gap-2 text-xs text-kumo-subtle">
+                <span className="flex-1 min-w-0">
+                  Antrian dijeda setelah run dihentikan atau gagal · {queued.length} pesan menunggu
+                </span>
+                <button onClick={() => onResumeQueue?.()} className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-kumo-brand hover:bg-kumo-tint">
+                  Lanjutkan
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-kumo-subtle">
+                Antrian · {queued.length} — dikirim otomatis setelah run ini selesai
+              </p>
+            )}
             {queued.map((q, i) => (
               <div key={q.id} className="min-w-0 flex items-center gap-2 rounded-lg bg-kumo-elevated ring ring-kumo-line px-3 py-1.5 text-xs">
                 <span className="shrink-0 tabular-nums text-kumo-subtle">{i + 1}</span>
@@ -598,15 +781,24 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
                     text would still refuse to truncate once the chip itself can
                     shrink. */}
                 <span className="flex-1 min-w-0 truncate text-kumo-default">{queuedPreview(q.text)}</span>
-                {streaming ? (
-                  <button
-                    onClick={() => void injectQueued(q)}
-                    disabled={!!injectingId}
-                    title="Kirim ke run yang sedang berjalan"
-                    className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-kumo-brand hover:bg-kumo-tint disabled:opacity-50"
-                  >
-                    {injectingId === q.id ? "mengirim…" : "Kirim sekarang"}
-                  </button>
+                {busy ? (
+                  <>
+                    <button
+                      onClick={() => void injectQueued(q)}
+                      disabled={!!injectingId}
+                      title="Arahkan: sisipkan ke run yang sedang berjalan. Model menerimanya pada langkah berikutnya; kalau run sudah selesai menulis, pesan kembali ke antrian."
+                      className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-kumo-brand hover:bg-kumo-tint disabled:opacity-50"
+                    >
+                      {injectingId === q.id ? "mengirim…" : "Arahkan"}
+                    </button>
+                    <button
+                      onClick={() => runNow(q)}
+                      title="Jalankan sekarang: hentikan run yang berjalan, lalu kirim pesan ini sebagai giliran berikutnya"
+                      className="shrink-0 rounded-md px-2 py-0.5 text-[11px] text-amber-400 hover:bg-kumo-tint"
+                    >
+                      Jalankan sekarang
+                    </button>
+                  </>
                 ) : null}
                 {queueStuckId === q.id ? (
                   <button
@@ -636,8 +828,8 @@ export function ChatSurface({ threadId, detail, providers, queued, onEnqueue, on
         input={input}
         onInput={setInput}
         onSubmit={submit}
-        streaming={streaming}
-        onStop={() => stop()}
+        streaming={busy}
+        onStop={stopActiveRun}
         mentions={mentionFiles}
         providerReady={!noProvider}
         providers={providers}

@@ -18,7 +18,7 @@ import {
 } from "./ai";
 import { buildLanguageModel, resolveMaxOutputTokens, type ProviderRow } from "./config";
 import { pruneForStep, resolveContextWindow, shouldCompact, summarizeOldest, type CompactionDecision } from "./context";
-import { awaitApproval, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun } from "./run-registry";
+import { awaitApproval, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun, type InjectedMessage } from "./run-registry";
 import { MUTATING_TOOLS, buildTools, type FileChange, type TodoItem } from "./tools";
 import { SUBAGENT_LIMITS, findSubagent, withSubagentSlot, type SubagentInfo } from "./subagents";
 import { getAppSubagents } from "./store";
@@ -30,6 +30,10 @@ export { recoverInterruptedRuns, stopRun, getApprovalSecret };
 export interface TurnInput {
   runId: string;
   threadId: string;
+  /** Called with the steered messages the model actually received at a step
+   *  boundary. Only these are persisted: a steer the run never reached stays out
+   *  of the transcript and goes back to the client's queue (see chat route). */
+  onSteerConsumed?: (messages: InjectedMessage[]) => void;
   projectId: string;
   root: string;
   provider: ProviderRow;
@@ -263,6 +267,7 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
       if (injected.length) {
         try {
           next = [...next, ...((await convertToModelMessages(injected as any)) as ModelMessage[])];
+          input.onSteerConsumed?.(injected);
         } catch (err) {
           // A malformed injected message must not kill a run that is otherwise
           // healthy; it stays in the transcript, it just does not reach the model.

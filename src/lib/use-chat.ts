@@ -68,6 +68,9 @@ export interface MessageMetadata {
 
 export interface ThreadDetail {
   thread: ThreadSummary;
+  /** Id of the run still working on this thread, or null. Set when the client
+   *  left mid-run and came back, so the transcript is known to be incomplete. */
+  activeRun?: string | null;
   /** Absolute workspace root — used to open a changed file with the OS. */
   rootPath?: string | null;
   messages: { id: string; role: "user" | "assistant" | "system"; parts: any[]; metadata?: MessageMetadata }[];
@@ -295,6 +298,80 @@ export interface PendingApproval {
  * stops on its own once the stream finishes, so it never becomes a permanent
  * poll that would violate this app's SSE conventions.
  */
+/**
+ * Live thread events from SSE, for the open thread only.
+ *
+ *   `chat:run`   — a run on this thread reached a final status
+ *   `chat:steer` — the model took one or more steered messages
+ *   open         — the channel is connected; used to re-read once, in case an
+ *                  event happened before this subscription existed
+ *
+ * Same channel and error guard as the run notifications (AGENTS.md: close after
+ * repeated errors, never poll). Handlers are read through refs, so callers can
+ * pass fresh closures without resubscribing.
+ */
+export interface ChatLiveEventHandlers {
+  onRunEnded?: () => void;
+  onSteerTaken?: (messageIds: string[]) => void;
+  onOpen?: () => void;
+}
+
+export function useChatLiveEvents(threadId: string | null, enabled: boolean, handlers: ChatLiveEventHandlers) {
+  const latest = useRef(handlers);
+  latest.current = handlers;
+
+  useEffect(() => {
+    if (!threadId || !enabled) return;
+    let source: EventSource | null = null;
+    let failures = 0;
+    let disposed = false;
+
+    /** Event payloads arrive in the bus envelope `{ type, data, timestamp }`. */
+    const forThisThread = (e: Event): any | null => {
+      try {
+        const data = JSON.parse(String((e as MessageEvent).data ?? "{}"))?.data;
+        return data?.threadId === threadId ? data : null;
+      } catch {
+        return null; // a malformed event must not break the subscription
+      }
+    };
+
+    async function connect() {
+      try {
+        const res = await fetch("/api/events/ticket", { method: "POST", cache: "no-store" });
+        if (!res.ok) return;
+        const { ticket } = (await res.json()) as { ticket?: string };
+        if (!ticket || disposed) return;
+        source = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
+        source.onopen = () => latest.current.onOpen?.();
+        source.addEventListener("chat:run", (e) => {
+          if (forThisThread(e)) latest.current.onRunEnded?.();
+        });
+        source.addEventListener("chat:steer", (e) => {
+          const data = forThisThread(e);
+          if (data) latest.current.onSteerTaken?.(Array.isArray(data.messageIds) ? data.messageIds : []);
+        });
+        source.onerror = () => {
+          failures += 1;
+          if (failures >= 5) {
+            source?.close();
+            source = null;
+          }
+        };
+      } catch {
+        /* without SSE the thread simply stays as loaded; reopening it refreshes */
+      }
+    }
+
+    void connect();
+    return () => {
+      disposed = true;
+      source?.close();
+      source = null;
+    };
+  }, [threadId, enabled]);
+}
+
 export function usePendingApprovals(threadId: string | null, active: boolean) {
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
