@@ -70,3 +70,24 @@ test("the tool is absent where no user can answer", () => {
   const tools: any = buildTools({ projectId: "p-ask", root: "/tmp", threadId: "t-x", includeMutating: false });
   expect(tools.ask_user).toBeUndefined();
 });
+
+test("options given as objects are accepted and shown by their label", async () => {
+  reg.createRun({ runId: "run_a3", threadId: "t-a3", projectId: "p-ask" });
+  let seen: unknown = null;
+  const tools: any = buildTools({
+    projectId: "p-ask",
+    root: "/tmp",
+    threadId: "t-a3",
+    includeMutating: false,
+    askUser: async (qs) => {
+      seen = qs;
+      return ["Markdown"];
+    },
+  });
+  const out = await tools.ask_user.execute({
+    questions: [{ question: "Format?", options: [{ label: "Markdown", description: "Dokumen .md" }, { label: "DBML" }] }],
+  });
+  expect(out).toBe("Format? → Markdown");
+  expect(seen).toEqual([{ question: "Format?", options: ["Markdown", "DBML"] }]);
+  reg.finishRun("run_a3", "done");
+});

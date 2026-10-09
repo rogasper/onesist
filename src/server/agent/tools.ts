@@ -611,18 +611,28 @@ export function buildTools(ctx: ToolContext): ToolSet {
             .array(
               z.object({
                 question: z.string().describe("Pertanyaan yang jelas dan spesifik"),
-                options: z.array(z.string()).max(6).optional().describe("Pilihan jawaban (opsional)"),
+                // Either the labels, or objects with a label (and a description the
+                // user does not need to see as a separate choice).
+                options: z
+                  .array(z.union([z.string(), z.object({ label: z.string(), description: z.string().optional() })]))
+                  .max(6)
+                  .optional()
+                  .describe("Pilihan jawaban (opsional)"),
               }),
             )
             .min(1)
             .max(4),
         }),
         execute: async ({ questions }) => {
-          const answers = await ctx.askUser!(questions);
+          const normalized = questions.map((q) => ({
+            question: q.question,
+            options: q.options?.map((o) => (typeof o === "string" ? o : o.label)),
+          }));
+          const answers = await ctx.askUser!(normalized);
           if (!answers) {
             return "Tidak ada jawaban dari user (waktu habis atau run dihentikan). Lanjutkan dengan asumsi yang masuk akal dan sebutkan asumsinya.";
           }
-          return questions.map((q, i) => `${q.question} → ${answers[i] ?? "(tidak dijawab)"}`).join("\n");
+          return normalized.map((q, i) => `${q.question} → ${answers[i] ?? "(tidak dijawab)"}`).join("\n");
         },
       })
     : null;
