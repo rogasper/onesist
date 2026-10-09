@@ -348,6 +348,12 @@ export const chatThreads = sqliteTable(
     permissionMode: text("permission_mode").notNull().default("ask"),
     /** Summary of old messages once the context budget is exceeded (FR-B8 layer 2). */
     summary: text("summary"),
+    /** Manual compaction (M4 ringkas): messages up to this seq are represented by
+     *  `summary` and are left out of the model's history. Null = none left out. */
+    summaryUptoSeq: integer("summary_upto_seq"),
+    /** Reasoning effort the user picked for this thread (low | medium | high).
+     *  Null = the provider's default. Only sent to providers that support it. */
+    reasoningEffort: text("reasoning_effort"),
     /** Step limit per turn (FR-L7). Default 60, clamped 5..500; the ceiling is
      *  reported in the transcript when reached, and the notice can raise it. */
     maxSteps: integer("max_steps").notNull().default(60),

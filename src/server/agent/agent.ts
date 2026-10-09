@@ -17,6 +17,7 @@ import {
   type UIMessage,
 } from "./ai";
 import { buildLanguageModel, resolveMaxOutputTokens, type ProviderRow } from "./config";
+import { reasoningProviderOptions, type ReasoningLevel } from "./reasoning";
 import { pruneForStep, resolveContextWindow, shouldCompact, summarizeOldest, type CompactionDecision } from "./context";
 import { ruleAllows } from "./approval-rules";
 import { awaitApproval, awaitQuestion, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun, type InjectedMessage } from "./run-registry";
@@ -46,6 +47,8 @@ export interface TurnInput {
   /** Conversation history as UI messages. */
   messages: UIMessage[];
   summary?: string | null;
+  /** Reasoning effort the thread asked for; null = the provider's default. */
+  reasoningLevel?: ReasoningLevel | null;
   /** Called on every successful write — routes use it to send the list of
    *  changed files to the UI in the same stream (FR-C5). */
   onFileChange?: (change: FileChange) => void;
@@ -210,6 +213,8 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
     // in history or the user could inject a role via messages.
     instructions: input.system,
     allowSystemInMessages: false,
+    // The SDK types options as its own JSON objects; the shape is checked in reasoning.test.ts.
+    providerOptions: reasoningProviderOptions({ apiStyle: input.provider.apiStyle, level: input.reasoningLevel ?? null, maxOutputTokens }) as any,
     tools,
     stopWhen: isStepCount(input.maxSteps),
     toolApproval: async ({ toolCall }) => {

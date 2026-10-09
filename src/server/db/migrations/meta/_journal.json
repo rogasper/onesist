@@ -120,6 +120,13 @@
       "when": 1791514219044,
       "tag": "0016_chat_checkpoints",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791517430560,
+      "tag": "0017_chat_thread_context",
+      "breakpoints": true
     }
   ]
 }

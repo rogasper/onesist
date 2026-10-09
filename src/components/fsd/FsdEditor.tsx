@@ -1,5 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { useQuoteSelection } from "~/components/chat/QuoteSelection";
 import { MdxEditorClient } from "~/components/mdx/MdxEditorClient";
 
 export type EditorMode = "edit" | "preview" | "split";
@@ -33,8 +34,10 @@ export function FsdEditor({ content, mode, onChange, onSave, projectId }: FsdEdi
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [content, previewContent]);
 
+  const quote = useQuoteSelection("FSD");
   return (
-    <div className="flex-1 min-h-0 flex" onKeyDown={handleKeyDown}>
+    <div ref={quote.ref} onMouseUp={quote.onMouseUp} className="flex-1 min-h-0 flex relative" onKeyDown={handleKeyDown}>
+      {quote.button}
       {mode !== "preview" && (
         <div className={`h-full ${mode === "split" ? "w-1/2 border-r border-kumo-line" : "w-full"}`}>
           <MdxEditorClient content={content} onChange={onChange} projectId={projectId} />

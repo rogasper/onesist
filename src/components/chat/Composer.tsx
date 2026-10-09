@@ -5,7 +5,8 @@ import { MentionTextarea, type MentionFile, type MentionTrigger } from "~/compon
 import { useFileDropZone } from "~/lib/file-drop";
 import { ModelPicker } from "~/components/chat/ModelPicker";
 import { FRESH_CURSOR, attachmentLabel, isLongPaste, pastedTextName, stepHistory, type HistoryCursor } from "~/components/chat/chat-draft";
-import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
+import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ContextUsage, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
+import { refSlug, type MentionRef } from "~/lib/mention-ref";
 
 /**
  * Chat composer (FR-B, FR-C10, FR-C11, ADR-001 D8).
@@ -35,6 +36,14 @@ export interface Attachment {
   path: string;
   name: string;
   size: number;
+}
+
+/** A picture waiting to be sent with the message, as a data URL. */
+export interface PendingImage {
+  id: string;
+  name: string;
+  mediaType: string;
+  url: string;
 }
 
 /** Monospace, dim, capped height: the full text of a project action, readable
@@ -83,6 +92,20 @@ interface Props {
   skills: ChatSkillOption[];
   /** Sent prompts of this thread, newest first, for ↑/↓ recall. */
   history: string[];
+  /** Project references for the `#` trigger, this thread left out. */
+  refs: MentionRef[];
+  /** Context meter: the estimate for the next turn, or null while it is not known yet. */
+  contextUsage: ContextUsage | null;
+  onOpenContext: () => void;
+  onCompact: () => void;
+  compacting: boolean;
+  /** Reasoning effort for this thread; null = the provider's default. */
+  reasoningLevel: "low" | "medium" | "high" | null;
+  onReasoningLevel: (level: "low" | "medium" | "high" | null) => void;
+  /** Hides the reasoning control for providers that have no such setting. */
+  reasoningSupported: boolean;
+  images: PendingImage[];
+  onRemoveImage: (id: string) => void;
 }
 
 export function Composer(props: Props) {
@@ -115,7 +138,19 @@ export function Composer(props: Props) {
     actions,
     actionFile,
     history,
+    refs,
+    contextUsage,
+    onOpenContext,
+    onCompact,
+    compacting,
+    reasoningLevel,
+    onReasoningLevel,
+    reasoningSupported,
+    images,
+    onRemoveImage,
   } = props;
+  // A thread without its own provider runs on the default one (the server does the same).
+  const providerStyle = (providers.find((p) => p.id === providerId) ?? providers.find((p) => p.isDefault))?.apiStyle ?? null;
 
   // ↑/↓ recall. The cursor restarts when the newest sent prompt changes (a send
   // happened, or another thread is open), so a stale position never recalls the wrong text.
@@ -142,6 +177,13 @@ export function Composer(props: Props) {
 
   /** A long paste is saved as a text attachment, so it does not flood the field. */
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    // A copied picture is attached to the message, not pasted as text.
+    const pictures = Array.from(e.clipboardData.files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (pictures.length) {
+      e.preventDefault();
+      onAttach(pictures);
+      return;
+    }
     const text = e.clipboardData.getData("text/plain");
     if (!text || !isLongPaste(text)) return;
     e.preventDefault();
@@ -218,12 +260,26 @@ export function Composer(props: Props) {
           tag: skillSourceLabel(s.source),
         })),
       },
+      {
+        // Project references (M4 item 18): an FSD session, ERD table, endpoint, task, wiki
+        // page or another conversation. Inserted as `#kind:slug`; the server-side excerpt
+        // is attached when the message is sent (ChatSurface).
+        char: "#",
+        label: "Rujukan · FSD, ERD, endpoint, task, wiki, percakapan",
+        items: refs.map((r) => ({
+          name: r.label,
+          path: r.label,
+          insert: `#${r.kind}:${refSlug(r.label)}`,
+          hint: r.hint,
+          tag: r.kind,
+        })),
+      },
     ],
     // `actions` MUST be here: it arrives from an async fetch, and without the
     // dependency the `/` popup kept whatever the list was on the last
     // mentions/skills change — usually empty, which renders as nothing at all
     // (MentionTextarea hides the popup when it has no items).
-    [mentions, skills, actions],
+    [mentions, skills, actions, refs],
   );
 
   return (
@@ -236,6 +292,28 @@ export function Composer(props: Props) {
               Tambahkan provider
             </button>{" "}
             dulu supaya agent bisa berjalan.
+          </div>
+        ) : null}
+
+        {images.length ? (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {images.map((img) => (
+              <span key={img.id} className="relative inline-flex rounded-lg ring ring-kumo-line overflow-hidden" title={img.name}>
+                <img src={img.url} alt={img.name} className="h-14 w-14 object-cover" />
+                <button
+                  onClick={() => onRemoveImage(img.id)}
+                  className="absolute top-0.5 right-0.5 rounded bg-black/60 p-0.5 text-white hover:bg-black/80"
+                  title="Buang gambar"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+            {providerStyle === "completions" ? (
+              <p className="basis-full text-xs text-kumo-subtle">
+                Model di provider ini mungkin tidak menerima gambar. Jika tidak, balasan akan menampilkan error.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -405,6 +483,20 @@ export function Composer(props: Props) {
             <ModelPicker providers={providers} providerId={providerId} model={model} onSelect={onSelectModel} onOpenProviders={onOpenProviders} />
 
             <div className="ml-auto flex items-center gap-1.5 shrink-0">
+              {reasoningSupported ? (
+                <select
+                  value={reasoningLevel ?? "default"}
+                  onChange={(e) => onReasoningLevel(e.target.value === "default" ? null : (e.target.value as "low" | "medium" | "high"))}
+                  title="Seberapa dalam model berpikir untuk percakapan ini"
+                  className="h-8 rounded-lg bg-transparent hover:bg-kumo-tint text-xs text-kumo-default px-1.5 focus:outline-none"
+                >
+                  <option value="default">Pikir: default</option>
+                  <option value="low">Pikir: rendah</option>
+                  <option value="medium">Pikir: sedang</option>
+                  <option value="high">Pikir: tinggi</option>
+                </select>
+              ) : null}
+              <ContextMeter usage={contextUsage} onOpen={onOpenContext} onCompact={onCompact} compacting={compacting} streaming={streaming} />
               <span className="hidden @2xl/composer:inline text-xs text-kumo-subtle whitespace-nowrap">
 
                 {hasSummary ? " · konteks diringkas" : ""}
@@ -421,7 +513,7 @@ export function Composer(props: Props) {
                   aria-label="Kirim"
                   title="Kirim pesan"
                   onClick={onSubmit}
-                  disabled={!input.trim() || !providerReady}
+                  disabled={(!input.trim() && !attachments.length && !images.length) || !providerReady}
                 />
               )}
             </div>
@@ -450,6 +542,80 @@ export function Composer(props: Props) {
 /** Segmented control for enum choices — faster to scan than a `<select>`,
  *  and it does not pop up a system menu outside the app's design language
  *  (ADR-001 D8). */
+/**
+ * The context meter (M4 item 20): how full the window is for the next turn, with the
+ * breakdown by part and "Ringkas sekarang". The numbers are estimates; the provider's own
+ * usage is what the transcript shows after each answer.
+ */
+function ContextMeter({
+  usage,
+  onOpen,
+  onCompact,
+  compacting,
+  streaming,
+}: {
+  usage: ContextUsage | null;
+  onOpen: () => void;
+  onCompact: () => void;
+  compacting: boolean;
+  streaming: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  const pct = usage ? Math.min(100, Math.round(usage.ratio * 100)) : null;
+  const tone = pct == null ? "text-kumo-subtle" : pct >= 90 ? "text-red-400" : pct >= 70 ? "text-amber-400" : "text-kumo-subtle";
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next) onOpen();
+        }}
+        title="Pemakaian konteks percakapan"
+        className={`h-8 px-1.5 rounded-lg hover:bg-kumo-tint text-xs tabular-nums ${tone}`}
+      >
+        {pct == null ? "…" : `${pct}%`}
+      </button>
+      {open && usage ? (
+        <div className="absolute bottom-full right-0 mb-2 w-64 rounded-xl ring ring-kumo-line bg-kumo-elevated shadow-lg p-3 text-xs grid gap-2 z-20">
+          <p className="font-medium text-kumo-default tabular-nums">
+            Konteks · {usage.total.toLocaleString("id-ID")} dari {usage.window.toLocaleString("id-ID")} token
+          </p>
+          <p className="text-kumo-subtle">Perkiraan: panjang teks dibagi empat. Angka pasti dari penyedia muncul setelah balasan.</p>
+          <div className="grid gap-1">
+            {usage.parts.map((p) => (
+              <div key={p.key} className="flex justify-between gap-2">
+                <span className="text-kumo-default">{p.label}</span>
+                <span className="tabular-nums text-kumo-subtle">{p.tokens.toLocaleString("id-ID")}</span>
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="secondary"
+            disabled={!usage.compactable || compacting || streaming}
+            onClick={() => {
+              setOpen(false);
+              onCompact();
+            }}
+          >
+            {compacting ? "Meringkas…" : "Ringkas sekarang"}
+          </Button>
+          {!usage.compactable ? <p className="text-kumo-subtle">Belum ada percakapan lama yang bisa diringkas.</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Segmented({
   value,
   options,

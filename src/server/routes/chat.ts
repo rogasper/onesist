@@ -24,8 +24,16 @@ import {
   listProviders,
   maskApiKey,
   redactSecrets,
+  buildLanguageModel,
+  resolveMaxOutputTokens,
   resolveProvider,
 } from "~/server/agent/config";
+import { convertToModelMessages } from "~/server/agent/ai";
+import { estimateTokens, resolveContextWindow, splitForCompaction, summarizeOldest } from "~/server/agent/context";
+import { listMentionRefs, resolveMentionRef } from "~/server/agent/mention-refs";
+import { MENTION_KINDS, type MentionKind } from "~/lib/mention-ref";
+import { parseReasoningLevel } from "~/server/agent/reasoning";
+import { imagePartProblem } from "~/lib/image-attachment";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
 import { finishRun, getRun, getRunForThread, listPendingApprovals, listPendingQuestions, queueUserMessage, resolveApproval, resolveQuestion, stopRun } from "~/server/agent/run-registry";
@@ -59,6 +67,7 @@ import {
   toUIMessages,
   updateThread,
   upsertThreadFile,
+  type MessageRow,
 } from "~/server/agent/store";
 import { createStreamTiming, tapStream } from "~/server/agent/stream-timing";
 import { withStreamHeartbeat } from "~/server/agent/stream-heartbeat";
@@ -101,9 +110,38 @@ function publicThread(row: NonNullable<ReturnType<typeof getThread>>) {
     tokensUsed: row.tokensUsed,
     archived: row.archived,
     hasSummary: !!row.summary?.trim(),
+    reasoningEffort: row.reasoningEffort ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/** The stored messages the model still sees: those after a manual compaction's cutoff. */
+function visibleRows(thread: { id: string; summaryUptoSeq: number | null }): MessageRow[] {
+  const cutoff = thread.summaryUptoSeq ?? 0;
+  return listMessages(thread.id).filter((r) => r.seq > cutoff && r.role !== "system");
+}
+
+/** The system prompt of a thread. One builder, shared by the turn and the context meter. */
+function threadSystemPrompt(current: NonNullable<ReturnType<typeof getThread>>, root: string): string {
+  return buildSystemPrompt({
+    projectName: (db.select().from(projects).where(eq(projects.id, current.projectId)).get() as any)?.name ?? "Project",
+    root,
+    mode: current.mode as any,
+    permissionMode: current.permissionMode as any,
+    inventory: scanInventory(root),
+    summary: current.summary,
+    // Progressive disclosure (FR-F2): the prompt carries name + description only.
+    // The body is fetched with `skill_read` when the task actually needs it.
+    skills: skillSummaries(resolveSkills(root)),
+    // Both scopes, project last (FR-H1..H3): the more specific one should be the
+    // final thing the model reads when the two disagree.
+    memory: composeMemoryForPrompt(root),
+    // Subagents are advertised by name + description only; the callable list is
+    // resolved again when `task` runs, so a definition added mid-conversation is
+    // usable without a restart.
+    subagents: subagentSummaries(resolveSubagents(root, getAppSubagents()).subagents),
+  });
 }
 
 function projectRootOf(projectId: string): string | null {
@@ -267,7 +305,11 @@ router.put("chat/threads/:id", async (ctx) => {
   if (body.model !== undefined) patch.model = body.model ? String(body.model).trim() : null;
   if (body.archived !== undefined) patch.archived = !!body.archived;
   if (body.maxSteps !== undefined) patch.maxSteps = normalizeMaxSteps(Number(body.maxSteps));
-  if (body.clearSummary === true) patch.summary = null;
+  if (body.clearSummary === true) {
+    patch.summary = null;
+    patch.summaryUptoSeq = null;
+  }
+  if (body.reasoningEffort !== undefined) patch.reasoningEffort = parseReasoningLevel(body.reasoningEffort);
   updateThread(thread.id, patch);
   return json({ thread: publicThread(getThread(thread.id)!) });
 });
@@ -422,13 +464,18 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
   // the run fails or the app closes midway.
   const lastUser = [...uiMessages].reverse().find((m) => m.role === "user");
   if (lastUser) {
-    const text = (lastUser.parts ?? [])
+    const parts = (lastUser.parts ?? []) as any[];
+    const pictureError = imagePartProblem(parts);
+    if (pictureError) return json({ error: pictureError }, 400);
+    const text = parts
       .map((p: any) => (p?.type === "text" ? p.text : ""))
       .join(" ")
       .trim();
-    if (text) {
+    // A message with only pictures is still a message.
+    const hasPicture = parts.some((p: any) => p?.type === "file");
+    if (text || hasPicture) {
       appendMessage({ threadId: thread.id, role: "user", parts: lastUser.parts, id: lastUser.id });
-      if (!thread.title) updateThread(thread.id, { title: autoTitleFrom(text) });
+      if (text && !thread.title) updateThread(thread.id, { title: autoTitleFrom(text) });
     }
   }
 
@@ -441,28 +488,11 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
    * what really happened, so it is the input. Notices (role "system") are dropped
    * here as well; they are display markers only.
    */
-  const stored = toUIMessages(listMessages(thread.id)).filter((m) => m.role !== "system") as UIMessage[];
+  const stored = toUIMessages(visibleRows(thread)).filter((m) => m.role !== "system") as UIMessage[];
   const modelMessages = lastUser && !stored.some((m) => m.id === lastUser.id) ? [...stored, lastUser as UIMessage] : stored;
 
   const current = getThread(thread.id)!;
-  const system = buildSystemPrompt({
-    projectName: (db.select().from(projects).where(eq(projects.id, current.projectId)).get() as any)?.name ?? "Project",
-    root,
-    mode: current.mode as any,
-    permissionMode: current.permissionMode as any,
-    inventory: scanInventory(root),
-    summary: current.summary,
-    // Progressive disclosure (FR-F2): the prompt carries name + description only.
-    // The body is fetched with `skill_read` when the task actually needs it.
-    skills: skillSummaries(resolveSkills(root)),
-    // Both scopes, project last (FR-H1..H3): the more specific one should be the
-    // final thing the model reads when the two disagree.
-    memory: composeMemoryForPrompt(root),
-    // Subagents are advertised by name + description only; the callable list is
-    // resolved again when `task` runs, so a definition added mid-conversation is
-    // usable without a restart.
-    subagents: subagentSummaries(resolveSubagents(root, getAppSubagents()).subagents),
-  });
+  const system = threadSystemPrompt(current, root);
 
   const runId = makeRunId();
   let errorText: string | null = null;
@@ -516,6 +546,7 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
       permissionMode: current.permissionMode as any,
       maxSteps: stepBudget,
       mode: current.mode as any,
+      reasoningLevel: parseReasoningLevel(current.reasoningEffort),
       system,
       messages: modelMessages,
       summary: current.summary,
@@ -1262,3 +1293,92 @@ function parseModelList(raw: unknown): string[] {
     return [];
   }
 }
+
+// ── Context meter, manual compaction, #references (M4) ─────────────────────
+
+const estTokens = (text: string) => Math.ceil(text.length / 4);
+
+/** What the next turn would send, in estimated tokens, by part. The system part is the
+ *  prompt minus the parts that are shown on their own (memory, skills, summary). */
+router.get("chat/threads/:id/context", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const root = projectRootOf(thread.projectId);
+  const provider = resolveProvider(thread.providerId);
+  const windowSize = resolveContextWindow(provider?.contextWindow);
+  const history = await convertToModelMessages(toUIMessages(visibleRows(thread)).filter((m) => m.role !== "system") as any);
+  const system = root ? threadSystemPrompt(thread, root) : "";
+  const memory = root ? composeMemoryForPrompt(root) : "";
+  const skills = root ? JSON.stringify(skillSummaries(resolveSkills(root))) : "";
+  const summary = thread.summary ?? "";
+  const parts = [
+    { key: "system", label: "Instruksi sistem", tokens: Math.max(0, estTokens(system) - estTokens(memory) - estTokens(skills) - estTokens(summary)) },
+    { key: "memory", label: "Memori project", tokens: estTokens(memory) },
+    { key: "skills", label: "Skill", tokens: estTokens(skills) },
+    { key: "summary", label: "Ringkasan percakapan", tokens: estTokens(summary) },
+    { key: "messages", label: "Pesan", tokens: estimateTokens(history) },
+  ];
+  const total = parts.reduce((n, p) => n + p.tokens, 0);
+  return json({
+    window: windowSize,
+    total,
+    ratio: total / windowSize,
+    parts,
+    compactable: !!splitForCompaction(visibleRows(thread)),
+  });
+});
+
+/** Ringkas sekarang: summarise the older turns into the thread summary and leave them out
+ *  of the model's history from now on. The newest two turns stay as they are. */
+router.post("chat/threads/:id/compact", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  if (getRunForThread(thread.id)) {
+    return json({ error: "Masih ada run yang berjalan. Tunggu sampai selesai atau hentikan dulu." }, 409);
+  }
+  const provider = resolveProvider(thread.providerId);
+  if (!provider) return json({ error: "Belum ada provider yang bisa dipakai untuk meringkas." }, 400);
+  const plan = splitForCompaction(visibleRows(thread));
+  if (!plan) return json({ error: "Belum ada percakapan lama yang bisa diringkas." }, 400);
+
+  const model = buildLanguageModel(provider, { sessionId: thread.id });
+  const messages = await convertToModelMessages(toUIMessages(plan.old).filter((m) => m.role !== "system") as any);
+  const result = await summarizeOldest({
+    model,
+    messages,
+    previousSummary: thread.summary,
+    keepRecent: 0,
+    maxOutputTokens: resolveMaxOutputTokens(provider),
+  });
+  if (!result) return json({ error: "Ringkasan gagal dibuat. Percakapan tidak diubah." }, 502);
+
+  setThreadSummary(thread.id, result.summary);
+  updateThread(thread.id, { summaryUptoSeq: plan.cutoffSeq });
+  appendMessage({
+    threadId: thread.id,
+    role: "system",
+    kind: "compactNotice",
+    parts: [
+      {
+        type: "data-notice",
+        data: { kind: "compacted", estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter, manual: true },
+      },
+    ],
+  });
+  return json({ compacted: plan.old.length, estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter });
+});
+
+/** The `#` references a project offers the composer. */
+router.get("chat/projects/:id/refs", async (ctx) => {
+  return json({ refs: listMentionRefs(ctx.params.id) });
+});
+
+/** One reference's content, clipped, for the message it is attached to. */
+router.get("chat/projects/:id/refs/:kind/:refId", async (ctx) => {
+  const kind = String(ctx.params.kind);
+  if (!(MENTION_KINDS as readonly string[]).includes(kind)) return json({ error: "Jenis referensi tidak dikenal." }, 400);
+  const root = projectRootOf(ctx.params.id) ?? "";
+  const found = resolveMentionRef(ctx.params.id, root, kind as MentionKind, String(ctx.params.refId));
+  if (!found) return json({ error: "Referensi tidak ditemukan." }, 404);
+  return json(found);
+});

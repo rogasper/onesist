@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // style toggle, not a subtree insert. createXterm is still deferred until open.
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
 import { ChatPanel } from "~/components/chat/ChatPanel";
+import { subscribeQuotes } from "~/lib/chat-quote";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
@@ -53,6 +54,8 @@ function ProjectLayout() {
   const { project } = Route.useLoaderData() as any;
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // A quote sent from a viewer opens the chat, so the reader sees where it went.
+  useEffect(() => subscribeQuotes(() => setChatOpen(true)), []);
   const [termRetryKey, setTermRetryKey] = useState(0);
   const [terminalRunning, setTerminalRunning] = useState(false);
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);

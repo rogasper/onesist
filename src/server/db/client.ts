@@ -229,6 +229,9 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     // section, UJI-MANUAL C9b) — see migrations/0014_white_sentinel.sql.
     "ALTER TABLE chat_thread_files ADD COLUMN message_id TEXT",
     "ALTER TABLE chat_threads ADD COLUMN queue_paused INTEGER DEFAULT 0 NOT NULL",
+    // M4: manual compaction cutoff and per-thread reasoning effort — see migrations/0017_*.sql
+    "ALTER TABLE chat_threads ADD COLUMN summary_upto_seq INTEGER",
+    "ALTER TABLE chat_threads ADD COLUMN reasoning_effort TEXT",
     // Fase 5.5: harga per juta token untuk perkiraan biaya (diisi user).
     "ALTER TABLE llm_providers ADD COLUMN input_price_per_mtok REAL",
     "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",

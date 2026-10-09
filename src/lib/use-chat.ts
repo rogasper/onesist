@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MentionRef } from "~/lib/mention-ref";
 import { DefaultChatTransport, type UIMessage } from "~/lib/ai-client";
 import { useFileChanged } from "~/lib/use-file-data";
 
@@ -24,6 +25,8 @@ export interface ThreadSummary {
   tokensUsed: number;
   archived: boolean;
   hasSummary: boolean;
+  /** Reasoning effort picked for this thread; null = the provider's default. */
+  reasoningEffort?: "low" | "medium" | "high" | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -599,6 +602,41 @@ export interface UploadedAttachment {
  * following the existing FSD upload pattern — this app uses no `FormData`
  * on any of these paths, and base64 in the query is safe for non-ASCII file names.
  */
+/** What the next turn would send, in estimated tokens, by part (the context meter). */
+export interface ContextUsage {
+  window: number;
+  total: number;
+  ratio: number;
+  parts: { key: string; label: string; tokens: number }[];
+  /** Whether "Ringkas sekarang" has older turns to take. */
+  compactable: boolean;
+}
+
+export async function fetchContextUsage(threadId: string): Promise<ContextUsage | null> {
+  const res = await fetch(`/api/chat/threads/${threadId}/context`, { cache: "no-store" });
+  return res.ok ? ((await res.json()) as ContextUsage) : null;
+}
+
+/** Ringkas sekarang: returns the error text when it did not go through. */
+export async function compactThread(threadId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch(`/api/chat/threads/${threadId}/compact`, { method: "POST", cache: "no-store" });
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  return res.ok ? { ok: true } : { ok: false, error: data.error ?? "Gagal meringkas percakapan." };
+}
+
+/** The `#` references a project offers the composer. */
+export async function fetchMentionRefs(projectId: string): Promise<MentionRef[]> {
+  const res = await fetch(`/api/chat/projects/${projectId}/refs`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return ((await res.json()) as { refs: MentionRef[] }).refs;
+}
+
+/** The content of one reference, clipped by the server. Null when it is gone. */
+export async function fetchMentionRef(projectId: string, kind: string, id: string): Promise<{ label: string; text: string } | null> {
+  const res = await fetch(`/api/chat/projects/${projectId}/refs/${kind}/${encodeURIComponent(id)}`, { cache: "no-store" });
+  return res.ok ? ((await res.json()) as { label: string; text: string }) : null;
+}
+
 export async function uploadAttachment(threadId: string, file: File): Promise<UploadedAttachment> {
   const filename = btoa(unescape(encodeURIComponent(file.name || "lampiran")));
   const res = await fetch(`/api/chat/threads/${threadId}/attachments?filename=${encodeURIComponent(filename)}`, {
