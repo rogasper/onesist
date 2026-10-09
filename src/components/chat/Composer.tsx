@@ -151,7 +151,7 @@ export function Composer(props: Props) {
     onRemoveImage,
   } = props;
   // A thread without its own provider runs on the default one (the server does the same).
-  const providerStyle = (providers.find((p) => p.id === providerId) ?? providers.find((p) => p.isDefault))?.apiStyle ?? null;
+  const activeProvider = providers.find((p) => p.id === providerId) ?? providers.find((p) => p.isDefault) ?? null;
 
   // ↑/↓ recall. The cursor restarts when the newest sent prompt changes (a send
   // happened, or another thread is open), so a stale position never recalls the wrong text.
@@ -311,9 +311,9 @@ export function Composer(props: Props) {
                 </button>
               </span>
             ))}
-            {providerStyle === "completions" ? (
+            {activeProvider && !activeProvider.supportsVision ? (
               <p className="basis-full text-xs text-kumo-subtle">
-                Model di provider ini mungkin tidak menerima gambar. Jika tidak, balasan akan menampilkan error.
+                Model ini belum ditandai bisa melihat gambar. Tandai di Pengaturan provider jika memang mendukung.
               </p>
             ) : null}
           </div>

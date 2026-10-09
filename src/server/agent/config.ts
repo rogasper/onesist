@@ -568,6 +568,7 @@ export function envBootstrapProvider(): ProviderRow | null {
     proxyUrl: null,
     skipTlsVerify: false,
     enableThinking: false,
+    supportsVision: false,
     effortCapabilityJson: null,
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     contextWindow: null,

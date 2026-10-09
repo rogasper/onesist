@@ -127,6 +127,13 @@
       "when": 1791517430560,
       "tag": "0017_chat_thread_context",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791525006964,
+      "tag": "0018_provider_vision",
+      "breakpoints": true
     }
   ]
 }

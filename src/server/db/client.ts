@@ -232,6 +232,8 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     // M4: manual compaction cutoff and per-thread reasoning effort — see migrations/0017_*.sql
     "ALTER TABLE chat_threads ADD COLUMN summary_upto_seq INTEGER",
     "ALTER TABLE chat_threads ADD COLUMN reasoning_effort TEXT",
+    // P4.1: the user says whether a provider's model can read pictures.
+    "ALTER TABLE llm_providers ADD COLUMN supports_vision INTEGER DEFAULT 0 NOT NULL",
     // Fase 5.5: harga per juta token untuk perkiraan biaya (diisi user).
     "ALTER TABLE llm_providers ADD COLUMN input_price_per_mtok REAL",
     "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",

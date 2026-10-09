@@ -1276,6 +1276,7 @@ router.get("chat/providers", async () => {
   return json({
     providers: all.filter(isProviderUsable).map((p) => ({
       id: p.id,
+      supportsVision: p.supportsVision,
       name: p.name,
       model: p.model,
       // The stored model list is sent along so the model picker can show

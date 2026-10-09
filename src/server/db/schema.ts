@@ -303,6 +303,8 @@ export const llmProviders = sqliteTable("llm_providers", {
   proxyUrl: text("proxy_url"),
   skipTlsVerify: integer("skip_tls_verify", { mode: "boolean" }).notNull().default(false),
   enableThinking: integer("enable_thinking", { mode: "boolean" }).notNull().default(false),
+  /** The model accepts pictures in messages (P4.1). Set by the user; not guessed from the name. */
+  supportsVision: integer("supports_vision", { mode: "boolean" }).notNull().default(false),
   /** Supported effort-control shape + where the info came from (FR-A12). */
   effortCapabilityJson: text("effort_capability_json"),
   /** REQUIRED when in use: without an explicit value, registry providers
