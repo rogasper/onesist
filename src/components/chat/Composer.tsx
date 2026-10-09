@@ -368,7 +368,9 @@ export function Composer(props: Props) {
             className="block w-full resize-none overflow-y-auto min-h-[52px] max-h-44 text-sm leading-6 px-3.5 pt-2.5 pb-1.5 bg-transparent focus:outline-none text-kumo-default"
           />
 
-          <div className="flex items-center gap-1 px-2 pb-2 pt-0.5">
+          {/* Wraps instead of overflowing: in a narrow panel the send button used to be pushed
+              past the box's right edge. */}
+          <div className="flex flex-wrap items-center gap-1 gap-y-1.5 px-2 pb-2 pt-0.5">
             <button
               onClick={() => fileRef.current?.click()}
               disabled={attachBusy}

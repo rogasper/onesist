@@ -19,6 +19,7 @@ import { refSlug, refTokens, type MentionRef } from "~/lib/mention-ref";
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from "~/lib/image-attachment";
 import { subscribeQuotes, takePendingQuotes, type ChatQuote } from "~/lib/chat-quote";
 import { supportsReasoningEffort, parseReasoningLevel, type ReasoningLevel } from "~/lib/reasoning-level";
+import { workspaceImageSrc } from "~/lib/workspace-image";
 import {
   bashExitCode,
   changeStats,
@@ -1727,10 +1728,18 @@ function MessageBlockView({
         if (seg.work) {
           // A finished run folds into one row; the run still in progress stays open.
           const live = streaming && si === all.length - 1;
+          // A captured design is the result the user came for: its picture sits under the
+          // folded run, where it can be seen without opening the tool rows.
+          const pictures = seg.items.flatMap((item) => (item.kind === "tools" ? item.parts.map(capturedPicture) : [])).filter((p): p is string => p !== null);
           return (
-            <WorkRun key={`work-${seg.items[0].key}`} live={live} summary={runSummary(seg.items)}>
-              {seg.items.map((item) => renderBlock(item))}
-            </WorkRun>
+            <div key={`work-${seg.items[0].key}`} className="grid grid-cols-1 gap-2 min-w-0">
+              <WorkRun live={live} summary={runSummary(seg.items)}>
+                {seg.items.map((item) => renderBlock(item))}
+              </WorkRun>
+              {pictures.map((path) => (
+                <CapturePreview key={path} path={path} projectId={projectId} />
+              ))}
+            </div>
           );
         }
         return renderBlock(seg.item);
@@ -1753,23 +1762,23 @@ function MessageBlockView({
           A failed/stopped turn says so here too, no longer only when tokens
           happened to be recorded. */}
       <div
-        className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex items-center gap-2"
+        className="text-xs text-kumo-subtle border-t border-kumo-line pt-2 flex flex-wrap items-center gap-x-3 gap-y-1"
         title={typeof metadata?.createdAt === "string" ? new Date(metadata.createdAt).toLocaleString("id-ID") : undefined}
       >
         {inTok || outTok ? (
           <>
-            <span>↑{formatTokens(inTok ?? 0)} masuk</span>
-            <span>↓{formatTokens(outTok ?? 0)} keluar</span>
-            {reasoningMs ? <span>· berpikir {fmtDuration(reasoningMs)}</span> : null}
+            <span className="whitespace-nowrap">↑{formatTokens(inTok ?? 0)} masuk</span>
+            <span className="whitespace-nowrap">↓{formatTokens(outTok ?? 0)} keluar</span>
+            {reasoningMs ? <span className="whitespace-nowrap">berpikir {fmtDuration(reasoningMs)}</span> : null}
           </>
         ) : null}
-        {failed ? <span className="text-amber-400">{metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
+        {failed ? <span className="whitespace-nowrap text-amber-400">{metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
         {/* The answer prose only: reasoning, tool output and file cards are not
             part of what "copy this answer" means. A turn that never produced
             prose (tool calls only) gets no button — copying "" is not an offer. */}
         {/* The actions show on hover, as on the prompt bubble. A failed turn keeps its
             retry visible, since that is the thing the reader is looking for. */}
-        <div className={`ml-auto flex items-center gap-3 transition-opacity ${failed ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
+        <div className={`ml-auto flex shrink-0 items-center gap-3 transition-opacity ${failed ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
           {canRetry && onRetry && !streaming ? (
             <button onClick={() => onRetry(message.id)} className="whitespace-nowrap hover:text-kumo-default">
               Coba lagi
@@ -2505,6 +2514,38 @@ function ToolRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** The project path a `browser_capture` call saved its picture to, or null. The output is an
+ *  object while streaming and may be stored as its JSON text after a reload. */
+function capturedPicture(part: any): string | null {
+  if (getToolName(part) !== "browser_capture") return null;
+  let out: any = part.output;
+  if (typeof out === "string") {
+    try {
+      out = JSON.parse(out);
+    } catch {
+      return null;
+    }
+  }
+  return typeof out?.savedPath === "string" && out.savedPath ? out.savedPath : null;
+}
+
+/** A design capture shown in the transcript: a phone-sized thumbnail, opened in full on click. */
+function CapturePreview({ path, projectId }: { path: string; projectId: string }) {
+  const src = workspaceImageSrc(path, projectId);
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noreferrer"
+      title={path}
+      className="w-fit max-w-full grid grid-cols-1 gap-1 rounded-lg border border-kumo-line bg-kumo-base p-1.5 hover:border-kumo-brand"
+    >
+      <img src={src} alt={path.split("/").pop() ?? "Tangkapan layar"} loading="lazy" className="block h-72 w-auto max-w-full rounded object-contain object-top" />
+      <span className={`${MONO} block max-w-[18rem] truncate px-1 text-xs text-kumo-subtle`}>{path}</span>
+    </a>
   );
 }
 
