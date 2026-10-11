@@ -1,21 +1,13 @@
 import { useMemo, useState } from "react";
-import { CaretRight, FolderOpen } from "@phosphor-icons/react";
 import { FileTree, type FileTreeSection } from "~/components/ui/FileTree";
 import type { ThreadFile } from "~/lib/use-chat";
 
 /**
- * Workspace browser inside the chat panel (PRD §11).
+ * The project's file tree, shown in the chat's Berkas sheet (ChatSidePanel).
  *
- * Scope note: the PRD describes this as a `FileTree` *beside* the chat. The chat
- * is a right-docked panel roughly 460px wide, so a permanently visible column
- * would leave neither the transcript nor the tree readable. It is therefore a
- * collapsible section that takes the top of the panel while open, and gives the
- * space back when closed — the same tree component, the same `input/` + `output/`
- * roots, just placed where it does not fight the transcript for width.
- *
- * The "changed in this conversation" filter is the reason this panel is worth its
- * space at all: the changed-files card already lists what the agent touched, but
- * only this view can answer "and where does that sit among the other artifacts".
+ * The "changed in this conversation" filter is the reason this view is worth its
+ * space at all: the changed-files section already lists what the agent touched,
+ * but only this tree can answer "and where does that sit among the other artifacts".
  */
 
 interface Props {
@@ -44,8 +36,7 @@ export function tabForPath(path: string): string | null {
   return null;
 }
 
-export function WorkspacePanel({ files, changed, onOpen }: Props) {
-  const [open, setOpen] = useState(false);
+export function WorkspaceFiles({ files, changed, onOpen }: Props) {
   const [changedOnly, setChangedOnly] = useState(false);
 
   const changedPaths = useMemo(() => new Set(changed.map((f) => f.path)), [changed]);
@@ -66,55 +57,29 @@ export function WorkspacePanel({ files, changed, onOpen }: Props) {
     ].filter((s) => s.files.length > 0);
   }, [files, changedOnly, changedPaths]);
 
-  const total = files.length;
-  const changedCount = changed.filter((f) => files.some((x) => x.path === f.path)).length;
-
   return (
-    <div className="border-b border-kumo-line shrink-0">
-      <div className="mx-auto w-full max-w-3xl px-6">
-        <div className="flex items-center gap-2 py-2">
+    <div className="grid gap-2">
+      <div className="flex w-fit rounded-lg ring ring-kumo-line p-0.5">
+        {[
+          { value: false, label: "Semua" },
+          { value: true, label: "Berubah" },
+        ].map((o) => (
           <button
-            onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-2 text-sm text-kumo-default hover:text-kumo-brand"
-            title="Telusuri berkas project"
+            key={String(o.value)}
+            onClick={() => setChangedOnly(o.value)}
+            className={`rounded-md px-2 py-0.5 text-xs ${
+              changedOnly === o.value ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle hover:bg-kumo-elevated"
+            }`}
           >
-            <CaretRight size={11} className={`text-kumo-subtle ${open ? "rotate-90" : ""}`} />
-            <FolderOpen size={13} className="text-kumo-subtle" />
-            Berkas
-            <span className="text-kumo-subtle">
-              {total} · {changedCount} berubah
-            </span>
+            {o.label}
           </button>
-          {open ? (
-            <div className="ml-auto flex rounded-lg ring ring-kumo-line p-0.5">
-              {[
-                { value: false, label: "Semua" },
-                { value: true, label: "Berubah" },
-              ].map((o) => (
-                <button
-                  key={String(o.value)}
-                  onClick={() => setChangedOnly(o.value)}
-                  className={`rounded-md px-2 py-0.5 text-xs ${
-                    changedOnly === o.value ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle hover:bg-kumo-elevated"
-                  }`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        ))}
       </div>
-
-      {open ? (
-        <div className="mx-auto w-full max-w-3xl px-6 pb-2 max-h-64 overflow-y-auto">
-          <FileTree
-            sections={sections}
-            emptyText={changedOnly ? "Tidak ada berkas yang berubah di percakapan ini." : "Project ini belum punya berkas artefak."}
-            onFileClick={(file) => onOpen(file.path)}
-          />
-        </div>
-      ) : null}
+      <FileTree
+        sections={sections}
+        emptyText={changedOnly ? "Tidak ada berkas yang berubah di percakapan ini." : "Project ini belum punya berkas artefak."}
+        onFileClick={(file) => onOpen(file.path)}
+      />
     </div>
   );
 }

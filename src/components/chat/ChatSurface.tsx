@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
@@ -10,8 +9,6 @@ import { InlineAlert } from "~/components/ui/InlineAlert";
 import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
 import { FileCard } from "~/components/chat/FileCard";
-import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
-import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment, type PendingImage } from "~/components/chat/Composer";
 import { chatActivity, markTaken, providerRetryLabel, settleSteers } from "~/components/chat/chat-state";
 import { loadDraft, promptText, quoteBlock, saveDraft } from "~/components/chat/chat-draft";
@@ -138,7 +135,6 @@ export function ChatSurface({
   onOpenThread,
 }: Props) {
   const projectId = detail.thread.projectId;
-  const navigate = useNavigate();
   const transport = useThreadTransport(threadId);
   const initialMessages = useMemo(() => detail.messages as unknown as UIMessage[], []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -981,21 +977,6 @@ export function ChatSurface({
 
   return (
     <div data-chat-surface className="flex flex-col h-full min-h-0 outline-none" tabIndex={-1} onKeyDown={onRootKeyDown}>
-      <WorkspacePanel
-        files={mentionFiles}
-        changed={detail.files}
-        onOpen={(filePath) => {
-          // The panel does not render artifact viewers; it hands the file to its
-          // own tab, which already knows how to show it (FR-C7). Router
-          // navigation, not `window.location.href` — a full page load would
-          // abort a run that is still streaming in this panel.
-          const tab = tabForPath(filePath);
-          navigate({ to: (tab ? `/projects/$id/${tab}` : "/projects/$id") as any, params: { id: projectId } } as any);
-        }}
-      />
-
-      <MemoryPanel projectId={projectId} />
-
       <div ref={frameRef} onMouseUp={onAnswerSelect} className="relative flex-1 min-h-0 flex flex-col">
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto w-full max-w-3xl px-4 @[560px]/chat:px-6 py-6 grid grid-cols-1 gap-6">
@@ -1212,10 +1193,6 @@ export function ChatSurface({
           </div>
         </div>
       ) : null}
-
-      {detail.staleReads?.length ? <StaleReadsNotice reads={detail.staleReads} /> : null}
-
-      <UnattributedFiles detail={detail} />
 
       {/* Queued messages, held by the server and sent one at a time once the run
           that is working ends. Numbered, because the order is the promise made. */}
@@ -2728,81 +2705,6 @@ function ApprovalBlock({
           </Button>
         </div>
       )}
-    </div>
-  );
-}
-
-/** Files that changed under the agent (FR-C12). Deliberately visible rather than
- *  buried in a tool row: the agent's context may now be wrong, and its next write
- *  to one of these files will be refused (FR-C11) — the user should learn that
- *  here, not from a failed tool call they have to interpret. */
-function StaleReadsNotice({ reads }: { reads: { path: string; readAt: string | null }[] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border-t border-kumo-line shrink-0">
-      <div className="mx-auto w-full max-w-3xl px-6 py-2">
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="w-full flex items-start gap-2 rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2 text-left"
-        >
-          <Warning size={13} className="mt-0.5 shrink-0 text-amber-400" />
-          <span className="text-sm text-kumo-default min-w-0">
-            {reads.length === 1 ? "1 berkas berubah" : `${reads.length} berkas berubah`} di luar agent sejak terakhir dibaca — konteksnya bisa
-            sudah tidak sesuai.
-            <span className="block text-kumo-subtle">{open ? "Sembunyikan daftarnya" : "Lihat daftarnya"}</span>
-          </span>
-        </button>
-        {open ? (
-          <div className="mt-1.5 grid grid-cols-1 gap-0.5">
-            {reads.map((r) => (
-              <p key={r.path} className="flex items-center gap-2 text-sm">
-                <span className={`${MONO} text-kumo-default truncate flex-1`} title={r.path}>
-                  {r.path}
-                </span>
-                <span className="text-kumo-subtle shrink-0">{r.readAt ? `dibaca ${relTime(r.readAt)}` : ""}</span>
-              </p>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-/** Files of this thread the ledger cannot attribute to a turn.
- *
- *  Files written from now on appear under the answer that wrote them (see
- *  `FileCard`), so this section only carries rows recorded before the ledger knew
- *  which turn wrote them — older conversations, or a turn whose message failed to
- *  save. It renders the same cards, so a file is never listed twice and never
- *  disappears: it is either attributed (in the transcript) or it is here.
- */
-function UnattributedFiles({ detail }: { detail: ThreadDetail }) {
-  const [open, setOpen] = useState(true);
-  const files = detail.files.filter((f) => !f.messageId);
-  if (!files.length) return null;
-
-  const totalAdd = files.reduce((n, f) => n + (f.linesAdded ?? 0), 0);
-  const totalDel = files.reduce((n, f) => n + (f.linesRemoved ?? 0), 0);
-
-  return (
-    <div className="border-t border-kumo-line shrink-0">
-      <div className="mx-auto w-full max-w-3xl px-6">
-        <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-2 py-2.5 text-left hover:bg-kumo-elevated">
-          <span className="text-kumo-subtle">{open ? "▾" : "▸"}</span>
-          <span className="text-sm font-medium text-kumo-default">{files.length} berkas berubah</span>
-          <span className="text-sm text-green-400">+{totalAdd}</span>
-          <span className="text-sm text-red-400">−{totalDel}</span>
-          <span className="text-xs text-kumo-subtle ml-1">dari sebelum berkas punya penanda jawaban</span>
-        </button>
-      </div>
-      {open ? (
-        <div className="mx-auto w-full max-w-3xl px-6 pb-3 grid grid-cols-1 gap-2 max-h-72 overflow-y-auto">
-          {files.map((f) => (
-            <FileCard key={f.id} file={f} root={detail.rootPath ?? null} projectId={detail.thread.projectId} />
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
