@@ -47,6 +47,47 @@ router.get("files/read", ({ query }) => {
   return content !== null ? json({ content }) : json({ error: "Not found" }, 404);
 });
 
+// GET /api/files/raw — a PDF or a picture from the project, for the in-app preview (V3).
+// Its own allowlist: PDF and raster images. SVG is left out on purpose, because an SVG opened
+// directly from this origin can run script. Anything else is refused, so the route cannot serve
+// keys or `.env` files.
+const RAW_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+};
+router.get("files/raw", ({ query }) => {
+  const filePath = query.get("path");
+  const projectId = query.get("projectId");
+  if (!filePath) return json({ error: "Missing path" }, 400);
+  let resolved: { abs: string; rel: string };
+  try {
+    resolved = resolveInRoot(resolveRoot(projectId), filePath);
+  } catch (e: any) {
+    return json({ error: e?.message ?? "Path tidak sah" }, 400);
+  }
+  const ext = path.extname(resolved.abs).slice(1).toLowerCase();
+  const type = RAW_TYPES[ext];
+  if (!type) return json({ error: "Tipe berkas ini tidak bisa ditampilkan di pratinjau." }, 415);
+  try {
+    const buf = fs.readFileSync(resolved.abs);
+    return new Response(new Uint8Array(buf), {
+      headers: {
+        "Content-Type": type,
+        "Content-Disposition": `inline; filename="${path.basename(resolved.abs).replace(/["\\]/g, "_")}"`,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch {
+    return json({ error: "Not found" }, 404);
+  }
+});
+
 // GET /api/files/image — raw binary image serving so <img src> can render project files.
 router.get("files/image", ({ query }) => {
   const filePath = query.get("path");

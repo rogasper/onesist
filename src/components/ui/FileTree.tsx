@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
+import { useState, useMemo, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import { CaretDown, CaretRight, Folder, File, ArrowDownLeft, ArrowUpRight } from "@phosphor-icons/react";
 import { FileRow } from "~/components/ui/FileRow";
 import { SearchInput } from "~/components/ui/SearchInput";
@@ -36,6 +36,9 @@ interface FileTreeProps {
   activePath?: string | null;
   /** Empty-state text when the directory has no files. */
   emptyText?: string;
+  /** Start every section and folder closed. Folders that appear later (the list loads async) start
+   *  closed too, so a refresh never opens what the user has not opened. */
+  defaultCollapsed?: boolean;
   /** Disable rows whose file fails this predicate (e.g. non-md). */
   isDisabled?: (file: TreeFile) => boolean;
   onFileClick: (file: TreeFile) => void;
@@ -86,6 +89,17 @@ function buildFileTree(rootDir: string, entries: TreeFile[]): TreeNode[] {
     return nodes;
   };
   return sortNodes(root);
+}
+
+/** Every folder path under `nodes`, at any depth. */
+function folderPaths(nodes: TreeNode[], out: string[] = []): string[] {
+  for (const n of nodes) {
+    if (n.type === "folder") {
+      out.push(n.path);
+      folderPaths(n.children ?? [], out);
+    }
+  }
+  return out;
 }
 
 function dirLabel(dir: string): React.ReactNode {
@@ -143,6 +157,7 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
   sections,
   activePath,
   emptyText = "(empty)",
+  defaultCollapsed = false,
   isDisabled,
   onFileClick,
   onFileContextMenu,
@@ -177,6 +192,58 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
     () => resolved.map((s) => ({ dir: s.dir, nodes: buildFileTree(s.dir, s.files) })),
     [resolved],
   );
+
+  // Folders already seen, so a folder the user opened is not closed again by a refresh.
+  // Layout effect: the folders are closed before the first paint, so nothing flashes open.
+  const seenRef = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    if (!defaultCollapsed) return;
+    const fresh: string[] = [];
+    for (const s of trees) {
+      if (!seenRef.current.has(s.dir)) {
+        seenRef.current.add(s.dir);
+        fresh.push(s.dir);
+      }
+      for (const path of folderPaths(s.nodes)) {
+        if (!seenRef.current.has(path)) {
+          seenRef.current.add(path);
+          fresh.push(path);
+        }
+      }
+    }
+    if (!fresh.length) return;
+    setCollapsedSections((prev) => new Set([...prev, ...fresh.filter((p) => trees.some((t) => t.dir === p))]));
+    setCollapsedDirs((prev) => new Set([...prev, ...fresh.filter((p) => !trees.some((t) => t.dir === p))]));
+  }, [trees, defaultCollapsed]);
+
+  // The open file is always visible in the tree: opening it opens the folders above it, even when
+  // the tree starts closed. Runs when the active file changes, so the user can still close folders.
+  useEffect(() => {
+    if (!defaultCollapsed || !activePath) return;
+    const section = resolved.find((s) => activePath.startsWith(`${s.dir}/`));
+    if (!section) return;
+    const parts = activePath.slice(section.dir.length + 1).split("/").slice(0, -1);
+    const ancestors: string[] = [];
+    let acc = section.dir;
+    for (const part of parts) {
+      acc += "/" + part;
+      ancestors.push(acc);
+    }
+    setCollapsedSections((prev) => {
+      if (!prev.has(section.dir)) return prev;
+      const next = new Set(prev);
+      next.delete(section.dir);
+      return next;
+    });
+    setCollapsedDirs((prev) => {
+      if (!ancestors.some((a) => prev.has(a))) return prev;
+      const next = new Set(prev);
+      for (const a of ancestors) next.delete(a);
+      return next;
+    });
+    // Only the active file matters here; `resolved` is read as it is at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePath, defaultCollapsed]);
 
   const toggleCollapse = (dir: string) => {
     setCollapsedDirs((prev) => {
