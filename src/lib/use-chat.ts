@@ -869,6 +869,14 @@ export function useMentionFiles(projectId: string | undefined, root?: string | n
 // Providers for the model picker
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Asks a provider for its model list and keeps it on the server (U3). Resolves to the ids. */
+export async function refreshProviderModels(providerId: string): Promise<string[]> {
+  const res = await fetch(`/api/providers/${encodeURIComponent(providerId)}/models/refresh`, { method: "POST", cache: "no-store" });
+  if (!res.ok) throw new Error(`Gagal mengambil daftar model (HTTP ${res.status})`);
+  const body = (await res.json()) as { ids?: string[] };
+  return body.ids ?? [];
+}
+
 export function useChatProviders() {
   const [providers, setProviders] = useState<ChatProviderOption[]>([]);
   const [loading, setLoading] = useState(false);

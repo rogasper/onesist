@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CaretDown, Check, MagnifyingGlass, Sliders } from "@phosphor-icons/react";
-import type { ChatProviderOption } from "~/lib/use-chat";
+import { visibleModels } from "~/components/chat/model-list";
+import { refreshProviderModels, type ChatProviderOption } from "~/lib/use-chat";
 
 /**
  * Model picker in the composer (ADR-001 D8, FR-A9, FR-L4, FR-L12).
@@ -10,8 +11,11 @@ import type { ChatProviderOption } from "~/lib/use-chat";
  * several configurations (work, personal, local endpoint), and a flat list
  * becomes unreadable past about five entries.
  *
- * The saved model is always merged with the live model (FR-L4) so providers
- * without `GET /models` stay usable with a manually typed model.
+ * A provider's list is what it reported when it was last refreshed (U3). A provider that
+ * shows at most one stored model is asked for its full list when the popover opens, once per
+ * page load, and each provider shows a few models with "Tampilkan semua" for the rest. The
+ * saved model is always in the list (FR-L4), so providers without `GET /models` stay usable
+ * with a manually typed model.
  */
 
 type ReasoningValue = "low" | "medium" | "high" | null;
@@ -23,6 +27,23 @@ const REASONING_OPTIONS: { value: ReasoningValue; label: string; hint: string }[
   { value: "medium", label: "Sedang", hint: "Keseimbangan kecepatan dan ketelitian" },
   { value: "high", label: "Tinggi", hint: "Berpikir lebih dalam, lebih lambat" },
 ];
+
+/** Requests already made in this page load, so reopening the picker does not ask again. */
+const requested = new Map<string, Promise<string[]>>();
+
+/** One request per provider per page load. A failed request is forgotten, so the next open retries. */
+function requestModels(providerId: string, force: boolean): Promise<string[]> {
+  if (force) requested.delete(providerId);
+  let pending = requested.get(providerId);
+  if (!pending) {
+    pending = refreshProviderModels(providerId).catch(() => {
+      requested.delete(providerId);
+      return [] as string[];
+    });
+    requested.set(providerId, pending);
+  }
+  return pending;
+}
 
 interface Props {
   providers: ChatProviderOption[];
@@ -42,6 +63,10 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
   const [query, setQuery] = useState("");
   const [manual, setManual] = useState("");
   const [manualFor, setManualFor] = useState<string | null>(null);
+  /** Model ids each provider reported on refresh, by provider id. */
+  const [fetchedIds, setFetchedIds] = useState<Record<string, string[]>>({});
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,20 +81,60 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  const current = providers.find((p) => p.id === providerId) ?? null;
-  const label = current ? `${current.name}${model ? ` · ${model}` : ""}` : "Provider default";
+  function load(p: ChatProviderOption, force: boolean) {
+    setPending((prev) => new Set(prev).add(p.id));
+    void requestModels(p.id, force).then((ids) => {
+      setFetchedIds((prev) => ({ ...prev, [p.id]: ids }));
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(p.id);
+        return next;
+      });
+    });
+  }
 
-  // Search filters per model, not per provider — the user is looking for
-  // the model name, and that is usually what they remember best.
+  // Opening the picker is the only trigger: a provider that shows at most one stored model is
+  // asked for its full list. Nothing polls.
+  useEffect(() => {
+    if (!open) return;
+    for (const p of providers) {
+      if (p.apiStyle === "cli" || (p.models?.length ?? 0) > 1) continue;
+      load(p, false);
+    }
+    // Runs on open and when the provider list changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, providers]);
+
+  const current = providers.find((p) => p.id === providerId) ?? null;
+  const fallback = providers.find((p) => p.isDefault) ?? null;
+  // The trigger shows only the model id; the provider's name goes in the tooltip.
+  const shownModel = model ?? current?.model ?? fallback?.model ?? "Default";
+  const providerName = (current ?? fallback)?.name ?? "";
+
+  /** The stored list first, then what the provider reported on refresh, without duplicates. */
+  function modelsOf(p: ChatProviderOption): string[] {
+    return [...new Set([...(p.models ?? []), ...(fetchedIds[p.id] ?? [])])];
+  }
+
+  // Search matches models by name. A search that matches a configuration's own name shows all
+  // of that configuration's models, since the user may remember the configuration instead.
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     return providers
       .map((p) => {
-        const models = (p.models ?? []).filter((m) => !q || m.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
-        return { provider: p, models };
+        const all = modelsOf(p);
+        const providerMatch = !!q && p.name.toLowerCase().includes(q);
+        const view = visibleModels(all, {
+          query: providerMatch ? "" : query,
+          expanded: expanded.has(p.id) || providerMatch,
+          selected: providerId === p.id ? (model ?? p.model) : null,
+        });
+        return { provider: p, total: all.length, shown: view.shown, hidden: view.hidden };
       })
-      .filter((g) => g.models.length > 0 || !q);
-  }, [providers, query]);
+      .filter((g) => !q || g.shown.length > 0);
+    // Recomputed when the search, the expansion, the loaded lists, or the selection change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providers, query, expanded, fetchedIds, providerId, model]);
 
   return (
     // The one toolbar item allowed to shrink: every other control is `shrink-0`,
@@ -79,11 +144,11 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
     <div ref={ref} className="relative min-w-[2.25rem] max-w-[6.5rem] @2xl/composer:max-w-[12rem]">
       <button
         onClick={() => setOpen((v) => !v)}
-        title={`Model: ${label}`}
+        title={`Model: ${shownModel}${providerName ? ` · ${providerName}` : ""}`}
         className="flex w-full min-w-0 items-center gap-1.5 rounded-lg px-2 h-8 hover:bg-kumo-tint text-sm text-kumo-default"
       >
         <Sliders size={13} className="text-kumo-subtle shrink-0" />
-        <span className="truncate whitespace-nowrap">{label}</span>
+        <span className="truncate whitespace-nowrap">{shownModel}</span>
         <CaretDown size={10} weight="bold" className="hidden @2xl/composer:inline text-kumo-subtle shrink-0" />
       </button>
 
@@ -117,14 +182,25 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
               </span>
             </button>
 
-            {groups.map(({ provider, models }) => (
+            {groups.map(({ provider, total, shown, hidden }) => (
               <div key={provider.id} className="grid gap-0.5">
                 <div className="px-2.5 pt-2 pb-1 text-[11px] uppercase tracking-wide text-kumo-subtle flex items-center gap-2">
                   <span className="truncate">{provider.name}</span>
+                  <span className="normal-case tabular-nums">· {total} model</span>
                   {provider.envFallback ? <span className="text-[10px] normal-case">· environment</span> : null}
                   {provider.isDefault ? <span className="text-[10px] normal-case">· default</span> : null}
+                  {provider.apiStyle !== "cli" ? (
+                    <button
+                      onClick={() => load(provider, true)}
+                      disabled={pending.has(provider.id)}
+                      className="ml-auto normal-case text-[11px] text-kumo-brand hover:underline disabled:opacity-50"
+                    >
+                      Perbarui
+                    </button>
+                  ) : null}
                 </div>
-                {models.map((m) => {
+                {pending.has(provider.id) ? <p className="px-2.5 pb-1 text-xs text-kumo-subtle">Memuat daftar model…</p> : null}
+                {shown.map((m) => {
                   const active = providerId === provider.id && (model ?? provider.model) === m;
                   return (
                     <button
@@ -140,6 +216,14 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
                     </button>
                   );
                 })}
+                {hidden > 0 ? (
+                  <button
+                    onClick={() => setExpanded((prev) => new Set(prev).add(provider.id))}
+                    className="w-full text-left rounded-lg px-2.5 py-1.5 text-sm text-kumo-subtle hover:bg-kumo-elevated ml-6"
+                  >
+                    Tampilkan semua ({total})
+                  </button>
+                ) : null}
                 {manualFor === provider.id ? (
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5">
                     <input
@@ -184,9 +268,7 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
               </div>
             ))}
 
-            {!providers.length ? (
-              <p className="px-2.5 py-3 text-sm text-kumo-subtle">Belum ada provider yang bisa dipakai.</p>
-            ) : null}
+            {!providers.length ? <p className="px-2.5 py-3 text-sm text-kumo-subtle">Belum ada provider yang bisa dipakai.</p> : null}
           </div>
 
           {reasoningSupported ? (
