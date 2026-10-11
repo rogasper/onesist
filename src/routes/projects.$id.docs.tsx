@@ -9,6 +9,7 @@ import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { AppButton } from "~/components/ui/AppButton";
 import { MentionTextarea, type MentionFile } from "~/components/docs/MentionTextarea";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import { Dialog, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 
@@ -60,7 +61,8 @@ function DocsPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ name: string; path: string } | null>(null);
 
   const [leftWidth, setLeftWidth] = useState(300);
-  const [promptHeight, setPromptHeight] = useState(170);
+  /** The document viewer, opened from the list (V5). */
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const startColDrag = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -69,22 +71,6 @@ function DocsPage() {
     const move = (ev: PointerEvent) => {
       const next = Math.min(Math.max(startWidth + (ev.clientX - startX), 220), Math.round(window.innerWidth * 0.5));
       setLeftWidth(next);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-  const startRowDrag = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startHeight = promptHeight;
-    const move = (ev: PointerEvent) => {
-      const next = Math.min(Math.max(startHeight + (ev.clientY - startY), 90), Math.round(window.innerHeight * 0.6));
-      setPromptHeight(next);
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
@@ -240,6 +226,7 @@ function DocsPage() {
 
   const openTdFile = async (path: string) => {
     setSelectedPath(path);
+    setViewerOpen(true);
     setSelectedLoading(true);
     setError(null);
     try {
@@ -506,25 +493,25 @@ function DocsPage() {
           title="Drag to resize width"
         />
 
-        {/* Right column: prompt + td files + preview */}
+        {/* Right column (V5): the prompt takes the height; generated documents are a list, and a
+            document opens in a modal rather than squeezed under the prompt. */}
         <div className="flex flex-col min-h-0 gap-3 flex-1 min-w-0">
-          <div className="glass-panel rounded-2xl p-4 shrink-0 flex flex-col" style={{ height: promptHeight }}>
-            <div className="flex items-center justify-between mb-2">
+          <div className="glass-panel rounded-2xl p-4 flex-1 min-h-[16rem] flex flex-col">
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
               <h2 className="text-xs font-semibold text-kumo-default uppercase tracking-wide">Agent Prompt</h2>
-              <AppButton onClick={regeneratePrompt} variant="chip" size="sm" icon={<ArrowCounterClockwise size={12} />} className="px-2.5">Regenerate</AppButton>
+              <div className="flex gap-2">
+                <AppButton onClick={() => copy("prompt")} variant="chip" size="sm" active={copied === "prompt"} activeColor="success" icon={<Copy size={12} />} className="px-3">
+                  {copied === "prompt" ? "Copied" : "Copy prompt"}
+                </AppButton>
+                <AppButton onClick={() => copy("command")} variant="chip" size="sm" active={copied === "command"} activeColor="success" icon={<Copy size={12} />} className="px-3" title="Salin perintah untuk terminal">
+                  {copied === "command" ? "Copied" : "Copy command"}
+                </AppButton>
+                <AppButton onClick={regeneratePrompt} variant="chip" size="sm" icon={<ArrowCounterClockwise size={12} />} className="px-2.5">Regenerate</AppButton>
+              </div>
             </div>
             <p className="text-[11px] text-kumo-subtle mb-2">
-              Editable — type <code className="text-kumo-default">@</code> to mention a project file. Run in the terminal (the embedded
-              terminal works too): <code className="text-kumo-default">opencode run "&lt;prompt&gt;" --auto --dir "{rootPath || "&lt;projectRoot&gt;"}"</code>
+              Editable — ketik <code className="text-kumo-default">@</code> untuk menyebut berkas project. Jalankan di terminal dengan <code className="text-kumo-default">opencode run</code>.
             </p>
-            <div className="flex gap-2 mb-2">
-              <AppButton onClick={() => copy("prompt")} variant="chip" size="sm" active={copied === "prompt"} activeColor="success" icon={<Copy size={12} />} className="px-3">
-                {copied === "prompt" ? "Copied" : "Copy prompt"}
-              </AppButton>
-              <AppButton onClick={() => copy("command")} variant="chip" size="sm" active={copied === "command"} activeColor="success" icon={<Copy size={12} />} className="px-3">
-                {copied === "command" ? "Copied" : "Copy command"}
-              </AppButton>
-            </div>
             <div className="flex-1 min-h-0">
               <MentionTextarea
                 value={prompt}
@@ -536,14 +523,7 @@ function DocsPage() {
             </div>
           </div>
 
-          {/* Horizontal divider (resize prompt height) */}
-          <div
-            onPointerDown={startRowDrag}
-            className="h-1 shrink-0 cursor-row-resize rounded bg-kumo-line/40 hover:bg-kumo-brand/50 transition-colors"
-            title="Drag to resize height"
-          />
-
-          <div className="glass-panel rounded-2xl p-4 flex-1 min-h-0 flex flex-col">
+          <div className="glass-panel rounded-2xl p-4 shrink-0 max-h-72 flex flex-col">
             <div className="flex items-center justify-between mb-2 shrink-0">
               <h2 className="text-xs font-semibold text-kumo-default uppercase tracking-wide">
                 Generated Documents <span className="text-kumo-subtle normal-case font-normal">({tdFiles.length})</span>
@@ -556,56 +536,57 @@ function DocsPage() {
                 No documents in <code className="text-kumo-default">output/td/</code> yet. Run the prompt above to generate one.
               </div>
             ) : (
-              <div className="flex flex-col flex-1 min-h-0">
-                <div className="flex gap-1.5 flex-wrap mb-2 shrink-0">
-                  {tdFiles.map((f) => (
-                    <span
-                      key={f.path}
-                      className={`group inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-full border transition-colors ${
-                        selectedPath === f.path
-                          ? "liquid-wash font-medium border-transparent"
-                          : "border-kumo-line/40 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-tint"
-                      }`}
+              <ul className="min-h-0 overflow-y-auto grid gap-1">
+                {tdFiles.map((f) => (
+                  <li key={f.path} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-kumo-elevated/60">
+                    <FileText size={13} className="text-kumo-subtle shrink-0" />
+                    <button type="button" onClick={() => openTdFile(f.path)} className="min-w-0 flex-1 truncate text-left text-xs text-kumo-default hover:text-kumo-brand" title={f.path}>
+                      {f.name}
+                    </button>
+                    <AppButton onClick={() => openTdFile(f.path)} variant="chip" size="xs" className="px-2.5 shrink-0">Lihat</AppButton>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget({ name: f.name, path: f.path })}
+                      className="opacity-0 group-hover:opacity-100 text-kumo-subtle hover:text-red-400 transition-all shrink-0 p-0.5"
+                      title="Delete"
+                      aria-label={`Hapus ${f.name}`}
                     >
-                      <button type="button" onClick={() => openTdFile(f.path)} className="truncate max-w-40">
-                        {f.name}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget({ name: f.name, path: f.path })}
-                        className="opacity-0 group-hover:opacity-100 text-kumo-subtle hover:text-red-400 transition-all shrink-0"
-                        title="Delete"
-                      >
-                        <Trash size={11} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-
-                <div className="flex-1 min-h-0 flex flex-col">
-                  {selectedLoading ? (
-                    <div className="text-[11px] text-kumo-subtle py-3">Loading…</div>
-                  ) : selectedContent ? (
-                    <div className="flex-1 min-h-0 flex flex-col gap-2">
-                      <div className="shrink-0 flex items-center gap-2">
-                        <span className="text-[11px] text-kumo-subtle truncate">{selectedPath}</span>
-                        <AppButton onClick={exportDocx} variant="chip" size="sm" active={exporting} activeColor="brand" icon={<DownloadSimple size={12} />} className="ml-auto px-3" disabled={exporting}>
-                          {exporting ? "Exporting…" : "Export DOCX"}
-                        </AppButton>
-                      </div>
-                      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden glass-container rounded-lg p-4 spec-markdown docs-preview">
-                        <MarkdownViewer content={preview} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[11px] text-kumo-subtle py-3">Select a document to preview, then export to DOCX.</div>
-                  )}
-                </div>
-              </div>
+                      <Trash size={11} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>
       </div>
+
+      <DialogRoot open={viewerOpen} onOpenChange={(open: boolean) => { if (!open) setViewerOpen(false); }}>
+        <Dialog className="sm:w-[64rem] max-w-[94vw]">
+          <div className="flex flex-col max-h-[85vh] min-h-0">
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-kumo-line shrink-0">
+              <DialogTitle className="text-sm font-medium text-kumo-default truncate">{selectedPath ? selectedPath.split("/").pop() : "Document"}</DialogTitle>
+              {selectedPath ? <span className="text-[11px] text-kumo-subtle font-mono truncate min-w-0">{selectedPath}</span> : null}
+              {selectedContent ? (
+                <AppButton onClick={exportDocx} variant="chip" size="sm" active={exporting} activeColor="brand" icon={<DownloadSimple size={12} />} className="ml-auto px-3 shrink-0" disabled={exporting}>
+                  {exporting ? "Exporting…" : "Export DOCX"}
+                </AppButton>
+              ) : null}
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-5">
+              {selectedLoading ? (
+                <div className="text-[11px] text-kumo-subtle py-3">Loading…</div>
+              ) : selectedContent ? (
+                <div className="spec-markdown docs-preview">
+                  <MarkdownViewer content={preview} />
+                </div>
+              ) : (
+                <div className="text-[11px] text-kumo-subtle py-3">Dokumen ini kosong atau belum bisa dibaca.</div>
+              )}
+            </div>
+          </div>
+        </Dialog>
+      </DialogRoot>
 
       <ConfirmDialog
         open={deleteTarget !== null}
