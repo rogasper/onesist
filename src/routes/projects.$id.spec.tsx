@@ -14,6 +14,7 @@ import { InlineAlert } from "~/components/ui/InlineAlert";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { Placeholder } from "~/components/ui/Placeholder";
 import { SearchInput } from "~/components/ui/SearchInput";
+import { FilePicker } from "~/components/ui/FilePicker";
 import { Toast, type ToastMessage } from "~/components/ui/Toast";
 import { AgentStream } from "~/components/agent/AgentStream";
 import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
@@ -393,16 +394,24 @@ function SpecPage() {
                 Agent sedang berjalan — progress tampil di panel di bawah. Tidak terkunci di tampilan OpenAPI.
               </div>
             )}
-            {/* File selector */}
-            <div className="flex items-center gap-1.5 overflow-x-auto py-2 px-1.5">
-              <AppButton variant="chip" size="sm" active={!selectedSpec} onClick={() => { setSelectedSpec(null); setActiveModule(null); }} className="px-3 shrink-0">
-                Master
-              </AppButton>
-              {mdFiles.map((f) => (
-                <AppButton key={f.path} variant="chip" size="sm" active={selectedSpec === f.path} onClick={() => { setSelectedSpec(f.path); setActiveModule(null); }} className="px-3 shrink-0">
-                  {f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1")}
-                </AppButton>
-              ))}
+            {/* File selector: searchable, so a long list of spec files stays usable (V4) */}
+            <div className="flex items-center gap-2 py-2 px-1.5 min-w-0">
+              <FilePicker
+                items={[
+                  { value: "__master__", label: "Master" },
+                  ...mdFiles.map((f) => ({
+                    value: f.path,
+                    label: f.path.replace(/^output\/(spec\/)?/, "").replace(/\.md$/, "").replace(/(^|\/)spec_api_/, "$1"),
+                    hint: f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : undefined,
+                  })),
+                ]}
+                value={selectedSpec ?? "__master__"}
+                onChange={(value) => {
+                  setSelectedSpec(value === "__master__" ? null : value);
+                  setActiveModule(null);
+                }}
+                searchPlaceholder="Cari berkas spec…"
+              />
             </div>
 
             {/* Tabs + Search */}
@@ -425,7 +434,7 @@ function SpecPage() {
               <SearchInput
                 value={search}
                 onChange={(v) => { setSearch(v); if (!v) setDebouncedSearch(""); }}
-                placeholder="Search paths…"
+                placeholder="Cari path endpoint…"
                 className="w-48"
               />
             </div>
