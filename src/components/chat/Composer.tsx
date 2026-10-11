@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@cloudflare/kumo";
-import { ArrowUp, CaretDown, Check, Info, ListChecks, Paperclip, ShieldCheck, Stop, X } from "@phosphor-icons/react";
+import { ArrowUp, ChatCircle, Info, Lightning, ListBullets, ListChecks, Paperclip, ShieldCheck, ShieldWarning, Stop, X } from "@phosphor-icons/react";
+import { MenuOption, ToolbarMenu } from "~/components/chat/ToolbarMenu";
 import { MentionTextarea, type MentionFile, type MentionTrigger } from "~/components/docs/MentionTextarea";
 import { useFileDropZone } from "~/lib/file-drop";
 import { ModelPicker } from "~/components/chat/ModelPicker";
@@ -51,10 +52,14 @@ export interface PendingImage {
  *  but never allowed to push the rest of the popover out of view. */
 const MONO_ACTION_PROMPT = "font-mono text-[11px] leading-snug text-kumo-subtle whitespace-pre-wrap max-h-24 overflow-y-auto mt-0.5";
 
-/** Shared trigger style for the icon(+label) toolbar buttons docked under
- *  the textarea (Aksi / Izin), so they stay visually identical. */
-const TOOLBAR_BUTTON = "flex items-center gap-1.5 rounded-lg px-2 h-8 shrink-0 hover:bg-kumo-tint text-sm text-kumo-default";
 const TOOLBAR_LABEL = "hidden @md/composer:inline whitespace-nowrap";
+
+/** Thread modes, in the order the dropdown lists them. */
+const MODE_OPTIONS = [
+  { value: "ask", label: "Jawab", hint: "Menjawab tanpa memakai tool", icon: ChatCircle },
+  { value: "plan", label: "Rencana", hint: "Menyusun rencana read-only, lalu disetujui untuk dijalankan", icon: ListBullets },
+  { value: "agent", label: "Kerjakan", hint: "Boleh memakai tool dan mengubah berkas", icon: Lightning },
+] as const;
 
 interface Props {
   projectId: string;
@@ -196,19 +201,6 @@ export function Composer(props: Props) {
   // dragging, the box highlights and the drop lands wherever it is released
   // inside it — dropping on the toolbar row used to do nothing.
   const drop = useFileDropZone(onAttach);
-  const [showActions, setShowActions] = useState(false);
-  const [permOpen, setPermOpen] = useState(false);
-  const permRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!permOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!permRef.current?.contains(e.target as Node)) setPermOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [permOpen]);
-
   const permOptions = useMemo(
     () => [
       { value: "ask", label: "Tanya dulu", hint: "Setiap tulis berkas menunggu persetujuan" },
@@ -219,6 +211,7 @@ export function Composer(props: Props) {
     [],
   );
   const permLabel = permOptions.find((o) => o.value === permissionMode)?.label ?? "Izin";
+  const currentMode = MODE_OPTIONS.find((o) => o.value === threadMode) ?? MODE_OPTIONS[2];
 
   /** Two triggers, one field: `@` for project files, `$` for skills (FR-F4).
    *  Skills are listed by their resolved layer, so the popup shows exactly the
@@ -368,9 +361,7 @@ export function Composer(props: Props) {
             className="block w-full resize-none overflow-y-auto min-h-[52px] max-h-44 text-sm leading-6 px-3.5 pt-2.5 pb-1.5 bg-transparent focus:outline-none text-kumo-default"
           />
 
-          {/* Wraps instead of overflowing: in a narrow panel the send button used to be pushed
-              past the box's right edge. */}
-          <div className="flex flex-wrap items-center gap-1 gap-y-1.5 px-2 pb-2 pt-0.5">
+          <div className="flex items-center gap-1 px-2 pb-2 pt-0.5 min-w-0">
             <button
               onClick={() => fileRef.current?.click()}
               disabled={attachBusy}
@@ -391,33 +382,38 @@ export function Composer(props: Props) {
               }}
             />
 
-            <Segmented
-              value={threadMode}
-              options={[
-                { value: "ask", label: "Jawab", hint: "Menjawab tanpa memakai tool" },
-                { value: "plan", label: "Rencana", hint: "Menyusun rencana read-only, lalu disetujui untuk dijalankan" },
-                { value: "agent", label: "Kerjakan", hint: "Boleh memakai tool dan mengubah berkas" },
-              ]}
-              onChange={onThreadMode}
-            />
+            <ToolbarMenu
+              icon={currentMode.icon}
+              label={currentMode.label}
+              title={`Mode: ${currentMode.label} — ${currentMode.hint}`}
+              width="w-[300px]"
+            >
+              {(close) =>
+                MODE_OPTIONS.map((o) => (
+                  <MenuOption
+                    key={o.value}
+                    icon={o.icon}
+                    label={o.label}
+                    hint={o.hint}
+                    selected={o.value === currentMode.value}
+                    onPick={() => {
+                      onThreadMode(o.value);
+                      close();
+                    }}
+                  />
+                ))
+              }
+            </ToolbarMenu>
 
-            <div className="relative shrink-0">
-              <button onClick={() => setShowActions((v) => !v)} className={TOOLBAR_BUTTON} title="Pekerjaan yang paling sering diminta">
-                <ListChecks size={13} className="text-kumo-subtle shrink-0" />
-                <span className={TOOLBAR_LABEL}>Aksi</span>
-                <CaretDown size={10} weight="bold" className={`${TOOLBAR_LABEL} text-kumo-subtle`} />
-              </button>
-              {showActions ? (
-                // Anchored to the trigger's RIGHT edge: the chat panel is docked on
-                // the right of the window, so a wide popover opened leftward from a
-                // left-anchored trigger would be clipped by the viewport edge.
-                <div className="absolute bottom-full right-0 mb-2 z-30 w-[340px] max-h-[70vh] overflow-y-auto rounded-xl bg-kumo-base ring ring-kumo-line shadow-lg p-1.5">
+            <ToolbarMenu icon={ListChecks} label="Aksi" labelClassName={TOOLBAR_LABEL} title="Pekerjaan yang paling sering diminta" width="w-[340px]">
+              {(close) => (
+                <>
                   {actions.map((a) => (
                     <button
                       key={`${a.source}:${a.id}`}
                       onClick={() => {
                         onInput(a.prompt);
-                        setShowActions(false);
+                        close();
                       }}
                       className="w-full flex items-start gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-kumo-elevated"
                     >
@@ -448,63 +444,55 @@ export function Composer(props: Props) {
                       {actionFile.problem}
                     </p>
                   ) : null}
-                </div>
-              ) : null}
-            </div>
+                </>
+              )}
+            </ToolbarMenu>
 
-            <div className="relative shrink-0" ref={permRef}>
-              <button
-                onClick={() => setPermOpen((v) => !v)}
-                title={`Izin: ${permLabel} — seberapa jauh agent boleh bertindak tanpa bertanya`}
-                className={`${TOOLBAR_BUTTON} max-w-[6.5rem] @lg/composer:max-w-[9rem]`}
-              >
-                <ShieldCheck size={13} className="text-kumo-subtle shrink-0" />
-                <span className="hidden @lg/composer:inline truncate whitespace-nowrap">{permLabel}</span>
-                <CaretDown size={10} weight="bold" className="hidden @lg/composer:inline text-kumo-subtle shrink-0" />
-              </button>
-              {permOpen ? (
-                <div className="absolute bottom-full right-0 mb-2 z-30 w-[260px] rounded-xl bg-kumo-base ring ring-kumo-line shadow-lg p-1.5">
-                  {permOptions.map((o) => (
-                    <button
-                      key={o.value}
-                      onClick={() => {
-                        onPermissionMode(o.value);
-                        setPermOpen(false);
-                      }}
-                      className={`w-full flex items-start gap-2 rounded-lg px-2.5 py-2 text-left ${o.value === permissionMode ? "bg-kumo-elevated" : "hover:bg-kumo-elevated"}`}
-                    >
-                      <span className="w-4 shrink-0 text-kumo-brand">{o.value === permissionMode ? <Check size={13} weight="bold" /> : null}</span>
-                      <span className="grid gap-0.5 min-w-0">
-                        <span className="text-sm text-kumo-default">{o.label}</span>
-                        <span className="text-sm text-kumo-subtle">{o.hint}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            <ToolbarMenu
+              icon={permissionMode === "auto" ? ShieldWarning : ShieldCheck}
+              label={permLabel}
+              labelClassName="hidden @lg/composer:inline truncate whitespace-nowrap"
+              title={`Izin: ${permLabel} — seberapa jauh agent boleh bertindak tanpa bertanya`}
+              triggerClassName="max-w-[6.5rem] @lg/composer:max-w-[9rem]"
+            >
+              {(close) =>
+                permOptions.map((o) => (
+                  <MenuOption
+                    key={o.value}
+                    label={o.label}
+                    hint={o.hint}
+                    selected={o.value === permissionMode}
+                    onPick={() => {
+                      onPermissionMode(o.value);
+                      close();
+                    }}
+                  />
+                ))
+              }
+            </ToolbarMenu>
 
-            <ModelPicker providers={providers} providerId={providerId} model={model} onSelect={onSelectModel} onOpenProviders={onOpenProviders} />
+            <ModelPicker
+              providers={providers}
+              providerId={providerId}
+              model={model}
+              onSelect={onSelectModel}
+              onOpenProviders={onOpenProviders}
+              reasoningSupported={reasoningSupported}
+              reasoningLevel={reasoningLevel}
+              onReasoningLevel={onReasoningLevel}
+            />
 
             <div className="ml-auto flex items-center gap-1.5 shrink-0">
-              {reasoningSupported ? (
-                <select
-                  value={reasoningLevel ?? "default"}
-                  onChange={(e) => onReasoningLevel(e.target.value === "default" ? null : (e.target.value as "low" | "medium" | "high"))}
-                  title="Seberapa dalam model berpikir untuk percakapan ini"
-                  className="h-8 rounded-lg bg-transparent hover:bg-kumo-tint text-xs text-kumo-default px-1.5 focus:outline-none"
-                >
-                  <option value="default">Pikir: default</option>
-                  <option value="low">Pikir: rendah</option>
-                  <option value="medium">Pikir: sedang</option>
-                  <option value="high">Pikir: tinggi</option>
-                </select>
-              ) : null}
-              <ContextMeter usage={contextUsage} onOpen={onOpenContext} onCompact={onCompact} compacting={compacting} streaming={streaming} />
-              <span className="hidden @2xl/composer:inline text-xs text-kumo-subtle whitespace-nowrap">
-
-                {hasSummary ? " · konteks diringkas" : ""}
-              </span>
+              <ContextMeter
+                usage={contextUsage}
+                onOpen={onOpenContext}
+                onCompact={onCompact}
+                compacting={compacting}
+                streaming={streaming}
+                threadTokens={usage}
+                tokensUsed={tokensUsed}
+                hasSummary={hasSummary}
+              />
 
               {streaming ? (
                 <Button variant="secondary" shape="circle" size="sm" icon={Stop} aria-label="Hentikan" title="Hentikan agent" onClick={onStop} />
@@ -524,28 +512,11 @@ export function Composer(props: Props) {
           </div>
         </div>
 
-        {/* Token + biaya thread diletakkan di baris petunjuk, bukan di baris
-            toolbar: di panel selebar ini baris toolbar sudah penuh (Jawab/Kerjakan,
-            Aksi, Izin, Model), dan sebelumnya span ini terender dengan lebar 0 —
-            jadi angkanya tidak pernah terlihat. */}
-        <p className="mt-1.5 text-xs text-kumo-subtle flex items-center gap-2">          
-          <span className="ml-auto shrink-0">
-            {usage && (usage.tokensIn || usage.tokensOut)
-              ? `↑${formatTokens(usage.tokensIn)} ↓${formatTokens(usage.tokensOut)}`
-              : tokensUsed
-                ? `${formatTokens(tokensUsed)} token`
-                : ""}
-            {formatCost(usage?.estimate) ? ` · ${formatCost(usage?.estimate)}` : ""}
-          </span>
-        </p>
       </div>
     </div>
   );
 }
 
-/** Segmented control for enum choices — faster to scan than a `<select>`,
- *  and it does not pop up a system menu outside the app's design language
- *  (ADR-001 D8). */
 /**
  * The context meter (M4 item 20): how full the window is for the next turn, with the
  * breakdown by part and "Ringkas sekarang". The numbers are estimates; the provider's own
@@ -557,12 +528,19 @@ function ContextMeter({
   onCompact,
   compacting,
   streaming,
+  threadTokens,
+  tokensUsed,
+  hasSummary,
 }: {
   usage: ContextUsage | null;
   onOpen: () => void;
   onCompact: () => void;
   compacting: boolean;
   streaming: boolean;
+  /** Token in/out and cost of this whole thread, as the transcript's answers recorded them. */
+  threadTokens?: Props["usage"];
+  tokensUsed: number;
+  hasSummary: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -575,6 +553,12 @@ function ContextMeter({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
   const pct = usage ? Math.min(100, Math.round(usage.ratio * 100)) : null;
+  const threadLine =
+    threadTokens && (threadTokens.tokensIn || threadTokens.tokensOut)
+      ? `↑${formatTokens(threadTokens.tokensIn)} ↓${formatTokens(threadTokens.tokensOut)}${formatCost(threadTokens.estimate) ? ` · ${formatCost(threadTokens.estimate)}` : ""}`
+      : tokensUsed
+        ? `${formatTokens(tokensUsed)} token`
+        : "Belum ada pemakaian";
   const tone = pct == null ? "text-kumo-subtle" : pct >= 90 ? "text-red-400" : pct >= 70 ? "text-amber-400" : "text-kumo-subtle";
   return (
     <div ref={ref} className="relative">
@@ -614,35 +598,13 @@ function ContextMeter({
             {compacting ? "Meringkas…" : "Ringkas sekarang"}
           </Button>
           {!usage.compactable ? <p className="text-kumo-subtle">Belum ada percakapan lama yang bisa diringkas.</p> : null}
+          <div className="grid gap-1 border-t border-kumo-line pt-2">
+            <p className="font-medium text-kumo-default">Percakapan ini</p>
+            <p className="tabular-nums text-kumo-subtle">{threadLine}</p>
+            {hasSummary ? <p className="text-kumo-subtle">Konteks sudah diringkas.</p> : null}
+          </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function Segmented({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: { value: string; label: string; hint?: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="flex items-center h-8 shrink-0 rounded-lg ring ring-kumo-line p-0.5">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          title={o.hint}
-          className={`h-full flex items-center whitespace-nowrap rounded-md px-2.5 text-sm ${
-            value === o.value ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle hover:bg-kumo-elevated"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
     </div>
   );
 }

@@ -14,6 +14,16 @@ import type { ChatProviderOption } from "~/lib/use-chat";
  * without `GET /models` stay usable with a manually typed model.
  */
 
+type ReasoningValue = "low" | "medium" | "high" | null;
+
+/** Reasoning effort choices; `null` means the provider's own default. */
+const REASONING_OPTIONS: { value: ReasoningValue; label: string; hint: string }[] = [
+  { value: null, label: "Default", hint: "Ikut default provider" },
+  { value: "low", label: "Rendah", hint: "Berpikir lebih singkat" },
+  { value: "medium", label: "Sedang", hint: "Keseimbangan kecepatan dan ketelitian" },
+  { value: "high", label: "Tinggi", hint: "Berpikir lebih dalam, lebih lambat" },
+];
+
 interface Props {
   providers: ChatProviderOption[];
   /** Provider used by the thread; "" means follow the app default. */
@@ -21,9 +31,13 @@ interface Props {
   model: string | null;
   onSelect: (providerId: string, model: string | null) => void;
   onOpenProviders: () => void;
+  /** Reasoning effort lives here, next to the model it applies to. */
+  reasoningSupported: boolean;
+  reasoningLevel: ReasoningValue;
+  onReasoningLevel: (level: ReasoningValue) => void;
 }
 
-export function ModelPicker({ providers, providerId, model, onSelect, onOpenProviders }: Props) {
+export function ModelPicker({ providers, providerId, model, onSelect, onOpenProviders, reasoningSupported, reasoningLevel, onReasoningLevel }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [manual, setManual] = useState("");
@@ -174,6 +188,26 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
               <p className="px-2.5 py-3 text-sm text-kumo-subtle">Belum ada provider yang bisa dipakai.</p>
             ) : null}
           </div>
+
+          {reasoningSupported ? (
+            <div className="grid gap-1.5 px-2.5 pt-2 pb-2 mt-1 border-t border-kumo-line">
+              <span className="text-[11px] uppercase tracking-wide text-kumo-subtle">Tingkat berpikir</span>
+              <div className="flex w-fit rounded-lg ring ring-kumo-line p-0.5">
+                {REASONING_OPTIONS.map((o) => (
+                  <button
+                    key={o.label}
+                    onClick={() => onReasoningLevel(o.value)}
+                    title={o.hint}
+                    className={`rounded-md px-2 py-0.5 text-xs ${
+                      reasoningLevel === o.value ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle hover:bg-kumo-elevated"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <button
             onClick={() => {
