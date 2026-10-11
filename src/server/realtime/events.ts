@@ -29,7 +29,10 @@ type EventName =
   | "chat:turn"
   // The provider refused a request that the SDK is retrying (429 or 5xx). Lets the
   // status line say so instead of a silent wait. `attempt` 0 means the retries ended.
-  | "chat:provider-retry";
+  | "chat:provider-retry"
+  // Context compaction of a thread: start, then done or failed. Lets the transcript show a
+  // divider while the summary is written, without waiting for the turn's stream.
+  | "chat:compaction";
 
 interface EventPayload {
   type: EventName;
@@ -171,6 +174,16 @@ class AppEventBus extends EventEmitter {
 
   emitChatProviderRetry(input: { threadId: string; status: number; attempt: number }) {
     this.emitAppEvent({ type: "chat:provider-retry", data: { ...input } });
+  }
+
+  emitChatCompaction(input: {
+    threadId: string;
+    phase: "start" | "done" | "failed";
+    at: "before-turn" | "in-run" | "manual";
+    estimatedBefore?: number;
+    estimatedAfter?: number;
+  }) {
+    this.emitAppEvent({ type: "chat:compaction", data: { ...input } });
   }
 
   emitChatApprovalResolved(input: { threadId: string; toolCallId: string }) {

@@ -350,7 +350,18 @@ export interface ChatLiveEventHandlers {
   onTurnStarted?: () => void;
   /** The provider refused a request and the SDK is retrying it; attempt 0 ends the retries. */
   onProviderRetry?: (info: { status: number; attempt: number }) => void;
+  /** A context compaction started, or ended (done or failed). */
+  onCompaction?: (info: ChatCompactionEvent) => void;
   onOpen?: () => void;
+}
+
+/** One step of a context compaction, as the server reports it over `chat:compaction`. */
+export interface ChatCompactionEvent {
+  phase: "start" | "done" | "failed";
+  /** `before-turn` and `in-run` are automatic; `manual` is "Ringkas sekarang". */
+  at: "before-turn" | "in-run" | "manual";
+  estimatedBefore?: number;
+  estimatedAfter?: number;
 }
 
 export function useChatLiveEvents(threadId: string | null, enabled: boolean, handlers: ChatLiveEventHandlers) {
@@ -373,6 +384,7 @@ export function useChatLiveEvents(threadId: string | null, enabled: boolean, han
       subscribe("chat:queue", mine(() => latest.current.onQueueChanged?.())),
       subscribe("chat:turn", mine(() => latest.current.onTurnStarted?.())),
       subscribe("chat:provider-retry", mine((data) => latest.current.onProviderRetry?.({ status: Number(data.status), attempt: Number(data.attempt) }))),
+      subscribe("chat:compaction", mine((data) => latest.current.onCompaction?.(data as ChatCompactionEvent))),
     ];
     // Read once after subscribing: an event that happened before the stream was open is not replayed.
     latest.current.onOpen?.();
@@ -570,10 +582,14 @@ export async function fetchContextUsage(threadId: string): Promise<ContextUsage 
 }
 
 /** Ringkas sekarang: returns the error text when it did not go through. */
-export async function compactThread(threadId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function compactThread(
+  threadId: string,
+): Promise<{ ok: true; estimatedBefore: number; estimatedAfter: number } | { ok: false; error: string }> {
   const res = await fetch(`/api/chat/threads/${threadId}/compact`, { method: "POST", cache: "no-store" });
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  return res.ok ? { ok: true } : { ok: false, error: data.error ?? "Gagal meringkas percakapan." };
+  const data = (await res.json().catch(() => ({}))) as { error?: string; estimatedBefore?: number; estimatedAfter?: number };
+  return res.ok
+    ? { ok: true, estimatedBefore: Number(data.estimatedBefore ?? 0), estimatedAfter: Number(data.estimatedAfter ?? 0) }
+    : { ok: false, error: data.error ?? "Gagal meringkas percakapan." };
 }
 
 /** A suggestion for an empty chat: fills the composer, is not sent by itself. */

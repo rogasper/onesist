@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
@@ -42,6 +42,7 @@ import {
   uploadAttachment,
   useChatActions,
   useChatLiveEvents,
+  type ChatCompactionEvent,
   fetchContextUsage,
   compactThread,
   fetchMentionRefs,
@@ -149,6 +150,10 @@ export function ChatSurface({
   /** Scroll height before an older page was prepended, to keep the view in place. */
   const prependHeight = useRef<number | null>(null);
 
+  /** The compaction shown in the transcript: live steps first, then the stored notice takes
+   *  over when the turn's transcript is re-read. Cleared when a new send starts. */
+  const [compaction, setCompaction] = useState<ChatCompactionEvent | null>(null);
+
   const { messages, sendMessage, status, stop, error, setMessages, resumeStream } = useChat({
     id: threadId,
     transport: transport!,
@@ -159,6 +164,7 @@ export function ChatSurface({
     onFinish: () => {
       awaitingRefresh.current = true;
       setWatchingRun(false);
+      setCompaction(null);
       // The queue is held by the server when this run was stopped or failed; no
       // pausing decision is made here.
       onRefresh();
@@ -191,6 +197,7 @@ export function ChatSurface({
     ...approvalState.handlers,
     onQueueChanged: () => void queue.refresh(),
     onProviderRetry: (info) => setProviderRetry(info.attempt > 0 ? info : null),
+    onCompaction: (info) => setCompaction(info),
     onTurnStarted: () => {
       // A turn started on this thread while this client is not streaming it (the
       // queue sent the next message): follow it live.
@@ -199,6 +206,7 @@ export function ChatSurface({
     onRunEnded: () => {
       setWatchingRun(false);
       setProviderRetry(null);
+      setCompaction(null);
       // While this client streams, its own onFinish owns the run's end (and the
       // pause decision); only a run started elsewhere is settled here.
       awaitingRefresh.current = true;
@@ -268,17 +276,29 @@ export function ChatSurface({
     if (!streaming) refreshContext();
   }, [streaming, refreshContext]);
 
-  /** Ringkas sekarang, and the `/compact` command. The transcript shows the notice after a reload. */
+  // A compaction belongs to the thread it ran in, and a new send ends the last one's divider.
+  useEffect(() => {
+    setCompaction(null);
+  }, [threadId]);
+  useEffect(() => {
+    if (status === "submitted") setCompaction(null);
+  }, [status]);
+
+  /** Ringkas sekarang, and the `/compact` command. The divider shows live; the stored notice
+   *  takes its place after a reload. */
   async function compactNow() {
     if (compacting) return;
     setCompacting(true);
     setActionNote(null);
+    setCompaction({ phase: "start", at: "manual" });
     const result = await compactThread(threadId);
     setCompacting(false);
     if (!result.ok) {
+      setCompaction(null);
       setActionNote(result.error);
       return;
     }
+    setCompaction({ phase: "done", at: "manual", estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter });
     refreshContext();
     onRefresh();
   }
@@ -975,6 +995,9 @@ export function ChatSurface({
     });
   }
 
+  // A compaction before a turn sits right after the message that started it.
+  const lastUserIndex = messages.reduce((found, m, i) => (m.role === "user" ? i : found), -1);
+
   return (
     <div data-chat-surface className="flex flex-col h-full min-h-0 outline-none" tabIndex={-1} onKeyDown={onRootKeyDown}>
       <div ref={frameRef} onMouseUp={onAnswerSelect} className="relative flex-1 min-h-0 flex flex-col">
@@ -1012,6 +1035,7 @@ export function ChatSurface({
               onFork={stableFork}
               canRetry={mi === messages.length - 1 && m.role === "assistant"}
             />
+            {compaction?.at === "before-turn" && mi === lastUserIndex ? <CompactDivider event={compaction} /> : null}
             </div>
           ))}
 
@@ -1034,6 +1058,7 @@ export function ChatSurface({
             </div>
           ))}
 
+          {compaction && compaction.at !== "before-turn" ? <CompactDivider event={compaction} /> : null}
           {actionNote ? <InlineAlert>{actionNote}</InlineAlert> : null}
           {questions.map((q) => (
             <QuestionBlock key={q.questionId} question={q} onAnswer={answerQuestion} />
@@ -2022,10 +2047,43 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
   }
   if (data?.kind !== "compacted") return null;
   return (
-    <div className="rounded-lg ring ring-kumo-line px-3 py-2 text-sm text-kumo-subtle">
-      Konteks percakapan diringkas
-      {data.estimatedBefore ? ` · perkiraan ${formatTokens(data.estimatedBefore)} → ${formatTokens(data.estimatedAfter ?? 0)} token` : ""}.
-      Pesan-pesan awal digantikan ringkasannya.
+    <CompactDivider
+      event={{
+        phase: "done",
+        at: data.manual ? "manual" : "before-turn",
+        estimatedBefore: data.estimatedBefore,
+        estimatedAfter: data.estimatedAfter,
+      }}
+    />
+  );
+}
+
+/**
+ * The context compaction marker, in the transcript and in the live stream alike: a centred line
+ * between two rules. Start pulses, done gives the token change, failed says the history is intact.
+ */
+function CompactDivider({ event }: { event: ChatCompactionEvent }) {
+  const automatic = event.at !== "manual";
+  let label: ReactNode;
+  let tone = "text-kumo-subtle";
+  if (event.phase === "start") {
+    label = (
+      <>
+        <Pulse />
+        Meringkas konteks…
+      </>
+    );
+  } else if (event.phase === "failed") {
+    tone = "text-amber-400";
+    label = "Ringkasan gagal — percakapan tetap utuh";
+  } else {
+    label = `Konteks diringkas${event.estimatedBefore ? ` · ${formatTokens(event.estimatedBefore)} → ${formatTokens(event.estimatedAfter ?? 0)} token` : ""} · ${automatic ? "otomatis" : "manual"}`;
+  }
+  return (
+    <div role="status" className={`flex items-center gap-3 text-xs ${tone}`}>
+      <span className="h-px flex-1 bg-kumo-line" />
+      <span className="inline-flex items-center gap-2 shrink-0">{label}</span>
+      <span className="h-px flex-1 bg-kumo-line" />
     </div>
   );
 }

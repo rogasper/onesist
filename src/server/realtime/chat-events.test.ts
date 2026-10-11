@@ -71,3 +71,12 @@ test("chat:approval-resolved reaches the client, so a card is removed without po
   expect(text).toContain('"toolCallId":"call_9"');
   controller.abort();
 });
+
+test("chat:compaction reaches the client, so the transcript can show the divider", async () => {
+  const { res, controller } = await openEvents();
+  queueMicrotask(() => eventBus.emitChatCompaction({ threadId: "thr_t", phase: "done", at: "before-turn", estimatedBefore: 9000, estimatedAfter: 2000 }));
+  const text = await readUntil(res, "event: chat:compaction");
+  expect(text).toContain('"phase":"done"');
+  expect(text).toContain('"estimatedBefore":9000');
+  controller.abort();
+});
