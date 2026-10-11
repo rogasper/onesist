@@ -4,7 +4,7 @@ import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { Button } from "@cloudflare/kumo";
-import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowDown, ArrowUp, BookOpen, Brain, Check, GitBranch, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
@@ -1716,6 +1716,7 @@ function MessageBlockView({
         <div key={b.key} className="chat-markdown text-sm leading-relaxed text-kumo-default min-w-0">
           <MarkdownViewer
             content={b.text}
+            scrollTables
             codeRenderer={(lang, code) => (isCardWorthyCode(lang, code) ? <CodeCard lang={lang} code={code} projectId={projectId} /> : null)}
           />
         </div>
@@ -1769,9 +1770,20 @@ function MessageBlockView({
       >
         {inTok || outTok ? (
           <>
-            <span className="whitespace-nowrap">↑{formatTokens(inTok ?? 0)} masuk</span>
-            <span className="whitespace-nowrap">↓{formatTokens(outTok ?? 0)} keluar</span>
-            {reasoningMs ? <span className="whitespace-nowrap">berpikir {fmtDuration(reasoningMs)}</span> : null}
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap" title="Token masuk">
+              <ArrowUp size={11} weight="bold" aria-hidden />
+              {formatTokens(inTok ?? 0)}
+            </span>
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap" title="Token keluar">
+              <ArrowDown size={11} weight="bold" aria-hidden />
+              {formatTokens(outTok ?? 0)}
+            </span>
+            {reasoningMs ? (
+              <span className="inline-flex items-center gap-0.5 whitespace-nowrap" title="Waktu berpikir">
+                <Brain size={11} aria-hidden />
+                {fmtDuration(reasoningMs)}
+              </span>
+            ) : null}
           </>
         ) : null}
         {failed ? <span className="whitespace-nowrap text-amber-400">{metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
@@ -1782,16 +1794,16 @@ function MessageBlockView({
             retry visible, since that is the thing the reader is looking for. */}
         <div className={`ml-auto flex shrink-0 items-center gap-3 transition-opacity ${failed ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
           {canRetry && onRetry && !streaming ? (
-            <button onClick={() => onRetry(message.id)} className="whitespace-nowrap hover:text-kumo-default">
-              Coba lagi
+            <button onClick={() => onRetry(message.id)} title="Coba lagi" aria-label="Coba lagi" className="flex items-center rounded-md p-1 hover:bg-kumo-tint hover:text-kumo-default">
+              <ArrowClockwise size={13} />
             </button>
           ) : null}
           {onFork && !streaming ? (
-            <button onClick={() => onFork(message.id)} className="whitespace-nowrap hover:text-kumo-default" title="Buat cabang percakapan dari sini">
-              Cabang
+            <button onClick={() => onFork(message.id)} title="Buat cabang percakapan dari sini" aria-label="Buat cabang percakapan dari sini" className="flex items-center rounded-md p-1 hover:bg-kumo-tint hover:text-kumo-default">
+              <GitBranch size={13} />
             </button>
           ) : null}
-          {answerText.trim() ? <CopyButton text={answerText} title="Salin jawaban" /> : null}
+          {answerText.trim() ? <CopyButton text={answerText} variant="icon" title="Salin jawaban" /> : null}
         </div>
       </div>
     </div>

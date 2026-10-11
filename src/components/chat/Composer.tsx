@@ -235,7 +235,10 @@ export function Composer(props: Props) {
         // points, one registry — that is what keeps them from drifting.
         char: "/",
         label: "Perintah · mengisi instruksi siap pakai",
-        items: actions.map((a) => ({
+        items: [
+          // Not an instruction for the model: sending it runs the compaction (ChatSurface.submit).
+          { name: "/compact", path: "compact", insert: "/compact", hint: "Ringkas konteks percakapan ini" },
+          ...actions.map((a) => ({
           name: `/${a.command}`,
           path: a.command,
           // `/sit` fills the composer with that action's instruction. Same text as
@@ -244,6 +247,7 @@ export function Composer(props: Props) {
           hint: a.label,
           tag: a.source === "project" ? "project" : undefined,
         })),
+        ],
       },
       {
         char: "$",
