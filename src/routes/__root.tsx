@@ -126,6 +126,22 @@ function SidebarPersistence() {
 }
 
 function RootComponent() {
+  // The update banner's height. kumo fixes the desktop sidebar to the top of the window, so the
+  // sidebar starts below the banner through `--update-banner-h` (see styles.css).
+  const bannerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const apply = () => root.style.setProperty("--update-banner-h", `${el.offsetHeight}px`);
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.setProperty("--update-banner-h", "0px");
+    };
+  }, []);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   // Controlled, so the project's chat can fold it on a narrow window (P3.2).
   const sidebarOpen = useSidebarOpen();
@@ -166,7 +182,9 @@ function RootComponent() {
     <html suppressHydrationWarning data-mode={getStoredTheme() === "dark" ? "dark" : undefined} className="h-svh overflow-hidden">
       <head><HeadContent /></head>
       <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
-        <UpdateBanner />
+        <div ref={bannerRef} className="relative z-[60] shrink-0">
+          <UpdateBanner />
+        </div>
         <InstanceWatch />
         <QuickOpenModal />
         <div className="flex flex-1 min-h-0">

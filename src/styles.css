@@ -687,3 +687,10 @@ html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
 ::highlight(chat-find-current) {
   background-color: rgb(251 146 60 / 0.75);
 }
+
+/* kumo fixes the desktop sidebar to the top of the window. The update banner sits above the
+   app (RootComponent measures it into --update-banner-h), so the sidebar starts below it. */
+.fixed[data-sidebar="content-container"],
+.fixed[data-sidebar="sidebar"] {
+  top: var(--update-banner-h, 0px);
+}
