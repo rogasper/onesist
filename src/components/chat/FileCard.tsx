@@ -20,6 +20,7 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { ArtifactPreview } from "~/components/chat/ArtifactPreview";
+import { inDesktopShell, openWithOs as openInOsApp } from "~/lib/desktop-shell";
 import type { ThreadFile } from "~/lib/use-chat";
 
 /**
@@ -112,7 +113,6 @@ function look(ext: string): { Icon: Icon; tone: string } {
 
 /** Inside the Tauri shell? Same check the rest of the app uses — the OS actions
  *  below have no meaning in a browser build. */
-const inDesktopShell = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 function basename(path: string): string {
   return path.replace(/\\/g, "/").split("/").pop() ?? path;
@@ -169,14 +169,7 @@ export function FileCard({ file, root, projectId }: { file: ThreadFile; root: st
   async function openWithOs(mode: "open" | "reveal") {
     if (!abs || !inDesktopShell()) return;
     setMenu(false);
-    try {
-      const mod = await import("@tauri-apps/plugin-opener");
-      if (mode === "open") await mod.openPath(abs);
-      else await mod.revealItemInDir(abs);
-    } catch {
-      /* the OS refused (no handler for the type, permission) — the file is still
-         reachable from its tab or from the workspace panel */
-    }
+    await openInOsApp(abs, mode);
   }
 
   function runAction(action: "tab" | "os" | "expand") {

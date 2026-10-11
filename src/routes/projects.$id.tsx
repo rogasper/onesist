@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // style toggle, not a subtree insert. createXterm is still deferred until open.
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
 import { ChatPanel } from "~/components/chat/ChatPanel";
+import { RightDock } from "~/components/layout/RightDock";
 import { subscribeQuotes } from "~/lib/chat-quote";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
@@ -27,6 +28,7 @@ import { ListSkeleton } from "~/components/ui/Skeleton";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { ExplorerShell } from "~/components/ui/ExplorerShell";
 import { FileTree, type FileTreeHandle } from "~/components/ui/FileTree";
+import { FilePreview, previewKindOf } from "~/components/ui/FilePreview";
 import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 import { PageHelpButton } from "~/components/ui/PageHelpButton";
 
@@ -129,7 +131,9 @@ function ProjectLayout() {
   }, []);
 
   const handleFileClick = (file: { name: string; path: string }) => {
-    if (!file.path.endsWith(".md")) return;
+    // Markdown opens in the editor; PDFs and pictures open in their viewer (V3). Other text is
+    // not opened here, as before.
+    if (previewKindOf(file.path) === "text" && !file.path.endsWith(".md")) return;
     setOpenTabs((prev) => {
       if (prev.some((t) => t.path === file.path)) return prev;
       return [...prev, { path: file.path, name: file.name }];
@@ -278,11 +282,15 @@ function ProjectLayout() {
         </div>
       </div>
 
-      <ChatPanel visible={chatOpen} onClose={() => setChatOpen(false)} projectId={project.id} />
+      {/* Docked at the window's right edge (not inside the page), so the React tree and the
+          streams stay in this route while the DOM sits in the app's right dock. */}
+      <RightDock>
+        <ChatPanel visible={chatOpen} onClose={() => setChatOpen(false)} projectId={project.id} />
 
-      <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
-        <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
-      </TerminalErrorBoundary>
+        <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
+          <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
+        </TerminalErrorBoundary>
+      </RightDock>
     </div>
   );
 }
@@ -359,7 +367,9 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   });
 
 
-  const { content: activeContent, loading: contentLoading, refresh: refreshContent } = useFileContent(activeTabPath, project?.id);
+  // Only text files are read as text. A PDF or a picture is shown by FilePreview, from its own URL.
+  const isTextFile = !activeTabPath || previewKindOf(activeTabPath) === "text";
+  const { content: activeContent, loading: contentLoading, refresh: refreshContent } = useFileContent(isTextFile ? activeTabPath : null, project?.id);
 
   // FSD-style editor for the open markdown file. Save goes through the generic
   // /api/files/write (creates the file if missing). Switching away with unsaved
@@ -479,8 +489,12 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
           }
         >
           <FileTree
+            // Keyed by project: the tree's open folders belong to one project, and the route stays
+            // mounted when the user switches projects.
+            key={project.id}
             ref={fileTreeRef}
             sections={DIR_ORDER.map((dir) => ({ dir, files: dirs[dir] ?? [] }))}
+            defaultCollapsed
             activePath={activeTabPath}
             emptyText="(empty)"
             onFileClick={(file) => requestLeave({ kind: "file", path: file.path, file })}
@@ -519,7 +533,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                   </div>
                 ))}
               </div>
-              {activeTabPath && (
+              {activeTabPath && isTextFile && (
                 <div className="flex items-center gap-1 shrink-0 ml-2">
                   <AppButton variant="chip" size="xs" active={editorMode === "edit"} onClick={() => setEditorMode("edit")} icon={<PencilSimple size={11} />} className="px-2" title="Edit" />
                   <AppButton variant="chip" size="xs" active={editorMode === "split"} onClick={() => setEditorMode("split")} icon={<Columns size={11} />} className="px-2" title="Split view" />
@@ -549,24 +563,33 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                 title="No file selected"
                 description="Select a markdown file from the browser to view its content."
               />
-            ) : contentLoading ? (
-              <div className="p-4"><ListSkeleton rows={6} /></div>
-            ) : activeContent === null ? (
-              <ErrorState
-                message="Unable to read this file"
-                detail="Check that the project root path is set in settings"
-                retry={refreshContent}
-              />
             ) : (
-              <div className="h-full flex flex-col">
-                <FsdEditor
-                  content={editorContent}
-                  mode={editorMode}
-                  onChange={(v) => { setDraftContent(v); setDirty(true); }}
-                  onSave={() => void handleSave()}
-                  projectId={project?.id ?? ""}
-                />
-              </div>
+              <FilePreview
+                path={activeTabPath}
+                projectId={project?.id ?? ""}
+                root={project?.rootPath ?? null}
+                text={
+                  contentLoading ? (
+                    <div className="p-4"><ListSkeleton rows={6} /></div>
+                  ) : activeContent === null ? (
+                    <ErrorState
+                      message="Unable to read this file"
+                      detail="Check that the project root path is set in settings"
+                      retry={refreshContent}
+                    />
+                  ) : (
+                    <div className="h-full flex flex-col">
+                      <FsdEditor
+                        content={editorContent}
+                        mode={editorMode}
+                        onChange={(v) => { setDraftContent(v); setDirty(true); }}
+                        onSave={() => void handleSave()}
+                        projectId={project?.id ?? ""}
+                      />
+                    </div>
+                  )
+                }
+              />
             )}
           </div>
         </div>

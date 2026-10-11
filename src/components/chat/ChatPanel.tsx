@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Popover } from "@cloudflare/kumo";
-import { ArrowsInSimple, ArrowsOutSimple, CaretUpDown, Check, Gear, MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
+import { ArrowsInSimple, ArrowsOutSimple, Brain, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, X, type Icon } from "@phosphor-icons/react";
+import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePanel";
 import { ChatSurface } from "~/components/chat/ChatSurface";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
@@ -10,6 +11,7 @@ import { useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, 
 import { threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
+import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
 
 /**
  * Chat panel docked on the right side (FR-B1).
@@ -46,6 +48,8 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   const [providersOpen, setProvidersOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ThreadSummary | null>(null);
   const [creating, setCreating] = useState(false);
+  /** The Berkas / Memori sheet over the transcript, or closed. */
+  const [side, setSide] = useState<SidePanelView | null>(null);
   const { width, dragging, handleProps: resizeHandleProps } = usePanelResize({
     min: MIN_WIDTH,
     max: MAX_WIDTH,
@@ -54,6 +58,11 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   });
 
   const { detail, loading: detailLoading, refresh: refreshDetail } = useChatThread(activeId);
+
+  // A sheet belongs to the thread it was opened on.
+  useEffect(() => {
+    setSide(null);
+  }, [activeId]);
 
   // NO auto-select on open (changed 2026-09-18, UJI-MANUAL C10). It used to jump
   // straight into the most recently updated thread, so reopening the app
@@ -85,20 +94,24 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   // The project area must keep room (P3.2): below MIN_CONTENT_WIDTH the chat floats over it
   // instead of squeezing it. The width of the row the panel sits in decides, not the panel's own
   // mode, so the switch cannot flip back and forth.
-  const rootRef = useRef<HTMLDivElement>(null);
+  // The row is the page (`[data-app-main]`) plus the dock the panel sits in. Their widths add up to
+  // the same total whether the panel is in the dock (main shrinks) or floating (the dock is empty),
+  // so the switch cannot flip back and forth.
   const [rowWidth, setRowWidth] = useState<number | null>(null);
   useEffect(() => {
-    const row = rootRef.current?.parentElement;
-    if (!row) return;
+    const main = document.querySelector<HTMLElement>("[data-app-main]");
+    const dock = document.getElementById(RIGHT_DOCK_ID);
+    if (!main || !dock) return;
     // Measured again when the panel opens or changes width: opening it may fold the app
     // sidebar, which changes the row without any resize event on the row itself.
-    const measure = () => setRowWidth(row.clientWidth);
+    const measure = () => setRowWidth(main.clientWidth + dock.clientWidth);
     // Measured at once, and again on the next frame (the sidebar may still be moving); the frame
     // callback alone never runs in a hidden page.
     measure();
     const frame = requestAnimationFrame(measure);
     const observer = new ResizeObserver(measure);
-    observer.observe(row);
+    observer.observe(main);
+    observer.observe(dock);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
@@ -127,7 +140,6 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
 
   return (
     <div
-      ref={rootRef}
       className={
         !visible
           ? "hidden"
@@ -145,14 +157,30 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
         title="Geser untuk mengubah lebar"
       />
 
-      <div className="flex-1 min-w-0 flex flex-col min-h-0 app-card ml-1">
+      <div className={`flex-1 min-w-0 flex flex-col min-h-0 ${floating ? "app-card" : "bg-kumo-elevated border-l border-kumo-line"}`}>
         {/* Control row. This panel is narrow, so the conversation list uses
             a picker, not its own column. */}
-        <header className="flex items-center gap-2 px-3 py-2 border-b border-kumo-line shrink-0">
+        <header className="flex items-center gap-2 px-3 h-[52px] border-b border-kumo-line shrink-0">
           <Button variant="ghost" onClick={handleNew} disabled={creating} title="Percakapan baru">
             <Plus size={14} />
           </Button>
           <ThreadPicker threads={threads} activeId={activeId} onSelect={setActiveId} projectId={projectId} panelVisible={visible} />
+          {detail ? (
+            <>
+              <SideToggle
+                view="files"
+                current={side}
+                onToggle={setSide}
+                icon={FolderOpen}
+                label="Berkas"
+                count={detail.files.length}
+                // Amber dot: the agent's context may be wrong (FR-C12), so the header says so
+                // even while the sheet is closed.
+                alert={(detail.staleReads?.length ?? 0) > 0 ? `${detail.staleReads.length} berkas berubah di luar agent` : null}
+              />
+              <SideToggle view="memory" current={side} onToggle={setSide} icon={Brain} label="Memori" />
+            </>
+          ) : null}
           {active ? (
             <Button variant="ghost" onClick={() => setPendingDelete(active)} title="Hapus percakapan">
               <X size={13} />
@@ -175,7 +203,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
           </div>
         ) : null}
 
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 relative">
           {!activeId ? (
             <ThreadStartState threads={threads} loading={loading} creating={creating} onNew={handleNew} onPick={setActiveId} />
           ) : detailLoading && !detail ? (
@@ -197,6 +225,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
                   void refresh();
                 }}
               />
+              {side ? <ChatSidePanel view={side} detail={detail} projectId={projectId} onClose={() => setSide(null)} /> : null}
             </ProjectIdProvider>
           ) : null}
         </div>
@@ -318,6 +347,38 @@ function ThreadStartState({
  *  The popover also carries cross-thread message search (FR-B17): the panel is
  *  too narrow for a second search surface, and "which conversation was that in"
  *  is exactly the question this popover already answers. */
+/** Header button that opens one of the side sheets; pressing it again closes the sheet. */
+function SideToggle({
+  view,
+  current,
+  onToggle,
+  icon: IconComponent,
+  label,
+  count,
+  alert,
+}: {
+  view: SidePanelView;
+  current: SidePanelView | null;
+  onToggle: (next: SidePanelView | null) => void;
+  icon: Icon;
+  label: string;
+  count?: number;
+  /** Shown as an amber dot and in the tooltip, so a problem stays visible with the sheet closed. */
+  alert?: string | null;
+}) {
+  const open = current === view;
+  const title = alert ? `${label} · ${alert}` : label;
+  return (
+    <Button variant="ghost" onClick={() => onToggle(open ? null : view)} title={title} aria-label={title} aria-pressed={open}>
+      <span className="relative inline-flex items-center gap-1">
+        <IconComponent size={14} className={open ? "text-kumo-brand" : undefined} />
+        {count ? <span className="text-[10px] tabular-nums text-kumo-subtle">{count}</span> : null}
+        {alert ? <span className="absolute -top-0.5 -right-1 size-1.5 rounded-full bg-amber-400" /> : null}
+      </span>
+    </Button>
+  );
+}
+
 function ThreadPicker({
   threads,
   activeId,

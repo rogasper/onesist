@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.3.0 — Chat yang lebih rapi, pratinjau PDF dan gambar, dan konteks yang diringkas otomatis
+
+Rilis perbaikan UI chat dan project: panel Berkas dan Memori dipindah ke sheet samping, composer satu baris, dan tab Task dibuka sebagai modal. Konteks percakapan yang penuh kini diringkas otomatis dan terlihat di transkrip.
+
+### Feat — Chat
+- **Berkas dan Memori di sheet samping** (`Berkas`, `Memori`). Berkas yang dibaca agent lalu berubah di luar agent ditandai di header.
+- **Composer satu baris** dengan menu Mode (Jawab, Rencana, Kerjakan), Aksi, dan Izin. Meter konteks menampilkan total percakapan dan status ringkasan.
+- **Daftar model lengkap per provider.** Pemilih model menampilkan semua model yang diberikan provider, dengan pencarian, dan tombol "Perbarui" per provider.
+- **Konteks diringkas otomatis.** Sebelum giliran dikirim, percakapan yang sudah melewati 70% konteks diringkas dulu. Saat run berjalan, ringkasan juga bisa dibuat di tengah run.
+- **Divider ringkasan di transkrip.** "Meringkas konteks…" saat berjalan, lalu "Konteks diringkas · X → Y token · otomatis/manual". Ringkasan lama tampil dengan gaya yang sama setelah halaman dimuat ulang.
+- **Ikon untuk aksi jawaban**: coba lagi, cabang, dan salin. Jumlah token dan waktu berpikir tampil sebagai ikon.
+- **Tabel di jawaban bisa digeser ke samping** dan kolomnya tidak lagi terhimpit.
+- **Perintah `/compact`** di menu `/` untuk meringkas percakapan.
+- **Panel chat dan terminal menempel di tepi kanan jendela**, penuh dari atas sampai bawah.
+
+### Feat — Project
+- **Pratinjau PDF dan gambar** di Overview. Gambar dan PDF dibuka di dalam aplikasi lewat `GET /api/files/raw` (hanya PDF dan gambar yang diizinkan).
+- **Folder di Overview tertutup secara default.** Folder yang berisi berkas aktif dibuka otomatis.
+- **Pencarian berkas** untuk ERD dan API Spec, menggantikan dropdown biasa.
+- **Tab Docs**: prompt Agent mengisi tinggi kolom, dan dokumen yang dihasilkan tampil sebagai daftar dengan viewer di modal.
+- **Tab Task**: detail task dibuka sebagai modal. Tombol Copy menyalin tampilan yang sudah dirender, dan Copy Agent Prompt menyalin prompt.
+
+### Fix
+- **Banner update tampil di atas sidebar.** Pemeriksaan update saat start tidak lagi menggeser layout (tidak ada bar sementara).
+
+### Verifikasi
+- `bun run typecheck` bersih. `bun test`: 161 tes di 33 berkas lulus.
+- Dijalankan di aplikasi desktop yang di-build (debug) pada project customer-service-ai dan technical-assesment: layout panel dock, ringkasan manual (meter turun dari 15% ke 7%), divider ringkasan setelah dimuat ulang, footer berikon, dan menu `/compact`.
+- **Belum diuji di aplikasi:** ringkasan otomatis sebelum giliran dan di tengah run (perlu thread di atas 70%), tabel yang bisa digeser pada jawaban nyata, dan jalur Windows.
+
+### Catatan
+- Tombol "Lihat file asli" di tab FSD belum dibuat.
+- Pengecekan di Windows tidak dilakukan selama pengembangan di macOS.
+- **Bump `0.2.0 → 0.3.0`**.
+
 ## v0.2.0 — Chat agent yang lengkap, capture desain Figma, dan performa yang lebih ringan
 
 Rilis besar: tab **Chat** per project kini punya antrean pesan di server, tanya-balik ke user di tengah run, edit dan kirim ulang, cabang thread, dan undo perubahan file per giliran. Tautan desain Figma bisa dibaca lewat browser yang dikelola Onesist.

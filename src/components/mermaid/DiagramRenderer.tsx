@@ -12,6 +12,11 @@ export interface MarkdownViewerProps {
   content: string;
   className?: string;
   /**
+   * Wide tables scroll sideways inside their box, and cells keep a minimum width so the
+   * columns stay readable. Chat turns the option on; the other tabs keep their own tables.
+   */
+  scrollTables?: boolean;
+  /**
    * Optional replacement for fenced code blocks. Chat uses it to render
    * ` ```dbml `, ` ```json `, and similar as action cards (ADR-001 D8).
    *
@@ -57,8 +62,36 @@ function isBareBlock(kid: React.ReactNode): boolean {
 
 const BARE_CODE_BLOCK_DISPLAY_NAME = "BareCodeBlock";
 
-export function MarkdownViewer({ content, className, codeRenderer }: MarkdownViewerProps) {
+/** Table parts for `scrollTables`: the wrapper scrolls, and each cell keeps at least 9rem. */
+const SCROLL_TABLE_COMPONENTS: Record<string, React.ComponentType<any>> = {
+  table({ node: _node, children, ...props }: any) {
+    return (
+      <div className="my-2 max-w-full overflow-x-auto rounded-md ring ring-kumo-line/60">
+        <table {...props} className="w-full border-collapse text-sm">
+          {children}
+        </table>
+      </div>
+    );
+  },
+  th({ node: _node, children, ...props }: any) {
+    return (
+      <th {...props} className="min-w-[9rem] px-2.5 py-1.5 text-left align-top font-semibold text-kumo-default border-b border-kumo-line bg-kumo-elevated/40">
+        {children}
+      </th>
+    );
+  },
+  td({ node: _node, children, ...props }: any) {
+    return (
+      <td {...props} className="min-w-[9rem] px-2.5 py-1.5 align-top border-b border-kumo-line/60">
+        {children}
+      </td>
+    );
+  },
+};
+
+export function MarkdownViewer({ content, className, codeRenderer, scrollTables = false }: MarkdownViewerProps) {
   const components: Record<string, React.ComponentType<any>> = {
+    ...(scrollTables ? SCROLL_TABLE_COMPONENTS : {}),
     code({ className: cls, children, node, ...props }: any) {
       const lang = languageOf(cls);
       if (lang === "mermaid") {

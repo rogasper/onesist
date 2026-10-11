@@ -9,8 +9,7 @@ import { TableEditor } from "~/components/erd/TableEditor";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { ListSkeleton } from "~/components/ui/Skeleton";
 import { PageHeader } from "~/components/ui/PageHeader";
-import { SearchInput } from "~/components/ui/SearchInput";
-import { FilterSelect } from "~/components/ui/FilterSelect";
+import { FilePicker } from "~/components/ui/FilePicker";
 import { parseDbml, serializeDbml, type TableDef, type ParsedDbml } from "~/lib/dbml";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
@@ -38,7 +37,6 @@ function ErdPage() {
   const { files, loading: filesLoading, refresh: refreshFiles } = useFileList("output/erd", id);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
-  const [fileSearch, setFileSearch] = useState("");
   const { content: dbmlText, refresh: refreshContent } = useFileContent(selectedFile, id);
   const [localText, setLocalText] = useState("");
   const [parsed, setParsed] = useState<ParsedDbml>({ tables: [], notes: [] });
@@ -55,12 +53,6 @@ function ErdPage() {
       ),
     [files]
   );
-
-  const filteredFiles = useMemo(() => {
-    const q = fileSearch.trim().toLowerCase();
-    if (!q) return erdFiles;
-    return erdFiles.filter((f) => f.name.toLowerCase().includes(q));
-  }, [erdFiles, fileSearch]);
 
   // Auto-select the file to draw. The list is newest-first, and a turn that
   // writes `erd.dbml` + `erd.md` puts the MARKDOWN first — the canvas then fed
@@ -178,52 +170,13 @@ function ErdPage() {
         below={
           erdFiles.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap min-w-0">
-              <SearchInput
-                value={fileSearch}
-                onChange={setFileSearch}
-                placeholder="Search ERD files…"
-                className="w-48 sm:w-56 shrink-0"
+              <FilePicker
+                items={erdFiles.map((f) => ({ value: f.path, label: f.name, hint: f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : undefined }))}
+                value={selectedFile}
+                onChange={setSelectedFile}
+                placeholder="Pilih berkas ERD"
+                searchPlaceholder="Cari berkas ERD…"
               />
-
-              <FilterSelect
-                value={selectedFile ?? ""}
-                onChange={(val) => setSelectedFile(val)}
-                className="max-w-[200px] truncate shrink-0"
-                title="Select ERD file"
-              >
-                {erdFiles.map((f) => (
-                  <option key={f.path} value={f.path}>
-                    {f.name}
-                  </option>
-                ))}
-              </FilterSelect>
-
-              <div className="flex-1 flex items-center gap-1 overflow-x-auto min-w-0 py-0.5 no-scrollbar">
-                {filteredFiles.map((f) => (
-                  <AppButton
-                    key={f.path}
-                    variant="chip"
-                    size="xs"
-                    active={selectedFile === f.path}
-                    onClick={() => setSelectedFile(f.path)}
-                    className="px-2.5 shrink-0 truncate max-w-[180px]"
-                    title={f.name}
-                  >
-                    {f.name}
-                  </AppButton>
-                ))}
-                {filteredFiles.length === 0 && (
-                  <span className="text-[11px] text-kumo-subtle italic px-2">
-                    No matching files
-                  </span>
-                )}
-              </div>
-
-              {fileSearch && (
-                <span className="text-[10px] text-kumo-subtle font-mono shrink-0 ml-auto">
-                  {filteredFiles.length}/{erdFiles.length} files
-                </span>
-              )}
             </div>
           )
         }

@@ -49,6 +49,8 @@ function TasksPage() {
   const loaderData = Route.useLoaderData() as { project: any; tasks: Task[] };
   const [tasks, setTasks] = useState<Task[]>(loaderData?.tasks ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** The open task is being edited: an outside click must not discard the edits (U5). */
+  const [detailEditing, setDetailEditing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ inserted: number; updated: number; removed: number; skipped: number; skippedFiles?: string[] } | null>(null);
   const [search, setSearch] = useState("");
@@ -681,7 +683,20 @@ function TasksPage() {
               onSelectPhase={handleSelectPhase}
             />
           </div>
-          {selectedTask && (
+        </div>
+      )}
+
+      {/* Task detail opens in a modal over the list (U5). Escape and the X close it; an outside
+          click does too, unless the task is being edited. */}
+      <DialogRoot
+        open={!!selectedTask}
+        onOpenChange={(open: boolean) => {
+          if (!open && !detailEditing) setSelectedId(null);
+        }}
+        disablePointerDismissal={detailEditing}
+      >
+        <Dialog className="sm:w-[60rem] max-w-[92vw]">
+          {selectedTask ? (
             <TaskDetail
               task={selectedTask}
               developers={developers}
@@ -689,10 +704,11 @@ function TasksPage() {
               onSave={handleSave}
               onDelete={handleDelete}
               onClose={() => setSelectedId(null)}
+              onEditingChange={setDetailEditing}
             />
-          )}
-        </div>
-      )}
+          ) : null}
+        </Dialog>
+      </DialogRoot>
 
       {/* Missing context dialog — strict handoff with single combined prompt */}
       {missingDialog && (

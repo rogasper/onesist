@@ -1,17 +1,14 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { Button } from "@cloudflare/kumo";
-import { BookOpen, Brain, Check, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowDown, ArrowUp, BookOpen, Brain, Check, GitBranch, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
 import { FileCard } from "~/components/chat/FileCard";
-import { WorkspacePanel, tabForPath } from "~/components/chat/WorkspacePanel";
-import { MemoryPanel } from "~/components/chat/MemoryPanel";
 import { Composer, type Attachment, type PendingImage } from "~/components/chat/Composer";
 import { chatActivity, markTaken, providerRetryLabel, settleSteers } from "~/components/chat/chat-state";
 import { loadDraft, promptText, quoteBlock, saveDraft } from "~/components/chat/chat-draft";
@@ -45,6 +42,7 @@ import {
   uploadAttachment,
   useChatActions,
   useChatLiveEvents,
+  type ChatCompactionEvent,
   fetchContextUsage,
   compactThread,
   fetchMentionRefs,
@@ -138,7 +136,6 @@ export function ChatSurface({
   onOpenThread,
 }: Props) {
   const projectId = detail.thread.projectId;
-  const navigate = useNavigate();
   const transport = useThreadTransport(threadId);
   const initialMessages = useMemo(() => detail.messages as unknown as UIMessage[], []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -153,6 +150,10 @@ export function ChatSurface({
   /** Scroll height before an older page was prepended, to keep the view in place. */
   const prependHeight = useRef<number | null>(null);
 
+  /** The compaction shown in the transcript: live steps first, then the stored notice takes
+   *  over when the turn's transcript is re-read. Cleared when a new send starts. */
+  const [compaction, setCompaction] = useState<ChatCompactionEvent | null>(null);
+
   const { messages, sendMessage, status, stop, error, setMessages, resumeStream } = useChat({
     id: threadId,
     transport: transport!,
@@ -163,6 +164,7 @@ export function ChatSurface({
     onFinish: () => {
       awaitingRefresh.current = true;
       setWatchingRun(false);
+      setCompaction(null);
       // The queue is held by the server when this run was stopped or failed; no
       // pausing decision is made here.
       onRefresh();
@@ -195,6 +197,7 @@ export function ChatSurface({
     ...approvalState.handlers,
     onQueueChanged: () => void queue.refresh(),
     onProviderRetry: (info) => setProviderRetry(info.attempt > 0 ? info : null),
+    onCompaction: (info) => setCompaction(info),
     onTurnStarted: () => {
       // A turn started on this thread while this client is not streaming it (the
       // queue sent the next message): follow it live.
@@ -203,6 +206,7 @@ export function ChatSurface({
     onRunEnded: () => {
       setWatchingRun(false);
       setProviderRetry(null);
+      setCompaction(null);
       // While this client streams, its own onFinish owns the run's end (and the
       // pause decision); only a run started elsewhere is settled here.
       awaitingRefresh.current = true;
@@ -272,17 +276,29 @@ export function ChatSurface({
     if (!streaming) refreshContext();
   }, [streaming, refreshContext]);
 
-  /** Ringkas sekarang, and the `/compact` command. The transcript shows the notice after a reload. */
+  // A compaction belongs to the thread it ran in, and a new send ends the last one's divider.
+  useEffect(() => {
+    setCompaction(null);
+  }, [threadId]);
+  useEffect(() => {
+    if (status === "submitted") setCompaction(null);
+  }, [status]);
+
+  /** Ringkas sekarang, and the `/compact` command. The divider shows live; the stored notice
+   *  takes its place after a reload. */
   async function compactNow() {
     if (compacting) return;
     setCompacting(true);
     setActionNote(null);
+    setCompaction({ phase: "start", at: "manual" });
     const result = await compactThread(threadId);
     setCompacting(false);
     if (!result.ok) {
+      setCompaction(null);
       setActionNote(result.error);
       return;
     }
+    setCompaction({ phase: "done", at: "manual", estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter });
     refreshContext();
     onRefresh();
   }
@@ -979,23 +995,11 @@ export function ChatSurface({
     });
   }
 
+  // A compaction before a turn sits right after the message that started it.
+  const lastUserIndex = messages.reduce((found, m, i) => (m.role === "user" ? i : found), -1);
+
   return (
     <div data-chat-surface className="flex flex-col h-full min-h-0 outline-none" tabIndex={-1} onKeyDown={onRootKeyDown}>
-      <WorkspacePanel
-        files={mentionFiles}
-        changed={detail.files}
-        onOpen={(filePath) => {
-          // The panel does not render artifact viewers; it hands the file to its
-          // own tab, which already knows how to show it (FR-C7). Router
-          // navigation, not `window.location.href` — a full page load would
-          // abort a run that is still streaming in this panel.
-          const tab = tabForPath(filePath);
-          navigate({ to: (tab ? `/projects/$id/${tab}` : "/projects/$id") as any, params: { id: projectId } } as any);
-        }}
-      />
-
-      <MemoryPanel projectId={projectId} />
-
       <div ref={frameRef} onMouseUp={onAnswerSelect} className="relative flex-1 min-h-0 flex flex-col">
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto w-full max-w-3xl px-4 @[560px]/chat:px-6 py-6 grid grid-cols-1 gap-6">
@@ -1031,6 +1035,7 @@ export function ChatSurface({
               onFork={stableFork}
               canRetry={mi === messages.length - 1 && m.role === "assistant"}
             />
+            {compaction?.at === "before-turn" && mi === lastUserIndex ? <CompactDivider event={compaction} /> : null}
             </div>
           ))}
 
@@ -1053,6 +1058,7 @@ export function ChatSurface({
             </div>
           ))}
 
+          {compaction && compaction.at !== "before-turn" ? <CompactDivider event={compaction} /> : null}
           {actionNote ? <InlineAlert>{actionNote}</InlineAlert> : null}
           {questions.map((q) => (
             <QuestionBlock key={q.questionId} question={q} onAnswer={answerQuestion} />
@@ -1212,10 +1218,6 @@ export function ChatSurface({
           </div>
         </div>
       ) : null}
-
-      {detail.staleReads?.length ? <StaleReadsNotice reads={detail.staleReads} /> : null}
-
-      <UnattributedFiles detail={detail} />
 
       {/* Queued messages, held by the server and sent one at a time once the run
           that is working ends. Numbered, because the order is the promise made. */}
@@ -1714,6 +1716,7 @@ function MessageBlockView({
         <div key={b.key} className="chat-markdown text-sm leading-relaxed text-kumo-default min-w-0">
           <MarkdownViewer
             content={b.text}
+            scrollTables
             codeRenderer={(lang, code) => (isCardWorthyCode(lang, code) ? <CodeCard lang={lang} code={code} projectId={projectId} /> : null)}
           />
         </div>
@@ -1767,9 +1770,20 @@ function MessageBlockView({
       >
         {inTok || outTok ? (
           <>
-            <span className="whitespace-nowrap">↑{formatTokens(inTok ?? 0)} masuk</span>
-            <span className="whitespace-nowrap">↓{formatTokens(outTok ?? 0)} keluar</span>
-            {reasoningMs ? <span className="whitespace-nowrap">berpikir {fmtDuration(reasoningMs)}</span> : null}
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap" title="Token masuk">
+              <ArrowUp size={11} weight="bold" aria-hidden />
+              {formatTokens(inTok ?? 0)}
+            </span>
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap" title="Token keluar">
+              <ArrowDown size={11} weight="bold" aria-hidden />
+              {formatTokens(outTok ?? 0)}
+            </span>
+            {reasoningMs ? (
+              <span className="inline-flex items-center gap-0.5 whitespace-nowrap" title="Waktu berpikir">
+                <Brain size={11} aria-hidden />
+                {fmtDuration(reasoningMs)}
+              </span>
+            ) : null}
           </>
         ) : null}
         {failed ? <span className="whitespace-nowrap text-amber-400">{metadata?.status === "aborted" ? "dihentikan" : "berakhir dengan error"}</span> : null}
@@ -1780,16 +1794,16 @@ function MessageBlockView({
             retry visible, since that is the thing the reader is looking for. */}
         <div className={`ml-auto flex shrink-0 items-center gap-3 transition-opacity ${failed ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
           {canRetry && onRetry && !streaming ? (
-            <button onClick={() => onRetry(message.id)} className="whitespace-nowrap hover:text-kumo-default">
-              Coba lagi
+            <button onClick={() => onRetry(message.id)} title="Coba lagi" aria-label="Coba lagi" className="flex items-center rounded-md p-1 hover:bg-kumo-tint hover:text-kumo-default">
+              <ArrowClockwise size={13} />
             </button>
           ) : null}
           {onFork && !streaming ? (
-            <button onClick={() => onFork(message.id)} className="whitespace-nowrap hover:text-kumo-default" title="Buat cabang percakapan dari sini">
-              Cabang
+            <button onClick={() => onFork(message.id)} title="Buat cabang percakapan dari sini" aria-label="Buat cabang percakapan dari sini" className="flex items-center rounded-md p-1 hover:bg-kumo-tint hover:text-kumo-default">
+              <GitBranch size={13} />
             </button>
           ) : null}
-          {answerText.trim() ? <CopyButton text={answerText} title="Salin jawaban" /> : null}
+          {answerText.trim() ? <CopyButton text={answerText} variant="icon" title="Salin jawaban" /> : null}
         </div>
       </div>
     </div>
@@ -2045,10 +2059,43 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
   }
   if (data?.kind !== "compacted") return null;
   return (
-    <div className="rounded-lg ring ring-kumo-line px-3 py-2 text-sm text-kumo-subtle">
-      Konteks percakapan diringkas
-      {data.estimatedBefore ? ` · perkiraan ${formatTokens(data.estimatedBefore)} → ${formatTokens(data.estimatedAfter ?? 0)} token` : ""}.
-      Pesan-pesan awal digantikan ringkasannya.
+    <CompactDivider
+      event={{
+        phase: "done",
+        at: data.manual ? "manual" : "before-turn",
+        estimatedBefore: data.estimatedBefore,
+        estimatedAfter: data.estimatedAfter,
+      }}
+    />
+  );
+}
+
+/**
+ * The context compaction marker, in the transcript and in the live stream alike: a centred line
+ * between two rules. Start pulses, done gives the token change, failed says the history is intact.
+ */
+function CompactDivider({ event }: { event: ChatCompactionEvent }) {
+  const automatic = event.at !== "manual";
+  let label: ReactNode;
+  let tone = "text-kumo-subtle";
+  if (event.phase === "start") {
+    label = (
+      <>
+        <Pulse />
+        Meringkas konteks…
+      </>
+    );
+  } else if (event.phase === "failed") {
+    tone = "text-amber-400";
+    label = "Ringkasan gagal — percakapan tetap utuh";
+  } else {
+    label = `Konteks diringkas${event.estimatedBefore ? ` · ${formatTokens(event.estimatedBefore)} → ${formatTokens(event.estimatedAfter ?? 0)} token` : ""} · ${automatic ? "otomatis" : "manual"}`;
+  }
+  return (
+    <div role="status" className={`flex items-center gap-3 text-xs ${tone}`}>
+      <span className="h-px flex-1 bg-kumo-line" />
+      <span className="inline-flex items-center gap-2 shrink-0">{label}</span>
+      <span className="h-px flex-1 bg-kumo-line" />
     </div>
   );
 }
@@ -2728,81 +2775,6 @@ function ApprovalBlock({
           </Button>
         </div>
       )}
-    </div>
-  );
-}
-
-/** Files that changed under the agent (FR-C12). Deliberately visible rather than
- *  buried in a tool row: the agent's context may now be wrong, and its next write
- *  to one of these files will be refused (FR-C11) — the user should learn that
- *  here, not from a failed tool call they have to interpret. */
-function StaleReadsNotice({ reads }: { reads: { path: string; readAt: string | null }[] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border-t border-kumo-line shrink-0">
-      <div className="mx-auto w-full max-w-3xl px-6 py-2">
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="w-full flex items-start gap-2 rounded-lg ring ring-amber-400/40 bg-amber-400/10 px-3 py-2 text-left"
-        >
-          <Warning size={13} className="mt-0.5 shrink-0 text-amber-400" />
-          <span className="text-sm text-kumo-default min-w-0">
-            {reads.length === 1 ? "1 berkas berubah" : `${reads.length} berkas berubah`} di luar agent sejak terakhir dibaca — konteksnya bisa
-            sudah tidak sesuai.
-            <span className="block text-kumo-subtle">{open ? "Sembunyikan daftarnya" : "Lihat daftarnya"}</span>
-          </span>
-        </button>
-        {open ? (
-          <div className="mt-1.5 grid grid-cols-1 gap-0.5">
-            {reads.map((r) => (
-              <p key={r.path} className="flex items-center gap-2 text-sm">
-                <span className={`${MONO} text-kumo-default truncate flex-1`} title={r.path}>
-                  {r.path}
-                </span>
-                <span className="text-kumo-subtle shrink-0">{r.readAt ? `dibaca ${relTime(r.readAt)}` : ""}</span>
-              </p>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-/** Files of this thread the ledger cannot attribute to a turn.
- *
- *  Files written from now on appear under the answer that wrote them (see
- *  `FileCard`), so this section only carries rows recorded before the ledger knew
- *  which turn wrote them — older conversations, or a turn whose message failed to
- *  save. It renders the same cards, so a file is never listed twice and never
- *  disappears: it is either attributed (in the transcript) or it is here.
- */
-function UnattributedFiles({ detail }: { detail: ThreadDetail }) {
-  const [open, setOpen] = useState(true);
-  const files = detail.files.filter((f) => !f.messageId);
-  if (!files.length) return null;
-
-  const totalAdd = files.reduce((n, f) => n + (f.linesAdded ?? 0), 0);
-  const totalDel = files.reduce((n, f) => n + (f.linesRemoved ?? 0), 0);
-
-  return (
-    <div className="border-t border-kumo-line shrink-0">
-      <div className="mx-auto w-full max-w-3xl px-6">
-        <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-2 py-2.5 text-left hover:bg-kumo-elevated">
-          <span className="text-kumo-subtle">{open ? "▾" : "▸"}</span>
-          <span className="text-sm font-medium text-kumo-default">{files.length} berkas berubah</span>
-          <span className="text-sm text-green-400">+{totalAdd}</span>
-          <span className="text-sm text-red-400">−{totalDel}</span>
-          <span className="text-xs text-kumo-subtle ml-1">dari sebelum berkas punya penanda jawaban</span>
-        </button>
-      </div>
-      {open ? (
-        <div className="mx-auto w-full max-w-3xl px-6 pb-3 grid grid-cols-1 gap-2 max-h-72 overflow-y-auto">
-          {files.map((f) => (
-            <FileCard key={f.id} file={f} root={detail.rootPath ?? null} projectId={detail.thread.projectId} />
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { ArrowLeft, Eye, EyeSlash, Plus, X } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import {
   draftFingerprint,
+  storedModelIds,
   testErrorHint,
   useAppSettings,
   useProviders,
@@ -88,6 +89,7 @@ const emptyDraft = (): ProviderDraft => ({
   apiKey: "",
   authMethod: "bearer",
   model: "",
+  models: [],
   maxOutputTokens: 8192,
   contextWindow: null,
   customHeaders: {},
@@ -108,6 +110,7 @@ function draftFrom(p: ProviderSummary): ProviderDraft {
     apiKey: "",
     authMethod: p.authMethod,
     model: p.model ?? "",
+    models: storedModelIds(p.modelsJson),
     maxOutputTokens: p.maxOutputTokens,
     contextWindow: p.contextWindow,
     customHeaders: (p as any).customHeaders ?? {},
@@ -520,6 +523,9 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
                         // so it also works when the provider was never saved.
                         const res = await getModelsForDraft({ ...draft, id: current?.id });
                         setModels(res.models);
+                        // Keep the whole list with the provider, not just the one picked below:
+                        // the chat's model picker offers all of them (U3).
+                        if (res.supported) setDraft((d) => ({ ...d, models: res.models.map((m) => m.id) }));
                         setModelsNote(res.message ?? (res.models.length ? null : "Provider tidak mengembalikan daftar model. Isi model secara manual."));
                       } catch (err: any) {
                         setModelsNote(err?.message ?? "Gagal mengambil daftar model");
@@ -542,6 +548,9 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
                     </button>
                   ))}
                 </div>
+              ) : null}
+              {draft.models.length ? (
+                <p className="text-sm text-kumo-subtle">{draft.models.length} model akan muncul di pemilih model chat.</p>
               ) : null}
               {modelsNote ? <p className="text-sm text-kumo-subtle">{modelsNote}</p> : null}
             </FieldRow>

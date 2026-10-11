@@ -60,6 +60,10 @@ export interface TurnInput {
    *  if it only lived in this turn's memory, the next compaction would start from
    *  zero and long conversations would lose context after restart. */
   onCompact?: (info: { estimatedBefore: number; estimatedAfter: number; summaryTokens: number; summary: string }) => void;
+  /** Called right before a compaction starts its summarising call, so the UI can show it. */
+  onCompactStart?: () => void;
+  /** Called when the summarising call gave no summary, so a started compaction is closed. */
+  onCompactFailed?: () => void;
   onStepFinish?: (info: { stepCount: number }) => void;
 }
 
@@ -269,12 +273,14 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
       if (stepNumber > 0) {
         lastCompaction = shouldCompact(next, contextWindow);
         if (lastCompaction.shouldCompact) {
+          input.onCompactStart?.();
           const result = await summarizeOldest({
             model,
             messages: next,
             previousSummary: input.summary,
             maxOutputTokens,
           });
+          if (!result) input.onCompactFailed?.();
           if (result) {
             input.summary = result.summary;
             // The summary replaces the oldest messages; the rest is kept as-is

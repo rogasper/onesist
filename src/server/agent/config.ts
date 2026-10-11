@@ -430,6 +430,20 @@ export function mergeModels(
   return [...map.values()];
 }
 
+/** Most model ids kept per provider. Some gateways list several hundred. */
+export const MAX_STORED_MODELS = 500;
+
+/** Model ids to keep in `models_json`: trimmed, unique, in discovery order, capped. */
+export function modelIdsToStore(models: ModelInfo[]): string[] {
+  const out: string[] = [];
+  for (const m of models) {
+    const id = m.id.trim();
+    if (id && !out.includes(id)) out.push(id);
+    if (out.length >= MAX_STORED_MODELS) break;
+  }
+  return out;
+}
+
 export interface DiscoverModelsResult {
   models: ModelInfo[];
   /** false when the provider offers no model-listing endpoint. That's normal,

@@ -29,7 +29,8 @@ import {
   resolveProvider,
 } from "~/server/agent/config";
 import { convertToModelMessages } from "~/server/agent/ai";
-import { estimateTokens, resolveContextWindow, splitForCompaction, summarizeOldest } from "~/server/agent/context";
+import { estimateTokens, resolveContextWindow, splitForCompaction } from "~/server/agent/context";
+import { compactThreadHistory, shouldCompactBeforeTurn } from "~/server/agent/compaction";
 import { dbmlTableNames, listMentionRefs, resolveMentionRef } from "~/server/agent/mention-refs";
 import { suggestionsFor } from "~/server/agent/suggestions";
 import { threadActivityOf } from "~/server/agent/thread-activity";
@@ -487,6 +488,9 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
     }
   }
 
+  // V6: a full thread is summarised before the run, so the first request is not over budget.
+  await compactBeforeTurn(getThread(thread.id)!, root, provider);
+
   /**
    * The model's history is read from the database, not from the request body.
    *
@@ -496,10 +500,11 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
    * what really happened, so it is the input. Notices (role "system") are dropped
    * here as well; they are display markers only.
    */
-  const stored = toUIMessages(visibleRows(thread)).filter((m) => m.role !== "system") as UIMessage[];
+  // Read again: the compaction above may have moved the cutoff and the summary.
+  const current = getThread(thread.id)!;
+  const stored = toUIMessages(visibleRows(current)).filter((m) => m.role !== "system") as UIMessage[];
   const modelMessages = lastUser && !stored.some((m) => m.id === lastUser.id) ? [...stored, lastUser as UIMessage] : stored;
 
-  const current = getThread(thread.id)!;
   const system = threadSystemPrompt(current, root);
 
   const runId = makeRunId();
@@ -568,11 +573,20 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
           console.error("[chat] failed to record file read:", err);
         }
       },
+      onCompactStart: () => eventBus.emitChatCompaction({ threadId: current.id, phase: "start", at: "in-run" }),
+      onCompactFailed: () => eventBus.emitChatCompaction({ threadId: current.id, phase: "failed", at: "in-run" }),
       onCompact: (info) => {
         // FR-B8/FR-B9: the summary is stored on the thread (not just in one
         // turn's memory) and the event is written as a marker message so it
         // stays visible after reload.
         setThreadSummary(current.id, info.summary);
+        eventBus.emitChatCompaction({
+          threadId: current.id,
+          phase: "done",
+          at: "in-run",
+          estimatedBefore: info.estimatedBefore,
+          estimatedAfter: info.estimatedAfter,
+        });
         appendMessage({
           threadId: current.id,
           role: "system",
@@ -1308,13 +1322,9 @@ function parseModelList(raw: unknown): string[] {
 const estTokens = (text: string) => Math.ceil(text.length / 4);
 
 /** What the next turn would send, in estimated tokens, by part. The system part is the
- *  prompt minus the parts that are shown on their own (memory, skills, summary). */
-router.get("chat/threads/:id/context", async (ctx) => {
-  const thread = getThread(ctx.params.id);
-  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
-  const root = projectRootOf(thread.projectId);
-  const provider = resolveProvider(thread.providerId);
-  const windowSize = resolveContextWindow(provider?.contextWindow);
+ *  prompt minus the parts that are shown on their own (memory, skills, summary). One estimate,
+ *  shared by the context meter and the check before a turn (V6). */
+async function estimateThreadContext(thread: NonNullable<ReturnType<typeof getThread>>, root: string | null, windowSize: number) {
   const history = await convertToModelMessages(toUIMessages(visibleRows(thread)).filter((m) => m.role !== "system") as any);
   const system = root ? threadSystemPrompt(thread, root) : "";
   const memory = root ? composeMemoryForPrompt(root) : "";
@@ -1328,14 +1338,35 @@ router.get("chat/threads/:id/context", async (ctx) => {
     { key: "messages", label: "Pesan", tokens: estimateTokens(history) },
   ];
   const total = parts.reduce((n, p) => n + p.tokens, 0);
-  return json({
-    window: windowSize,
-    total,
-    ratio: total / windowSize,
-    parts,
-    compactable: !!splitForCompaction(visibleRows(thread)),
-  });
+  return { window: windowSize, total, ratio: total / windowSize, parts };
+}
+
+router.get("chat/threads/:id/context", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const provider = resolveProvider(thread.providerId);
+  const estimate = await estimateThreadContext(thread, projectRootOf(thread.projectId), resolveContextWindow(provider?.contextWindow));
+  return json({ ...estimate, compactable: !!splitForCompaction(visibleRows(thread)) });
 });
+
+/**
+ * Before a turn: a thread already over the threshold is summarised first, so the first request
+ * does not go out over budget (V6). Runs after the user message is stored. A failure is logged
+ * and the turn goes on with the full history, as it did before.
+ */
+async function compactBeforeTurn(thread: NonNullable<ReturnType<typeof getThread>>, root: string, provider: NonNullable<ReturnType<typeof resolveProvider>>): Promise<void> {
+  const estimate = await estimateThreadContext(thread, root, resolveContextWindow(provider.contextWindow));
+  const visible = visibleRows(thread);
+  if (!shouldCompactBeforeTurn({ ratio: estimate.ratio, splittable: !!splitForCompaction(visible) })) return;
+  const outcome = await compactThreadHistory({
+    thread,
+    visible,
+    model: buildLanguageModel(provider, { sessionId: thread.id }),
+    maxOutputTokens: resolveMaxOutputTokens(provider),
+    at: "before-turn",
+  });
+  if (!outcome.ok) console.error(`[chat] compaction before the turn skipped: ${outcome.error}`);
+}
 
 /** Ringkas sekarang: summarise the older turns into the thread summary and leave them out
  *  of the model's history from now on. The newest two turns stay as they are. */
@@ -1347,34 +1378,16 @@ router.post("chat/threads/:id/compact", async (ctx) => {
   }
   const provider = resolveProvider(thread.providerId);
   if (!provider) return json({ error: "Belum ada provider yang bisa dipakai untuk meringkas." }, 400);
-  const plan = splitForCompaction(visibleRows(thread));
-  if (!plan) return json({ error: "Belum ada percakapan lama yang bisa diringkas." }, 400);
 
-  const model = buildLanguageModel(provider, { sessionId: thread.id });
-  const messages = await convertToModelMessages(toUIMessages(plan.old).filter((m) => m.role !== "system") as any);
-  const result = await summarizeOldest({
-    model,
-    messages,
-    previousSummary: thread.summary,
-    keepRecent: 0,
+  const result = await compactThreadHistory({
+    thread,
+    visible: visibleRows(thread),
+    model: buildLanguageModel(provider, { sessionId: thread.id }),
     maxOutputTokens: resolveMaxOutputTokens(provider),
+    at: "manual",
   });
-  if (!result) return json({ error: "Ringkasan gagal dibuat. Percakapan tidak diubah." }, 502);
-
-  setThreadSummary(thread.id, result.summary);
-  updateThread(thread.id, { summaryUptoSeq: plan.cutoffSeq });
-  appendMessage({
-    threadId: thread.id,
-    role: "system",
-    kind: "compactNotice",
-    parts: [
-      {
-        type: "data-notice",
-        data: { kind: "compacted", estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter, manual: true },
-      },
-    ],
-  });
-  return json({ compacted: plan.old.length, estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter });
+  if (!result.ok) return json({ error: result.error }, result.reason === "nothing" ? 400 : 502);
+  return json({ compacted: result.compacted, estimatedBefore: result.estimatedBefore, estimatedAfter: result.estimatedAfter });
 });
 
 /** The `#` references a project offers the composer. */

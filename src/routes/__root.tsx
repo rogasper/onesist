@@ -17,6 +17,7 @@ import { useClientErrorReporting } from "~/lib/use-client-error-report";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
+import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
 import { setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
 import "~/styles.css";
 
@@ -126,6 +127,22 @@ function SidebarPersistence() {
 }
 
 function RootComponent() {
+  // The update banner's height. kumo fixes the desktop sidebar to the top of the window, so the
+  // sidebar starts below the banner through `--update-banner-h` (see styles.css).
+  const bannerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bannerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const apply = () => root.style.setProperty("--update-banner-h", `${el.offsetHeight}px`);
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.setProperty("--update-banner-h", "0px");
+    };
+  }, []);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   // Controlled, so the project's chat can fold it on a narrow window (P3.2).
   const sidebarOpen = useSidebarOpen();
@@ -166,7 +183,9 @@ function RootComponent() {
     <html suppressHydrationWarning data-mode={getStoredTheme() === "dark" ? "dark" : undefined} className="h-svh overflow-hidden">
       <head><HeadContent /></head>
       <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
-        <UpdateBanner />
+        <div ref={bannerRef} className="relative z-[60] shrink-0">
+          <UpdateBanner />
+        </div>
         <InstanceWatch />
         <QuickOpenModal />
         <div className="flex flex-1 min-h-0">
@@ -208,7 +227,10 @@ function RootComponent() {
               </Sidebar.Content>
               <AppSidebarFooter />
             </Sidebar>
-            <main className="flex-1 overflow-y-auto p-5 min-w-0"><div className="mx-auto h-full w-full max-w-[1600px]"><Outlet /></div></main>
+            <main data-app-main className="flex-1 overflow-y-auto p-5 min-w-0"><div className="mx-auto h-full w-full max-w-[1600px]"><Outlet /></div></main>
+            {/* The right dock: chat and terminal panels portal in here (see RightDock), so they run the
+                full window height at the right edge, outside the page's padding and centred column. */}
+            <div id={RIGHT_DOCK_ID} className="flex h-full shrink-0" />
           </Sidebar.Provider>
         </div>
         <Scripts />

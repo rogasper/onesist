@@ -19,6 +19,7 @@ import {
   isProviderUsable,
   listProviders,
   maskApiKey,
+  modelIdsToStore,
   redactSecrets,
   testConnection,
   type ProviderRow,
@@ -362,6 +363,27 @@ router.get("providers/:id/models", async (ctx) => {
   if (!row) return json({ error: "Provider tidak ditemukan." }, 404);
   const result = await discoverModels(row);
   return json(result);
+});
+
+// POST /api/providers/:id/models/refresh — asks the provider for its model list and keeps it
+// in `models_json`, so the chat's model picker can offer every model of a provider without the
+// settings form being open. Providers without a list endpoint keep what they had.
+router.post("providers/:id/models/refresh", async (ctx) => {
+  if (ctx.params.id === ENV_PROVIDER_ID) {
+    const row = envBootstrapProvider();
+    if (!row) return json({ error: "Provider tidak ditemukan." }, 404);
+    const result = await discoverModels(row);
+    return json({ ...result, ids: modelIdsToStore(result.models), stored: false });
+  }
+  const row = getProvider(ctx.params.id);
+  if (!row) return json({ error: "Provider tidak ditemukan." }, 404);
+  const result = await discoverModels(row);
+  const ids = modelIdsToStore(result.models);
+  const stored = result.supported && ids.length > 0;
+  if (stored) {
+    db.update(llmProviders).set({ modelsJson: JSON.stringify(ids), updatedAt: new Date().toISOString() }).where(eq(llmProviders.id, row.id)).run();
+  }
+  return json({ ...result, ids, stored });
 });
 
 // POST /api/providers/models — discovery with an as-yet-UNSAVED config.

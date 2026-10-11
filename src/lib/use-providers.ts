@@ -80,6 +80,8 @@ export interface ProviderDraft {
   apiKey: string;
   authMethod: string;
   model: string;
+  /** Every model the provider listed, kept for the chat's model picker (U3). */
+  models: string[];
   maxOutputTokens: number | null;
   contextWindow: number | null;
   /** Header HTTP tambahan (FR-A2): sebagian endpoint butuh header khusus, mis.
@@ -237,6 +239,17 @@ export function useProviders() {
  *  holds after the form changes (FR-L5). Compared against the server's
  *  `fingerprint`; the key is NOT included — the server hashes it, and we only
  *  need to know "did anything change". */
+/** The model ids stored with a provider, from its `modelsJson` text. Tolerant of bad JSON. */
+export function storedModelIds(modelsJson: string | null | undefined): string[] {
+  if (!modelsJson) return [];
+  try {
+    const list = JSON.parse(modelsJson);
+    return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function draftFingerprint(draft: Partial<ProviderDraft>): string {
   return JSON.stringify([
     draft.apiStyle,
