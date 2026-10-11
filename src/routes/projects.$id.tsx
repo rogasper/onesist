@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // style toggle, not a subtree insert. createXterm is still deferred until open.
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
 import { ChatPanel } from "~/components/chat/ChatPanel";
+import { RightDock } from "~/components/layout/RightDock";
 import { subscribeQuotes } from "~/lib/chat-quote";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
@@ -281,11 +282,15 @@ function ProjectLayout() {
         </div>
       </div>
 
-      <ChatPanel visible={chatOpen} onClose={() => setChatOpen(false)} projectId={project.id} />
+      {/* Docked at the window's right edge (not inside the page), so the React tree and the
+          streams stay in this route while the DOM sits in the app's right dock. */}
+      <RightDock>
+        <ChatPanel visible={chatOpen} onClose={() => setChatOpen(false)} projectId={project.id} />
 
-      <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
-        <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
-      </TerminalErrorBoundary>
+        <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
+          <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
+        </TerminalErrorBoundary>
+      </RightDock>
     </div>
   );
 }

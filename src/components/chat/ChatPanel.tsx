@@ -11,6 +11,7 @@ import { useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, 
 import { threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
+import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
 
 /**
  * Chat panel docked on the right side (FR-B1).
@@ -93,20 +94,24 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   // The project area must keep room (P3.2): below MIN_CONTENT_WIDTH the chat floats over it
   // instead of squeezing it. The width of the row the panel sits in decides, not the panel's own
   // mode, so the switch cannot flip back and forth.
-  const rootRef = useRef<HTMLDivElement>(null);
+  // The row is the page (`[data-app-main]`) plus the dock the panel sits in. Their widths add up to
+  // the same total whether the panel is in the dock (main shrinks) or floating (the dock is empty),
+  // so the switch cannot flip back and forth.
   const [rowWidth, setRowWidth] = useState<number | null>(null);
   useEffect(() => {
-    const row = rootRef.current?.parentElement;
-    if (!row) return;
+    const main = document.querySelector<HTMLElement>("[data-app-main]");
+    const dock = document.getElementById(RIGHT_DOCK_ID);
+    if (!main || !dock) return;
     // Measured again when the panel opens or changes width: opening it may fold the app
     // sidebar, which changes the row without any resize event on the row itself.
-    const measure = () => setRowWidth(row.clientWidth);
+    const measure = () => setRowWidth(main.clientWidth + dock.clientWidth);
     // Measured at once, and again on the next frame (the sidebar may still be moving); the frame
     // callback alone never runs in a hidden page.
     measure();
     const frame = requestAnimationFrame(measure);
     const observer = new ResizeObserver(measure);
-    observer.observe(row);
+    observer.observe(main);
+    observer.observe(dock);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
@@ -135,7 +140,6 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
 
   return (
     <div
-      ref={rootRef}
       className={
         !visible
           ? "hidden"
@@ -153,10 +157,10 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
         title="Geser untuk mengubah lebar"
       />
 
-      <div className="flex-1 min-w-0 flex flex-col min-h-0 app-card ml-1">
+      <div className={`flex-1 min-w-0 flex flex-col min-h-0 ${floating ? "app-card" : "bg-kumo-elevated border-l border-kumo-line"}`}>
         {/* Control row. This panel is narrow, so the conversation list uses
             a picker, not its own column. */}
-        <header className="flex items-center gap-2 px-3 py-2 border-b border-kumo-line shrink-0">
+        <header className="flex items-center gap-2 px-3 h-[52px] border-b border-kumo-line shrink-0">
           <Button variant="ghost" onClick={handleNew} disabled={creating} title="Percakapan baru">
             <Plus size={14} />
           </Button>

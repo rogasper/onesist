@@ -625,7 +625,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
         style={{ width, display: visible ? undefined : "none" }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-kumo-line/60">
+        <div className="flex items-center justify-between px-3 h-[52px] border-b border-kumo-line/60">
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-400 animate-pulse" : "bg-neutral-600"}`} />
             <span className="text-xs font-medium text-neutral-300">Terminal</span>

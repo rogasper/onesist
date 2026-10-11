@@ -17,6 +17,7 @@ import { useClientErrorReporting } from "~/lib/use-client-error-report";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
+import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
 import { setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
 import "~/styles.css";
 
@@ -226,7 +227,10 @@ function RootComponent() {
               </Sidebar.Content>
               <AppSidebarFooter />
             </Sidebar>
-            <main className="flex-1 overflow-y-auto p-5 min-w-0"><div className="mx-auto h-full w-full max-w-[1600px]"><Outlet /></div></main>
+            <main data-app-main className="flex-1 overflow-y-auto p-5 min-w-0"><div className="mx-auto h-full w-full max-w-[1600px]"><Outlet /></div></main>
+            {/* The right dock: chat and terminal panels portal in here (see RightDock), so they run the
+                full window height at the right edge, outside the page's padding and centred column. */}
+            <div id={RIGHT_DOCK_ID} className="flex h-full shrink-0" />
           </Sidebar.Provider>
         </div>
         <Scripts />
