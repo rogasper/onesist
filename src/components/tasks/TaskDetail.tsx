@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, PencilSimple, Check, CopySimple, ArrowsLeftRight } from "@phosphor-icons/react";
+import { X, PencilSimple, Check, CopySimple } from "@phosphor-icons/react";
+import { DialogTitle } from "@cloudflare/kumo";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { copyRich, escapeHtml, htmlToPlainText, markdownToHtml } from "~/lib/rich-copy";
 import type { Task } from "~/shared/types";
 
 interface TaskDetailProps {
@@ -10,6 +12,8 @@ interface TaskDetailProps {
   onSave: (id: string, data: Partial<Task>) => Promise<void>;
   onDelete: (id: string) => void;
   onClose: () => void;
+  /** Reports editing, so the modal can refuse an outside click that would drop the edits (U5). */
+  onEditingChange?: (editing: boolean) => void;
 }
 
 const STATUS_OPTIONS = [
@@ -18,19 +22,12 @@ const STATUS_OPTIONS = [
   { value: "done", label: "Done", color: "text-green-400/70 bg-green-500/10" },
 ];
 
-const MIN_WIDTH = 320;
-const MAX_WIDTH = 720;
-
 function statusBadge(status: string) {
   const opt = STATUS_OPTIONS.find((s) => s.value === status) ?? STATUS_OPTIONS[0];
   return <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${opt.color}`}>{opt.label}</span>;
 }
 
-export function TaskDetail({ task, developers, phases = [], onSave, onDelete, onClose }: TaskDetailProps) {
-  const [width, setWidth] = useState(() => {
-    const saved = parseInt(localStorage.getItem("task-detail-width") ?? "", 10);
-    return isNaN(saved) ? 320 : Math.min(Math.max(saved, MIN_WIDTH), MAX_WIDTH);
-  });
+export function TaskDetail({ task, developers, phases = [], onSave, onDelete, onClose, onEditingChange }: TaskDetailProps) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -41,8 +38,7 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
   const [phase, setPhase] = useState(task.phase ?? "");
   const [archived, setArchived] = useState(task.archived ?? false);
   const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState<"jira" | "md" | "prompt" | null>(null);
-  const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+  const [copied, setCopied] = useState<"rich" | "prompt" | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const code = task.code ?? task.title.split(":")[0]?.trim() ?? "";
@@ -73,26 +69,9 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
 
-  const startDrag = (e: React.PointerEvent) => {
-    e.preventDefault();
-    dragRef.current = { startX: e.clientX, startW: width };
-    const onMove = (ev: PointerEvent) => {
-      if (!dragRef.current) return;
-      const w = Math.min(Math.max(dragRef.current.startW - (ev.clientX - dragRef.current.startX), MIN_WIDTH), MAX_WIDTH);
-      setWidth(w);
-    };
-    const onUp = () => {
-      dragRef.current = null;
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      setWidth((w) => {
-        localStorage.setItem("task-detail-width", String(w));
-        return w;
-      });
-    };
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  };
+  useEffect(() => {
+    onEditingChange?.(editing);
+  }, [editing, onEditingChange]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -116,29 +95,27 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     setSaving(false);
   };
 
-  const buildJiraText = () => {
-    const parts = [
-      `${code} — ${displayTitle}`,
-      "",
-      `Assignee: ${task.assignee || "Unassigned"}`,
-      `Status: ${STATUS_OPTIONS.find((s) => s.value === task.status)?.label ?? task.status}`,
-      `Story Points: ${task.storyPoints != null ? task.storyPoints : "—"}`,
-      `Module: ${task.module || "—"}`,
-      task.phase ? `Phase: ${task.phase}` : null,
-      deps.length > 0 ? `Depends On: ${deps.join(", ")}` : null,
-      blocks.length > 0 ? `Blocks: ${blocks.join(", ")}` : null,
-      (task as any).risk ? `Risk: ${(task as any).risk}` : null,
-      (task as any).critical ? `Critical: Yes` : null,
-      filesScope.length > 0 ? `Files Scope: ${filesScope.join(", ")}` : null,
-      (task as any).specRef ? `Spec Ref: ${(task as any).specRef}` : null,
-      (task as any).erdRef ? `ERD Ref: ${(task as any).erdRef}` : null,
-      task.sourcePath ? `Source: ${task.sourcePath}` : null,
-      "",
-      "---",
-      "",
-      task.description ?? "",
-    ].filter((p) => p !== null);
-    return parts.join("\n");
+  /** The copy for Monday and Jira (U5): the fields as a table, then the description as rendered. */
+  const buildRichCopy = (): { html: string; text: string } => {
+    const row = (label: string, value: string | null | undefined) =>
+      value ? `<tr><td><strong>${escapeHtml(label)}</strong></td><td>${escapeHtml(value)}</td></tr>` : "";
+    const fields = [
+      row("Assignee", task.assignee || "Unassigned"),
+      row("Status", STATUS_OPTIONS.find((s) => s.value === task.status)?.label ?? task.status),
+      row("Story Points", task.storyPoints != null ? String(task.storyPoints) : "—"),
+      row("Module", task.module || "—"),
+      row("Phase", task.phase),
+      row("Depends On", deps.length ? deps.join(", ") : ""),
+      row("Blocks", blocks.length ? blocks.join(", ") : ""),
+      row("Risk", (task as any).risk),
+      row("Critical", (task as any).critical ? "Yes" : ""),
+      row("Files Scope", filesScope.length ? filesScope.join(", ") : ""),
+      row("Spec Ref", (task as any).specRef),
+      row("ERD Ref", (task as any).erdRef),
+      row("Source", task.sourcePath),
+    ].join("");
+    const html = `<h2>${escapeHtml(`${code}: ${displayTitle}`)}</h2><table border="1" style="border-collapse:collapse"><tbody>${fields}</tbody></table>${markdownToHtml(task.description ?? "")}`;
+    return { html, text: htmlToPlainText(html) };
   };
 
   const buildAgentPrompt = () => {
@@ -150,20 +127,20 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     return `# Role: Senior ${(task.module || "Fullstack")} Developer — Task ${code}\n> Planner: Onesist (FSD → Spec → ERD → Task) — ready for external agent\n\n## Task\n**Code:** ${code}\n**Title:** ${displayTitle}\n**Module:** ${task.module || "—"} | **Phase:** ${task.phase || "—"} | **SP:** ${task.storyPoints ?? "—"} (${(task.storyPoints ?? 0) * 4}h) | **Risk:** ${(task as any).risk || "—"} | **Critical:** ${(task as any).critical ? "Yes" : "No"}\n\n## Files to modify\n${filesScopeStr}\n\n**Spec Ref:** ${(task as any).specRef || "—"}\n**ERD Ref:** ${(task as any).erdRef || "—"}\n**RTM Ref:** ${(task as any).rtmRef || "—"}\n\n## Dependencies\n- Depends On: ${deps.length > 0 ? deps.join(", ") : "—"}\n- Blocks: ${blocks.length > 0 ? blocks.join(", ") : "—"}\n\n## Steps — Flow Logic\n${flow}\n\n## Acceptance Criteria (Given-When-Then)\n${acStr}\n\n## Full Description\n${desc.slice(0, 3000)}\n`;
   };
 
-  const handleCopy = async (kind: "jira" | "md" | "prompt") => {
+  const handleCopy = async (kind: "rich" | "prompt") => {
     try {
-      const text = kind === "jira" ? buildJiraText() : kind === "prompt" ? buildAgentPrompt() : (task.description ?? "");
-      await navigator.clipboard.writeText(text);
+      if (kind === "rich") await copyRich(buildRichCopy());
+      else await navigator.clipboard.writeText(buildAgentPrompt());
       setCopied(kind);
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(null), 1500);
     } catch {}
   };
 
-  const copyBtn = (kind: "jira" | "md" | "prompt") => {
+  const copyBtn = (kind: "rich" | "prompt") => {
     const isCopied = copied === kind;
-    const label = kind === "jira" ? "Copy for Jira/Monday" : kind === "prompt" ? "Copy Agent Prompt" : "Copy Markdown";
-    const title = kind === "prompt" ? "Copy English prompt for external agent (one task per iteration)" : kind === "jira" ? "Copy task summary for Jira/Monday" : "Copy full markdown description";
+    const label = kind === "rich" ? "Copy" : "Copy Agent Prompt";
+    const title = kind === "prompt" ? "Copy English prompt for external agent (one task per iteration)" : "Salin seperti tampilan — siap ditempel di Jira/Monday";
     return (
       <button
         onClick={() => handleCopy(kind)}
@@ -185,23 +162,13 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
   const contentMd = editing ? description : (task.description ?? "");
 
   return (
-    <div
-      className="shrink-0 border-l border-kumo-line flex flex-col bg-kumo-elevated/30 relative"
-      style={{ width: `${width}px` }}
-    >
-      {/* Drag handle */}
-      <div
-        onPointerDown={startDrag}
-        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-kumo-brand/40 transition-colors z-10"
-        title="Drag to resize"
-      >
-        <ArrowsLeftRight size={10} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-kumo-subtle opacity-40" />
-      </div>
+    <div className="flex flex-col min-h-0 max-h-[85vh] bg-kumo-base">
+
 
       {editing ? (
         <>
           <div className="flex items-center justify-between px-3 py-2 border-b border-kumo-line shrink-0">
-            <span className="text-xs font-medium text-kumo-default">Edit task</span>
+            <DialogTitle className="text-xs font-medium text-kumo-default">Edit task</DialogTitle>
             <div className="flex gap-1">
               <button onClick={handleSave} disabled={saving}
                 className="text-green-400 hover:text-green-300 transition-colors" title="Save">
@@ -292,9 +259,7 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
       ) : (
         <>
           <div className="flex items-center justify-between px-3 py-2 border-b border-kumo-line shrink-0">
-            <span className="text-xs font-medium text-kumo-default">
-              {code || "Task detail"}
-            </span>
+            <DialogTitle className="text-xs font-medium text-kumo-default">{code || "Task detail"}</DialogTitle>
             <div className="flex items-center gap-1">
               <button onClick={() => setEditing(true)} className="text-kumo-subtle hover:text-kumo-default transition-colors" title="Edit">
                 <PencilSimple size={13} />
@@ -337,9 +302,8 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
               </div>
             )}
             <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+              {copyBtn("rich")}
               {copyBtn("prompt")}
-              {copyBtn("jira")}
-              {copyBtn("md")}
               <button
                 onClick={handleToggleArchive}
                 disabled={saving}
