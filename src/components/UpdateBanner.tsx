@@ -143,44 +143,14 @@ export function UpdateBanner() {
 
   if (state.status === "idle") return null;
   if (state.status === "none") return null;
-
-  if (state.status === "checking") {
-    return (
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-subtle/10">
-        <span className="text-sm text-kumo-subtle">Memeriksa update…</span>
-      </div>
-    );
-  }
+  // The check runs on every launch. A bar that appears and disappears here pushes the whole app
+  // down each time, so checking is silent. Only a download or an install shows anything.
+  if (state.status === "checking") return null;
 
   if (state.status === "error") {
-    // Check errors are usually network reachability (GitHub CDN) — keep the
-    // friendly copy. Download/install errors are local — show the real message.
-    if (state.phase === "check") {
-      return (
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-red-500/40 bg-red-500/10">
-          <span className="text-sm text-red-200 truncate" title={state.message}>
-            Tidak dapat terhubung ke server update. Periksa koneksi internet.
-          </span>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => void checkOnce()}
-              className="px-3 py-1 rounded bg-kumo-subtle text-kumo-default text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer"
-            >
-              Coba lagi
-            </button>
-            <button
-              type="button"
-              onClick={() => setState({ status: "none" })}
-              className="text-kumo-subtle hover:text-kumo-default text-xs cursor-pointer"
-              aria-label="Tutup banner error"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      );
-    }
+    // A check error (usually offline, GitHub unreachable) happens on every launch with no update
+    // to act on, so it stays silent. Download and install errors are local, so they show.
+    if (state.phase === "check") return null;
     return (
       <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-red-500/40 bg-red-500/10">
         <span className="text-sm text-red-200 truncate" title={state.message}>
