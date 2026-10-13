@@ -8,7 +8,7 @@ import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
-import { threadBadges } from "~/components/chat/chat-state";
+import { isDetailFor, threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
 import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
@@ -206,9 +206,9 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
         <div className="flex-1 min-h-0 relative">
           {!activeId ? (
             <ThreadStartState threads={threads} loading={loading} creating={creating} onNew={handleNew} onPick={setActiveId} />
-          ) : detailLoading && !detail ? (
+          ) : detailLoading && !isDetailFor(detail, activeId) ? (
             <p className="text-sm text-kumo-subtle px-4 py-3">Memuat percakapan…</p>
-          ) : detail ? (
+          ) : isDetailFor(detail, activeId) && detail ? (
             <ProjectIdProvider projectId={projectId}>
               <ChatSurface
                 key={detail.thread.id}

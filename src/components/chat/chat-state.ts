@@ -94,3 +94,11 @@ export function threadBadges(activity: { running: boolean; pendingApprovals: num
   if (waiting > 0) badges.push({ tone: "wait", label: waiting === 1 ? "Menunggu 1 jawaban" : `Menunggu ${waiting} jawaban` });
   return badges;
 }
+
+/**
+ * True when a loaded thread detail belongs to the thread the panel has selected. A detail of the
+ * previous selection must not be rendered: its composer would send to that thread.
+ */
+export function isDetailFor(detail: { thread: { id: string } } | null, activeId: string | null): boolean {
+  return !!detail && !!activeId && detail.thread.id === activeId;
+}

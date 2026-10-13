@@ -248,6 +248,10 @@ export function useChatThread(threadId: string | null) {
   const [detail, setDetail] = useState<ThreadDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The thread selected now. A response for another thread (a read started before a switch)
+  // must not replace the detail or the loading state of the selected one.
+  const selected = useRef(threadId);
+  selected.current = threadId;
 
   const refresh = useCallback(async () => {
     if (!threadId) {
@@ -257,16 +261,21 @@ export function useChatThread(threadId: string | null) {
     setLoading(true);
     try {
       const res = await api<ThreadDetail>(`/api/chat/threads/${threadId}`);
+      if (selected.current !== threadId) return;
       setDetail(res);
       setError(null);
     } catch (err: any) {
+      if (selected.current !== threadId) return;
       setError(err?.message ?? "Gagal memuat percakapan");
     } finally {
-      setLoading(false);
+      if (selected.current === threadId) setLoading(false);
     }
   }, [threadId]);
 
   useEffect(() => {
+    // The previous thread's detail must not outlive the switch: its composer would send to it.
+    setDetail(null);
+    setError(null);
     void refresh();
   }, [refresh]);
 

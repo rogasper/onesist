@@ -5,7 +5,7 @@
  *   bun test src/components/chat/chat-state.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chatActivity, markTaken, providerRetryLabel, settleSteers, threadBadges, type SteerItem } from "./chat-state";
+import { chatActivity, isDetailFor, markTaken, providerRetryLabel, settleSteers, threadBadges, type SteerItem } from "./chat-state";
 
 const steer = (id: string, text = id): SteerItem => ({ id, text });
 
@@ -104,4 +104,16 @@ test("a thread list badge says a run is going, and how many answers it waits for
     { tone: "wait", label: "Menunggu 1 jawaban" },
   ]);
   expect(threadBadges({ running: true, pendingApprovals: 1, pendingQuestions: 2 })[1].label).toBe("Menunggu 3 jawaban");
+});
+
+describe("isDetailFor", () => {
+  test("a detail is shown only for the thread that is selected", () => {
+    expect(isDetailFor({ thread: { id: "thr_a" } }, "thr_a")).toBe(true);
+    expect(isDetailFor({ thread: { id: "thr_a" } }, "thr_b")).toBe(false);
+  });
+
+  test("nothing is shown without a detail or without a selection", () => {
+    expect(isDetailFor(null, "thr_a")).toBe(false);
+    expect(isDetailFor({ thread: { id: "thr_a" } }, null)).toBe(false);
+  });
 });
