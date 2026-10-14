@@ -20,9 +20,10 @@ test("Claude Code gets an `mcp add` command over HTTP with the bearer header", (
   );
 });
 
-test("OpenCode gets a remote MCP entry in its config format", () => {
+test("OpenCode gets a remote MCP entry under `mcp.servers`, the shape OpenCode 2 writes", () => {
+  // Checked against `opencode mcp add` (OpenCode 2.0.28): a flat `mcp.<name>` entry is not read.
   expect(JSON.parse(mcpSnippets(URL_, TOKEN).opencode)).toEqual({
     $schema: "https://opencode.ai/config.json",
-    mcp: { onesist: { type: "remote", url: URL_, enabled: true, headers: { Authorization: `Bearer ${TOKEN}` } } },
+    mcp: { servers: { onesist: { type: "remote", url: URL_, headers: { Authorization: `Bearer ${TOKEN}` } } } },
   });
 });

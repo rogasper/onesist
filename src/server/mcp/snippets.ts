@@ -18,7 +18,8 @@ export function mcpSnippets(url: string, token: string): McpSnippets {
     opencode: JSON.stringify(
       {
         $schema: "https://opencode.ai/config.json",
-        mcp: { onesist: { type: "remote", url, enabled: true, headers: { Authorization: `Bearer ${token}` } } },
+        // OpenCode 2 reads servers under `mcp.servers` (what `opencode mcp add` writes).
+        mcp: { servers: { onesist: { type: "remote", url, headers: { Authorization: `Bearer ${token}` } } } },
       },
       null,
       2,
