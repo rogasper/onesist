@@ -162,12 +162,18 @@ export function ChatSurface({
     // it is (the stream route replays what came before), not only read at its end.
     resume: !!detail.activeRun,
     onFinish: () => {
-      awaitingRefresh.current = true;
-      setWatchingRun(false);
-      setCompaction(null);
-      // The queue is held by the server when this run was stopped or failed; no
-      // pausing decision is made here.
-      onRefresh();
+      // The SDK calls this from inside its own request cycle, in a `finally`. Work that
+      // updates React state is moved out of that call: an error thrown here is stored by the
+      // SDK as the chat's error (the #185 shown after a successful answer), and a render
+      // started inside the SDK's status update can nest React updates.
+      setTimeout(() => {
+        awaitingRefresh.current = true;
+        setWatchingRun(false);
+        setCompaction(null);
+        // The queue is held by the server when this run was stopped or failed; no
+        // pausing decision is made here.
+        onRefresh();
+      }, 0);
     },
   });
 
