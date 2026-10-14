@@ -156,7 +156,8 @@ function ProjectLayout() {
     setPaneDirty((prev) => (Boolean(prev[index]) === dirty ? prev : { ...prev, [index]: dirty }));
   }, []);
   const [closeTarget, setCloseTarget] = useState<number | null>(null);
-  const [tabTarget, setTabTarget] = useState<{ index: number; tab: SplitTab } | null>(null);
+  // `swap` = the pane trades places with the main tab (the same loss as a tab change).
+  const [tabTarget, setTabTarget] = useState<{ index: number; tab: SplitTab; swap?: boolean } | null>(null);
   // Changing a pane's tab replaces its content, so unsaved edits there are lost like on close.
   const applyPaneTab = useCallback((index: number, tab: SplitTab) => {
     setPaneDirty((prev) => clearDirty(prev, index));
@@ -174,12 +175,19 @@ function ProjectLayout() {
     if (paneDirty[index]) setCloseTarget(index);
     else closePane(index);
   }, [paneDirty, closePane]);
-  const swapPane = useCallback((index: number) => {
+  const applySwap = useCallback((index: number) => {
     if (!isSplitTab(activeTab)) return;
     const paneTab = split.panes[index];
     const next = setPaneTab(split, index, activeTab);
+    setPaneDirty((prev) => clearDirty(prev, index));
     navigate({ to: `/projects/$id/${paneTab}`, params: { id: project.id }, search: (prev: any) => ({ ...prev, ...serializeSplit(next) }) } as any);
   }, [activeTab, split, navigate, project?.id]);
+  // Swapping replaces the pane's content, so unsaved edits there are lost like on a tab change: ask first.
+  const swapPane = useCallback((index: number) => {
+    if (paneDirty[index]) {
+      if (isSplitTab(activeTab)) setTabTarget({ index, tab: activeTab, swap: true });
+    } else applySwap(index);
+  }, [paneDirty, activeTab, applySwap]);
   const [splitMenu, setSplitMenu] = useState<{ x: number; y: number } | null>(null);
 
   const rootPath = project?.rootPath || "";
@@ -444,7 +452,10 @@ function ProjectLayout() {
         title="Ganti tab di pane ini?"
         onOpenChange={(open) => { if (!open) setTabTarget(null); }}
         onConfirm={() => {
-          if (tabTarget) applyPaneTab(tabTarget.index, tabTarget.tab);
+          if (tabTarget) {
+            if (tabTarget.swap) applySwap(tabTarget.index);
+            else applyPaneTab(tabTarget.index, tabTarget.tab);
+          }
           setTabTarget(null);
         }}
         confirmLabel="Ganti"
