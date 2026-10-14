@@ -3,6 +3,7 @@ import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { threadHasRunningTurn } from "~/lib/thread-run";
 import { Button } from "@cloudflare/kumo";
 import { ArrowClockwise, ArrowDown, ArrowUp, BookOpen, Brain, Check, GitBranch, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
@@ -45,7 +46,6 @@ import {
   type ChatCompactionEvent,
   fetchContextUsage,
   compactThread,
-  threadHasRunningTurn,
   fetchMentionRefs,
   fetchMentionRef,
   fetchProjectSuggestions,
