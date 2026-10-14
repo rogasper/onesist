@@ -1,0 +1,248 @@
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Badge } from "@cloudflare/kumo";
+import { Cube, Database } from "@phosphor-icons/react";
+import { ErdCanvas } from "~/components/erd/ErdCanvas";
+import { DbmlEditor } from "~/components/erd/DbmlEditor";
+import { ErdToolbar } from "~/components/erd/ErdToolbar";
+import { TableEditor } from "~/components/erd/TableEditor";
+import { EmptyState } from "~/components/ui/EmptyState";
+import { ListSkeleton } from "~/components/ui/Skeleton";
+import { PageHeader } from "~/components/ui/PageHeader";
+import { FilePicker } from "~/components/ui/FilePicker";
+import { parseDbml, serializeDbml, type TableDef, type ParsedDbml } from "~/lib/dbml";
+import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
+import { AppButton } from "~/components/ui/AppButton";
+
+// 32-bit FNV-1a: used only to notice "this text is byte-identical to what we
+// already parsed". A full re-parse is affordable (~6 ms for 86 tables), but a
+// layout of that result is not (~40 ms + a full canvas repaint), and the file
+// watcher refreshes an unchanged file whenever the stream reconnects or a
+// sibling ERD file changes.
+function textSignature(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${text.length}:${h}`;
+}
+
+/** The ERD tab's content. Used by its route and by split panes, so it takes the project id as a prop. */
+export function ErdView({ projectId }: { projectId: string }) {
+  const id = projectId;
+  const { files, loading: filesLoading, refresh: refreshFiles } = useFileList("output/erd", id);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  const { content: dbmlText, refresh: refreshContent } = useFileContent(selectedFile, id);
+  const [localText, setLocalText] = useState("");
+  const [parsed, setParsed] = useState<ParsedDbml>({ tables: [], notes: [] });
+  const [showEditor, setShowEditor] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+
+  // Filter out hidden files / dotfiles (.gitkeep, etc)
+  const erdFiles = useMemo(
+    () =>
+      files.filter(
+        (f) =>
+          !f.name.startsWith(".") &&
+          (f.ext === ".dbml" || f.ext === ".md" || f.ext === ".sql" || f.ext === ".json")
+      ),
+    [files]
+  );
+
+  // Auto-select the file to draw. The list is newest-first, and a turn that
+  // writes `erd.dbml` + `erd.md` puts the MARKDOWN first — the canvas then fed
+  // a `.md` to the DBML parser and rendered nothing, which reads as "the file
+  // the agent just wrote is not here" (reported 2026-09-18, UJI-MANUAL C9).
+  // So: prefer a `.dbml` whenever the current selection is gone or was never
+  // set. A file the user picked by hand is left alone.
+  useEffect(() => {
+    if (!erdFiles.length) return;
+    if (selectedFile && erdFiles.some((f) => f.path === selectedFile)) return;
+    const dbml = erdFiles.find((f) => f.ext === ".dbml");
+    setSelectedFile((dbml ?? erdFiles[0]).path);
+  }, [erdFiles, selectedFile]);
+
+  // Sync localText when content changes
+  useEffect(() => {
+    if (dbmlText !== null) setLocalText(dbmlText);
+  }, [dbmlText]);
+
+  // Parse DBML — debounced, and skipped entirely when the text is unchanged.
+  // The editor calls onChange per keystroke, so without the debounce a 96 KB
+  // schema is re-parsed on every character typed.
+  const lastParsed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!localText) return;
+    const signature = textSignature(localText);
+    if (signature === lastParsed.current) return;
+    const timer = setTimeout(() => {
+      try {
+        setParsed(parseDbml(localText));
+        lastParsed.current = signature;
+      } catch {}
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [localText]);
+
+  // Switching files means the previously selected table belongs to another
+  // schema — clearing it avoids carrying a stale selection (and its highlight)
+  // into the next diagram.
+  const selectedFileRef = useRef(selectedFile);
+  useEffect(() => {
+    if (selectedFileRef.current !== selectedFile) {
+      selectedFileRef.current = selectedFile;
+      setSelectedTable(null);
+    }
+  }, [selectedFile]);
+
+  // Live file watch — the agent writing `output/erd/<modul>/erd.dbml` while
+  // this tab is open must show up without leaving and re-entering the tab
+  // (UJI-MANUAL C9). The hook filters by route, so only this tab's files arrive.
+  useFileWatch("erd", (path) => {
+    void refreshFiles();
+    const norm = path.replace(/\\/g, "/");
+    if (norm === selectedFile) {
+      void refreshContent();
+      return;
+    }
+    // A DBML the list does not know yet is the one the agent just created —
+    // show it. An update to some OTHER file must not steal the view away from
+    // what the user is reading, and nothing jumps while the DBML editor is open
+    // (that would replace text being typed).
+    const known = erdFiles.some((f) => f.path === norm);
+    if (/\.dbml$/i.test(norm) && !known && !showEditor) setSelectedFile(norm);
+  });
+  // Also watch master files at root (MASTER_ERD.md) which type is "master" not "erd"
+  useFileWatch("master", refreshFiles);
+
+  const handleDbmlChange = useCallback((newDbml: string) => setLocalText(newDbml), []);
+  const handleTableUpdate = useCallback(
+    (updatedTable: TableDef) => {
+      setParsed((prev) => ({
+        ...prev,
+        tables: prev.tables.map((t) => (t.name === updatedTable.name ? updatedTable : t)),
+      }));
+      setLocalText(
+        serializeDbml(parsed.tables.map((t) => (t.name === updatedTable.name ? updatedTable : t)))
+      );
+    },
+    [parsed.tables]
+  );
+
+  const handleExportDbml = useCallback(() => {
+    const blob = new Blob([localText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = selectedFile?.replace(/^.*[/\\]/, "").replace(/\.\w+$/, "") + ".dbml";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [localText, selectedFile]);
+
+  const selectedTableDef = parsed.tables.find((t) => t.name === selectedTable) ?? null;
+  const tableNames = useMemo(() => parsed.tables.map((t) => t.name), [parsed.tables]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <PageHeader
+        icon={<Cube size={14} className="text-kumo-brand" />}
+        title="ERD Canvas"
+        help="erd"
+        badges={
+          <>
+            {erdFiles.length > 0 && (
+              <Badge variant="neutral" className="text-[11px]">
+                {erdFiles.length} files
+              </Badge>
+            )}
+            {parsed.tables.length > 0 && (
+              <Badge variant="neutral" className="text-[11px]">
+                {parsed.tables.length} tables
+              </Badge>
+            )}
+          </>
+        }
+        below={
+          erdFiles.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <FilePicker
+                items={erdFiles.map((f) => ({ value: f.path, label: f.name, hint: f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : undefined }))}
+                value={selectedFile}
+                onChange={setSelectedFile}
+                placeholder="Pilih berkas ERD"
+                searchPlaceholder="Cari berkas ERD…"
+              />
+            </div>
+          )
+        }
+      />
+
+      {filesLoading ? (
+        <div className="flex items-center justify-center flex-1">
+          <ListSkeleton rows={4} className="w-full max-w-xs px-4" />
+        </div>
+      ) : erdFiles.length === 0 || !selectedFile ? (
+        <EmptyState
+          icon={<Database size={24} />}
+          title="No ERD files found"
+          description="Add a .dbml or ERD markdown file to output/erd/ to see the diagram."
+          className="flex-1"
+        />
+      ) : (
+        <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
+          <div
+            className="shrink-0 border-r border-kumo-line flex flex-col transition-all duration-200"
+            style={{ width: showEditor ? 400 : 0, overflow: "hidden" }}
+          >
+            <div
+              className="px-3 py-1.5 border-b border-kumo-line bg-kumo-elevated/50 text-xs font-medium text-kumo-subtle whitespace-nowrap"
+              style={{ width: 400 }}
+            >
+              DBML editor
+            </div>
+            <div className="flex-1 min-h-0" style={{ width: 400 }}>
+              <DbmlEditor value={localText} onChange={handleDbmlChange} />
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col min-w-0">
+            <ErdToolbar
+              showEditor={showEditor}
+              onToggleEditor={() => setShowEditor((p) => !p)}
+              onExportDbml={handleExportDbml}
+              tableCount={parsed.tables.length}
+              tables={tableNames}
+              selectedTable={selectedTable}
+              onSelectTable={(name) => setSelectedTable(name)}
+            />
+            <div className="flex-1 min-h-0 relative" style={{ width: "100%", height: "100%" }}>
+              <ErdCanvas
+                key={selectedFile}
+                data={parsed}
+                onNodeClick={(name) => setSelectedTable(name)}
+                selectedTable={selectedTable}
+              />
+            </div>
+          </div>
+
+          <div
+            className="shrink-0 border-l border-kumo-line flex flex-col transition-all duration-200"
+            style={{ width: selectedTableDef ? 300 : 0, overflow: "hidden" }}
+          >
+            <div className="flex-1 min-h-0" style={{ width: 300 }}>
+              {selectedTableDef ? (
+                <TableEditor
+                  table={selectedTableDef}
+                  onUpdate={handleTableUpdate}
+                  allTables={parsed.tables.map((t) => t.name)}
+                  onClose={() => setSelectedTable(null)}
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
