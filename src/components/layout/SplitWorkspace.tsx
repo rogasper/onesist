@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ArrowsLeftRight, X } from "@phosphor-icons/react";
 import {
+  MIN_PANE_PX,
   SPLIT_TABS,
   SPLIT_TAB_LABELS,
   arrangementFor,
+  fitRatio,
   setRatio,
   type SplitState,
   type SplitTab,
@@ -27,17 +29,18 @@ export interface SplitWorkspaceProps {
 }
 
 /**
- * The WINDOW width decides stacking (plan Review Focus 5: "jendela < 768 px"). It starts at 0 so the
- * server render and the first client render agree; 0 never stacks, and the effect sets the real value.
+ * Width of the split area itself, which is what the minimum pane width is measured against (the
+ * window is wider than this once the sidebar or the chat dock takes room). It starts at 0, so the
+ * server render and the first client render agree: 0 never stacks, and the observer sets the value.
  */
-function useWindowWidth(): number {
+function useElementWidth(el: HTMLElement | null): number {
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
-    onResize();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
   return width;
 }
 
@@ -49,9 +52,13 @@ function useWindowWidth(): number {
 export function SplitWorkspace({ projectId, main, state, onChange, onRequestClose, onSwap, onPaneDirtyChange, onRequestTabChange }: SplitWorkspaceProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
-  const width = useWindowWidth();
+  // State, not just the ref: the observer must start once the element exists, and a ref read in an effect did not.
+  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
+  const width = useElementWidth(rootEl);
   const arrangement = arrangementFor(state.panes.length, state.dir, width);
-  const [r0, r1] = state.ratios;
+  // The stored ratio may leave a side narrower than MIN_PANE_PX; the drawn one never does.
+  const [storedR0, r1] = state.ratios;
+  const r0 = fitRatio(storedR0, width, MIN_PANE_PX);
 
   const ratio0 = useCallback((v: number) => onChange(setRatio(state, 0, v)), [state, onChange]);
   const ratio1 = useCallback((v: number) => onChange(setRatio(state, 1, v)), [state, onChange]);
@@ -136,7 +143,11 @@ export function SplitWorkspace({ projectId, main, state, onChange, onRequestClos
       break;
   }
 
-  return <div ref={rootRef} className="h-full min-h-0 min-w-0">{body}</div>;
+  return (
+    <div ref={(el) => { rootRef.current = el; setRootEl(el); }} className="h-full min-h-0 min-w-0">
+      {body}
+    </div>
+  );
 }
 
 interface ExtraPaneProps {

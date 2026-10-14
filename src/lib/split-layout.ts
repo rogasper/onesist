@@ -20,8 +20,11 @@ export const SPLIT_TAB_LABELS: Record<SplitTab, string> = {
 export const MAX_EXTRA_PANES = 3;
 export const MIN_RATIO = 0.2;
 export const MAX_RATIO = 0.8;
-/** Below this container width every arrangement collapses to stacked rows. */
-export const NARROW_WIDTH = 768;
+/**
+ * Narrowest a side-by-side pane may get. The FSD tab (document list + editor) is unusable below
+ * this, so a split never squeezes a pane under it; two minimum panes are the stacking threshold.
+ */
+export const MIN_PANE_PX = 560;
 
 export type SplitDir = "h" | "v";
 
@@ -120,10 +123,19 @@ export function setRatio(state: SplitState, which: 0 | 1, value: number): SplitS
 
 export function arrangementFor(paneCount: number, dir: SplitDir, width: number): Arrangement {
   if (paneCount <= 0) return "single";
-  if (width > 0 && width < NARROW_WIDTH) return "stack";
+  if (width > 0 && width < 2 * MIN_PANE_PX) return "stack";
   if (paneCount === 1) return dir === "h" ? "cols" : "rows";
   if (paneCount === 2) return "main-stack";
   return "grid";
+}
+
+/**
+ * The ratio moved inside the range where both sides keep `minPx`. When the container cannot hold
+ * two minimum panes, the answer is the centre; the workspace stacks in that case anyway.
+ */
+export function fitRatio(ratio: number, containerPx: number, minPx: number): number {
+  if (containerPx < 2 * minPx) return 0.5;
+  return Math.min(1 - minPx / containerPx, Math.max(minPx / containerPx, ratio));
 }
 
 /** Position of the pointer inside [start, start + size] as a clamped ratio. */

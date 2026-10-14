@@ -10,7 +10,9 @@ import {
   addPane,
   arrangementFor,
   clampRatio,
+  MIN_PANE_PX,
   clearDirty,
+  fitRatio,
   parseSplitSearch,
   ratioFromPointer,
   readStoredSplit,
@@ -116,4 +118,17 @@ test("dirty flags follow their pane when an earlier pane is closed", () => {
 test("clearDirty forgets one pane's unsaved flag and keeps the others", () => {
   expect(clearDirty({ 0: true, 1: true, 2: false }, 1)).toEqual({ 0: true, 2: false });
   expect(clearDirty({ 0: true }, 3)).toEqual({ 0: true });
+});
+
+test("the split never leaves a pane narrower than the minimum: the ratio is pushed inside", () => {
+  expect(MIN_PANE_PX).toBe(560);
+  expect(fitRatio(0.2, 1200, 560)).toBeCloseTo(560 / 1200, 6);
+  expect(fitRatio(0.8, 1200, 560)).toBeCloseTo(1 - 560 / 1200, 6);
+  expect(fitRatio(0.5, 1200, 560)).toBe(0.5);
+});
+
+test("when two minimum panes cannot fit, the ratio stays centred and the window stacks instead", () => {
+  expect(fitRatio(0.3, 900, 560)).toBe(0.5);
+  expect(arrangementFor(1, "h", 1100)).toBe("stack");
+  expect(arrangementFor(1, "h", 1200)).toBe("cols");
 });
