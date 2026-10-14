@@ -286,7 +286,8 @@ function ProjectLayout() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 mb-3 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-2 mb-3 min-w-0">
+        <div className="flex flex-1 items-center gap-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TAB_ITEMS.map((t) => (
             <AppButton
               key={t.value}
@@ -303,7 +304,7 @@ function ProjectLayout() {
               {t.label}
             </AppButton>
           ))}
-          <div className="flex-1" />
+        </div>
           <AppButton
             variant="chip"
             size="sm"
