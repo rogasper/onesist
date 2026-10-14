@@ -26,7 +26,9 @@ import {
   setPaneTab,
   shiftDirtyAfterRemove,
   splitStorageKey,
+  clearDirty,
   type SplitState,
+  type SplitTab,
 } from "~/lib/split-layout";
 import { subscribeQuotes } from "~/lib/chat-quote";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
@@ -154,6 +156,16 @@ function ProjectLayout() {
     setPaneDirty((prev) => (Boolean(prev[index]) === dirty ? prev : { ...prev, [index]: dirty }));
   }, []);
   const [closeTarget, setCloseTarget] = useState<number | null>(null);
+  const [tabTarget, setTabTarget] = useState<{ index: number; tab: SplitTab } | null>(null);
+  // Changing a pane's tab replaces its content, so unsaved edits there are lost like on close.
+  const applyPaneTab = useCallback((index: number, tab: SplitTab) => {
+    setPaneDirty((prev) => clearDirty(prev, index));
+    setSplit(setPaneTab(split, index, tab));
+  }, [split, setSplit]);
+  const requestPaneTab = useCallback((index: number, tab: SplitTab) => {
+    if (paneDirty[index]) setTabTarget({ index, tab });
+    else applyPaneTab(index, tab);
+  }, [paneDirty, applyPaneTab]);
   const closePane = useCallback((index: number) => {
     setPaneDirty((prev) => shiftDirtyAfterRemove(prev, index));
     setSplit(removePane(split, index));
@@ -361,6 +373,7 @@ function ProjectLayout() {
               onRequestClose={requestClosePane}
               onSwap={isSplitTab(activeTab) ? swapPane : undefined}
               onPaneDirtyChange={handlePaneDirtyChange}
+              onRequestTabChange={requestPaneTab}
               main={activeTab === "overview" ? (
                 <OverviewContent project={project} openTabs={openTabs} setOpenTabs={setOpenTabs} activeTabPath={activeTabPath} setActiveTabPath={setActiveTabPath} onFileClick={handleFileClick} onTabClose={handleTabClose} />
               ) : (
@@ -422,6 +435,19 @@ function ProjectLayout() {
           setCloseTarget(null);
         }}
         confirmLabel="Tutup"
+        destructive
+      >
+        Ada perubahan FSD yang belum disimpan di pane ini. Perubahan itu akan hilang.
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={tabTarget !== null}
+        title="Ganti tab di pane ini?"
+        onOpenChange={(open) => { if (!open) setTabTarget(null); }}
+        onConfirm={() => {
+          if (tabTarget) applyPaneTab(tabTarget.index, tabTarget.tab);
+          setTabTarget(null);
+        }}
+        confirmLabel="Ganti"
         destructive
       >
         Ada perubahan FSD yang belum disimpan di pane ini. Perubahan itu akan hilang.

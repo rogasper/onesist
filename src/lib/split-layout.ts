@@ -132,6 +132,13 @@ export function ratioFromPointer(pointer: number, start: number, size: number): 
   return clampRatio((pointer - start) / size);
 }
 
+/** Forgets one pane's unsaved flag: its content is gone (tab changed) or it was replaced. */
+export function clearDirty(dirty: Record<number, boolean>, index: number): Record<number, boolean> {
+  const next = { ...dirty };
+  delete next[index];
+  return next;
+}
+
 /** Re-keys per-pane dirty flags after pane `removed` is closed, so later panes keep theirs. */
 export function shiftDirtyAfterRemove(dirty: Record<number, boolean>, removed: number): Record<number, boolean> {
   const next: Record<number, boolean> = {};

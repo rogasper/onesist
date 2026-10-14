@@ -10,6 +10,7 @@ import {
   addPane,
   arrangementFor,
   clampRatio,
+  clearDirty,
   parseSplitSearch,
   ratioFromPointer,
   readStoredSplit,
@@ -110,4 +111,9 @@ test("clampRatio turns non-numbers into 0.5", () => {
 test("dirty flags follow their pane when an earlier pane is closed", () => {
   expect(shiftDirtyAfterRemove({ 0: true, 1: false, 2: true }, 1)).toEqual({ 0: true, 1: true });
   expect(shiftDirtyAfterRemove({ 0: true }, 0)).toEqual({});
+});
+
+test("clearDirty forgets one pane's unsaved flag and keeps the others", () => {
+  expect(clearDirty({ 0: true, 1: true, 2: false }, 1)).toEqual({ 0: true, 2: false });
+  expect(clearDirty({ 0: true }, 3)).toEqual({ 0: true });
 });

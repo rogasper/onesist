@@ -4,7 +4,6 @@ import {
   SPLIT_TABS,
   SPLIT_TAB_LABELS,
   arrangementFor,
-  setPaneTab,
   setRatio,
   type SplitState,
   type SplitTab,
@@ -23,6 +22,8 @@ export interface SplitWorkspaceProps {
   /** Undefined when the main tab cannot be swapped into a pane. */
   onSwap?: (index: number) => void;
   onPaneDirtyChange: (index: number, dirty: boolean) => void;
+  /** A pane's tab was picked. The parent applies it, or asks first when the pane has unsaved edits. */
+  onRequestTabChange: (index: number, tab: SplitTab) => void;
 }
 
 function useElementWidth(ref: RefObject<HTMLElement | null>): number {
@@ -42,7 +43,7 @@ function useElementWidth(ref: RefObject<HTMLElement | null>): number {
  * `arrangementFor`. Ratios are percentages of the measured container, so dragging a
  * divider only changes `state.ratios` and the parent writes it to the URL.
  */
-export function SplitWorkspace({ projectId, main, state, onChange, onRequestClose, onSwap, onPaneDirtyChange }: SplitWorkspaceProps) {
+export function SplitWorkspace({ projectId, main, state, onChange, onRequestClose, onSwap, onPaneDirtyChange, onRequestTabChange }: SplitWorkspaceProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const width = useElementWidth(rootRef);
@@ -58,7 +59,7 @@ export function SplitWorkspace({ projectId, main, state, onChange, onRequestClos
       index={index}
       tab={state.panes[index]}
       projectId={projectId}
-      onTabChange={(tab) => onChange(setPaneTab(state, index, tab))}
+      onTabChange={(tab) => onRequestTabChange(index, tab)}
       onClose={() => onRequestClose(index)}
       onSwap={onSwap ? () => onSwap(index) : undefined}
       onDirtyChange={(dirty) => onPaneDirtyChange(index, dirty)}
