@@ -45,6 +45,7 @@ import {
   type ChatCompactionEvent,
   fetchContextUsage,
   compactThread,
+  threadHasRunningTurn,
   fetchMentionRefs,
   fetchMentionRef,
   fetchProjectSuggestions,
@@ -690,6 +691,14 @@ export function ChatSurface({
     // lost on the floor. Attachments travel with it — they are already uploaded
     // into the workspace, so the `@path` line is valid whenever it is sent.
     if (busy) {
+      if (payload) void queue.enqueue([payload]);
+      return;
+    }
+    // This view can be idle while the server still runs a turn on the thread (the panel was
+    // left and reopened mid-run). Sending then fails with "Masih ada run yang berjalan", so the
+    // server's state decides first: a message sent during a run waits in the queue instead.
+    if (await threadHasRunningTurn(threadId)) {
+      setWatchingRun(true);
       if (payload) void queue.enqueue([payload]);
       return;
     }
