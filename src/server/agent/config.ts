@@ -455,7 +455,23 @@ export interface DiscoverModelsResult {
 export async function discoverModels(config: ProviderRow): Promise<DiscoverModelsResult> {
   const saved = savedModels(config);
   const endpoint = config.endpoint?.trim().replace(/\/+$/, "");
-  if (config.apiStyle === "cli") return { models: saved, supported: false, message: "Provider CLI tidak menyediakan daftar model." };
+  if (config.apiStyle === "cli") {
+    if (config.cliAgent !== "opencode") return { models: saved, supported: false, message: "Provider CLI tidak menyediakan daftar model." };
+    try {
+      const { getOpenCodeConnection } = await import("./cli/opencode/server");
+      const { ocListModels } = await import("./cli/opencode/client");
+      const conn = await getOpenCodeConnection({ binary: config.cliPath?.trim() || "opencode" });
+      const listed = await ocListModels(conn);
+      const discovered: ModelInfo[] = listed.map((m) => ({ id: `${m.providerID}/${m.id}`, displayName: m.name }));
+      return {
+        models: mergeModels(saved, discovered),
+        supported: true,
+        message: discovered.length ? undefined : "OpenCode membalas tanpa daftar model.",
+      };
+    } catch (err) {
+      return { models: saved, supported: false, message: `Gagal mengambil daftar model OpenCode: ${redactSecrets(err, config.apiKey)}` };
+    }
+  }
   if (!endpoint) return { models: saved, supported: false, message: "Endpoint belum diisi." };
 
   const headers: Record<string, string> = {
