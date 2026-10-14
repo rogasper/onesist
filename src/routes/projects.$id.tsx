@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useNavigate, useLocation, useSearch } from "@tanstack/react-router";
 import { Badge } from "@cloudflare/kumo";
 import { Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import { loadProjectRouteData } from "~/lib/project-queries";
@@ -12,6 +12,22 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AgentTermPanel } from "~/components/agent/AgentTerminal";
 import { ChatPanel } from "~/components/chat/ChatPanel";
 import { RightDock } from "~/components/layout/RightDock";
+import { SplitWorkspace } from "~/components/layout/SplitWorkspace";
+import {
+  MAX_EXTRA_PANES,
+  SPLIT_TABS,
+  SPLIT_TAB_LABELS,
+  addPane,
+  isSplitTab,
+  parseSplitSearch,
+  readStoredSplit,
+  removePane,
+  serializeSplit,
+  setPaneTab,
+  shiftDirtyAfterRemove,
+  splitStorageKey,
+  type SplitState,
+} from "~/lib/split-layout";
 import { subscribeQuotes } from "~/lib/chat-quote";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
@@ -105,6 +121,54 @@ function ProjectLayout() {
     : location.pathname.includes("/docs") ? "docs"
     : location.pathname.includes("/settings") ? "settings"
     : "overview";
+
+  // ── Split view: extra panes live in the URL (`panes`, `pdir`, `pr`) ──
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const split = useMemo(() => parseSplitSearch(search), [search]);
+  const setSplit = useCallback((next: SplitState) => {
+    navigate({ to: location.pathname, search: (prev: any) => ({ ...prev, ...serializeSplit(next) }), replace: true } as any);
+  }, [navigate, location.pathname]);
+
+  // Remember the layout per project; restore it when the URL brings none.
+  const restoredFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project?.id) return;
+    const key = splitStorageKey(project.id);
+    if (restoredFor.current !== project.id) {
+      restoredFor.current = project.id;
+      if (split.panes.length === 0) {
+        let stored = null as string | null;
+        try { stored = window.localStorage.getItem(key); } catch {}
+        const restored = readStoredSplit(stored);
+        if (restored.panes.length > 0) {
+          setSplit(restored);
+          return;
+        }
+      }
+    }
+    try { window.localStorage.setItem(key, JSON.stringify(serializeSplit(split))); } catch {}
+  }, [project?.id, split, setSplit]);
+
+  const [paneDirty, setPaneDirty] = useState<Record<number, boolean>>({});
+  const handlePaneDirtyChange = useCallback((index: number, dirty: boolean) => {
+    setPaneDirty((prev) => (Boolean(prev[index]) === dirty ? prev : { ...prev, [index]: dirty }));
+  }, []);
+  const [closeTarget, setCloseTarget] = useState<number | null>(null);
+  const closePane = useCallback((index: number) => {
+    setPaneDirty((prev) => shiftDirtyAfterRemove(prev, index));
+    setSplit(removePane(split, index));
+  }, [split, setSplit]);
+  const requestClosePane = useCallback((index: number) => {
+    if (paneDirty[index]) setCloseTarget(index);
+    else closePane(index);
+  }, [paneDirty, closePane]);
+  const swapPane = useCallback((index: number) => {
+    if (!isSplitTab(activeTab)) return;
+    const paneTab = split.panes[index];
+    const next = setPaneTab(split, index, activeTab);
+    navigate({ to: `/projects/$id/${paneTab}`, params: { id: project.id }, search: (prev: any) => ({ ...prev, ...serializeSplit(next) }) } as any);
+  }, [activeTab, split, navigate, project?.id]);
+  const [splitMenu, setSplitMenu] = useState<{ x: number; y: number } | null>(null);
 
   const rootPath = project?.rootPath || "";
 
@@ -230,14 +294,30 @@ function ProjectLayout() {
               size="sm"
               active={activeTab === t.value}
               onClick={() => {
-                if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id } });
-                else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id } } as any);
+                // Keep the split panes open while the main tab changes.
+                if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id }, search: (prev: any) => prev } as any);
+                else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id }, search: (prev: any) => prev } as any);
               }}
               className="px-3 shrink-0 whitespace-nowrap"
             >
               {t.label}
             </AppButton>
           ))}
+          <div className="flex-1" />
+          <AppButton
+            variant="chip"
+            size="sm"
+            active={split.panes.length > 0}
+            icon={<Columns size={12} />}
+            onClick={(e: any) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setSplitMenu({ x: r.left, y: r.bottom + 4 });
+            }}
+            className="px-3 shrink-0"
+            title="Buka tab lain berdampingan"
+          >
+            Pisah{split.panes.length > 0 ? ` (${split.panes.length + 1})` : ""}
+          </AppButton>
         </div>
 
         {notice && (
@@ -273,11 +353,19 @@ function ProjectLayout() {
           {/* Markdown rendered in any tab resolves workspace-relative image
               paths (`input/assets/…`) through this project id. */}
           <ProjectIdProvider projectId={project.id}>
-            {activeTab === "overview" ? (
-              <OverviewContent project={project} openTabs={openTabs} setOpenTabs={setOpenTabs} activeTabPath={activeTabPath} setActiveTabPath={setActiveTabPath} onFileClick={handleFileClick} onTabClose={handleTabClose} />
-            ) : (
-              <Outlet />
-            )}
+            <SplitWorkspace
+              projectId={project.id}
+              state={split}
+              onChange={setSplit}
+              onRequestClose={requestClosePane}
+              onSwap={isSplitTab(activeTab) ? swapPane : undefined}
+              onPaneDirtyChange={handlePaneDirtyChange}
+              main={activeTab === "overview" ? (
+                <OverviewContent project={project} openTabs={openTabs} setOpenTabs={setOpenTabs} activeTabPath={activeTabPath} setActiveTabPath={setActiveTabPath} onFileClick={handleFileClick} onTabClose={handleTabClose} />
+              ) : (
+                <Outlet />
+              )}
+            />
           </ProjectIdProvider>
         </div>
       </div>
@@ -291,6 +379,52 @@ function ProjectLayout() {
           <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
         </TerminalErrorBoundary>
       </RightDock>
+
+      {splitMenu && (
+        <ContextMenu
+          x={splitMenu.x}
+          y={splitMenu.y}
+          onClose={() => setSplitMenu(null)}
+          items={[
+            ...SPLIT_TABS.map((t) => ({
+              label: `Buka ${SPLIT_TAB_LABELS[t]} di samping`,
+              disabled: split.panes.length >= MAX_EXTRA_PANES,
+              onClick: () => { setSplit(addPane(split, t, "h")); setSplitMenu(null); },
+            })),
+            ...(split.panes.length === 1
+              ? [{
+                  label: split.dir === "h" ? "Ubah jadi atas–bawah" : "Ubah jadi kiri–kanan",
+                  onClick: () => { setSplit({ ...split, dir: split.dir === "h" ? "v" : "h" }); setSplitMenu(null); },
+                }]
+              : []),
+            ...(split.panes.length > 0
+              ? [{
+                  label: "Tutup semua pane",
+                  danger: true,
+                  onClick: () => {
+                    setSplitMenu(null);
+                    if (Object.values(paneDirty).some(Boolean)) setCloseTarget(-1);
+                    else { setPaneDirty({}); setSplit({ ...split, panes: [] }); }
+                  },
+                }]
+              : []),
+          ]}
+        />
+      )}
+      <ConfirmDialog
+        open={closeTarget !== null}
+        title="Tutup pane?"
+        onOpenChange={(open) => { if (!open) setCloseTarget(null); }}
+        onConfirm={() => {
+          if (closeTarget === -1) { setPaneDirty({}); setSplit({ ...split, panes: [] }); }
+          else if (closeTarget !== null) closePane(closeTarget);
+          setCloseTarget(null);
+        }}
+        confirmLabel="Tutup"
+        destructive
+      >
+        Ada perubahan FSD yang belum disimpan di pane ini. Perubahan itu akan hilang.
+      </ConfirmDialog>
     </div>
   );
 }
