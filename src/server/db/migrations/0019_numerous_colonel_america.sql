@@ -1,0 +1,1 @@
+ALTER TABLE `chat_threads` ADD `cli_session_id` text;
