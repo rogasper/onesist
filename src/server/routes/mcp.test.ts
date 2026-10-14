@@ -101,3 +101,20 @@ test("GET and DELETE are 405: no server-sent stream, no sessions", async () => {
     expect(res?.headers.get("Allow")).toBe("POST");
   }
 });
+
+test("the settings endpoint gives the URL, the token and both snippets", async () => {
+  const res = await router.handle(new Request("http://127.0.0.1:4321/api/projects/p-mcp/mcp"));
+  expect(res?.status).toBe(200);
+  const body = (await res!.json()) as any;
+  expect(body.url).toBe("http://127.0.0.1:4321/api/mcp/projects/p-mcp");
+  expect(body.token).toBe(TOKEN);
+  expect(body.snippets.claude).toContain(body.url);
+  expect(body.snippets.opencode).toContain(body.url);
+});
+
+test("the settings endpoint refuses other sites and unknown projects", async () => {
+  const cross = await router.handle(new Request("http://127.0.0.1:4321/api/projects/p-mcp/mcp", { headers: { Origin: "https://evil.example" } }));
+  expect(cross?.status).toBe(403);
+  const missing = await router.handle(new Request("http://127.0.0.1:4321/api/projects/tidak-ada/mcp"));
+  expect(missing?.status).toBe(404);
+});

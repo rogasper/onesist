@@ -1,5 +1,6 @@
 import { BrowserSection } from "~/components/settings/BrowserSection";
 import { IndexPanel } from "~/components/settings/IndexPanel";
+import { McpPanel } from "~/components/settings/McpPanel";
 import { SubagentsPanel } from "~/components/settings/SubagentsPanel";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
@@ -183,6 +184,10 @@ function SettingsPage() {
         {/* Terminal */}
         <Section title="Index">
         <IndexPanel projectId={id} />
+      </Section>
+
+      <Section title="MCP">
+        <McpPanel projectId={id} />
       </Section>
 
       <BrowserSection />
