@@ -60,6 +60,7 @@ app/
 │   │   ├── routes/         # Handler per-resource (/api/*): index, system, sse, files, projects/
 │   │   ├── services/       # Business logic: fsd-service.ts, agent-runner.ts
 │   │   ├── realtime/       # events.ts (SSE event bus) + file-watcher.ts (file:changed)
+│   │   ├── mcp/            # MCP server for outside agent CLIs: protocol.ts (JSON-RPC), token.ts, registry.ts (5 read-only tools)
 │   │   ├── terminal/       # terminal-server.ts (xterm.js WebSocket, port TERMINAL_PORT)
 │   │   └── functions/      # TanStack createServerFn server functions
 │   ├── lib/
@@ -179,6 +180,8 @@ The API is split into route modules under `server/routes/`, composed by the entr
 | `/api/agent/stop` | POST | Stop running agent |
 | `/api/agent/status` | GET | Get running agent status |
 | `/api/terminal/port` | GET | Terminal WebSocket port (env-driven) |
+| `/api/mcp/projects/:id` | POST | MCP endpoint (Streamable HTTP, stateless, JSON-RPC). Bearer token from `mcp-token.secret`; GET/DELETE → 405 |
+| `/api/projects/:id/mcp` | GET | MCP URL, token and copy-ready config for the Settings panel |
 
 ## Key Conventions
 
@@ -189,6 +192,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 - **Real-time updates:** SSE via `server/realtime/events.ts` event bus. `server/realtime/file-watcher.ts` watches REGISTERED project roots (via `registerWatchRoot`) and emits `file:changed` — frontend listens, never polls
 - **Agent execution:** `server/services/agent-runner.ts` spawns a detected CLI (opencode `run --format json --auto`, claude `-p --output-format stream-json`, codex `exec --json`, antigravity/agy `-p --output-format stream-json --dangerously-skip-permissions`). Log output parsed line-by-line as JSONL. AGY must be authenticated once interactively (keyring); resume uses `--conversation <conversation_id>`.
 - **Tab content:** a tab's page body lives in `components/<tab>/<Tab>View.tsx` and takes `projectId` as a prop; the route file only reads params/loader data and renders the View. Split panes render the same Views, so a View must not call `Route.useParams()`/`useLoaderData()` or navigate the main route.
+- **MCP surface:** read-only on purpose. A new MCP tool goes through `server/mcp/registry.ts`, is built from an AI SDK tool via `mcpToolFromAi`, is named `onesist_*`, and never writes (an outside agent's own permission prompt is not Onesist's approval flow). Results are capped at `MCP_RESULT_MAX_CHARS`.
 - **UI reuse:** Repeated dialogs/headers/alerts/trees live in `components/ui/` (ConfirmDialog, PageHeader, InlineAlert, ExplorerShell, FileTree, SearchInput). Repeated logic goes in hooks under `lib/` (useFileList, useFileContent, useFileContextMenu, useSkillInstall). Don't copy-paste a pattern a 3rd time — extract it
 - **Server data fetching:** Use the `useFileList`/`useFileContent` hooks (or a small wrapper) instead of raw `fetch("/api/files/...")`. Keep `{ cache: "no-store" }` on every API call
 - **Styles:** Use kumo tokens (`kumo-default`, `kumo-subtle`, `kumo-brand`, `kumo-elevated`, `kumo-line`). Avoid custom hex colors
