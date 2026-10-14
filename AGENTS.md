@@ -63,6 +63,8 @@ app/
 │   │   ├── terminal/       # terminal-server.ts (xterm.js WebSocket, port TERMINAL_PORT)
 │   │   └── functions/      # TanStack createServerFn server functions
 │   ├── lib/
+│   │   ├── split-layout.ts # Split view model: URL params (panes/pdir/pr), pane ops, arrangement (pure)
+│   │   ├── pane-file-lock.ts # One writer per document across split panes (+ use-file-claim.ts hook)
 │   │   ├── agent-cli.ts    # Detect installed agents (opencode, claude, codex, agy)
 │   │   ├── agent-command.ts # Build agent CLI command strings + agentLogo() helper
 │   │   ├── page-helpers.ts # Per-page Help popup content (bilingual id/en)
@@ -94,8 +96,9 @@ app/
 │   └── components/
 │       ├── agent/          # Agent terminal, status, picker, stream components
 │       ├── dashboard/      # Dashboard dialogs (OpenProject, FolderBrowser, SkillSetup)
-│       ├── erd/            # ERD editor, canvas (ReactFlow), table editor, toolbar
-│       ├── fsd/            # FSD editor, upload, completeness
+│       ├── erd/            # ERD editor, canvas (ReactFlow), table editor, toolbar, ErdView (tab content)
+│       ├── fsd/            # FSD editor, upload, completeness, FsdView (tab content)
+│       ├── layout/         # RightDock, split view (SplitWorkspace, SplitDivider, PaneBody)
 │       ├── mdx/            # Shared MDXEditor wrapper (MdxEditorClient + MdxEditorInner)
 │       ├── mermaid/        # Mermaid diagram renderer + markdown viewer
 │       ├── spec/           # Spec endpoint cards, sidebar, module viewer
@@ -185,6 +188,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 - **API layer:** All routes go through `handleApiRequest` → delegates to `handleProjects` for `/api/projects/*` routes
 - **Real-time updates:** SSE via `server/realtime/events.ts` event bus. `server/realtime/file-watcher.ts` watches REGISTERED project roots (via `registerWatchRoot`) and emits `file:changed` — frontend listens, never polls
 - **Agent execution:** `server/services/agent-runner.ts` spawns a detected CLI (opencode `run --format json --auto`, claude `-p --output-format stream-json`, codex `exec --json`, antigravity/agy `-p --output-format stream-json --dangerously-skip-permissions`). Log output parsed line-by-line as JSONL. AGY must be authenticated once interactively (keyring); resume uses `--conversation <conversation_id>`.
+- **Tab content:** a tab's page body lives in `components/<tab>/<Tab>View.tsx` and takes `projectId` as a prop; the route file only reads params/loader data and renders the View. Split panes render the same Views, so a View must not call `Route.useParams()`/`useLoaderData()` or navigate the main route.
 - **UI reuse:** Repeated dialogs/headers/alerts/trees live in `components/ui/` (ConfirmDialog, PageHeader, InlineAlert, ExplorerShell, FileTree, SearchInput). Repeated logic goes in hooks under `lib/` (useFileList, useFileContent, useFileContextMenu, useSkillInstall). Don't copy-paste a pattern a 3rd time — extract it
 - **Server data fetching:** Use the `useFileList`/`useFileContent` hooks (or a small wrapper) instead of raw `fetch("/api/files/...")`. Keep `{ cache: "no-store" }` on every API call
 - **Styles:** Use kumo tokens (`kumo-default`, `kumo-subtle`, `kumo-brand`, `kumo-elevated`, `kumo-line`). Avoid custom hex colors
