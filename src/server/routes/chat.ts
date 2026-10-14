@@ -1304,6 +1304,9 @@ router.get("chat/providers", async () => {
       source: p.source,
       isDefault: p.isDefault,
       apiStyle: p.apiStyle,
+      // Which logo the picker shows (src/lib/provider-logo.ts).
+      cliAgent: p.cliAgent ?? null,
+      preset: p.preset ?? null,
       envFallback: p.id === ENV_PROVIDER_ID,
     })),
   });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CaretDown, Check, MagnifyingGlass, Sliders } from "@phosphor-icons/react";
 import { visibleModels } from "~/components/chat/model-list";
 import { refreshProviderModels, type ChatProviderOption } from "~/lib/use-chat";
+import { providerLogo } from "~/lib/provider-logo";
 
 /**
  * Model picker in the composer (ADR-001 D8, FR-A9, FR-L4, FR-L12).
@@ -185,6 +186,9 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
             {groups.map(({ provider, total, shown, hidden }) => (
               <div key={provider.id} className="grid gap-0.5">
                 <div className="px-2.5 pt-2 pb-1 text-[11px] uppercase tracking-wide text-kumo-subtle flex items-center gap-2">
+                  {providerLogo(provider) ? (
+                    <img src={providerLogo(provider)!} alt="" aria-hidden="true" className="h-3.5 w-3.5 shrink-0 object-contain dark:invert" />
+                  ) : null}
                   <span className="truncate">{provider.name}</span>
                   <span className="normal-case tabular-nums">· {total} model</span>
                   {provider.envFallback ? <span className="text-[10px] normal-case">· environment</span> : null}
