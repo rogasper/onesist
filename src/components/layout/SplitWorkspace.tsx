@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowsLeftRight, X } from "@phosphor-icons/react";
 import {
   SPLIT_TABS,
@@ -26,15 +26,18 @@ export interface SplitWorkspaceProps {
   onRequestTabChange: (index: number, tab: SplitTab) => void;
 }
 
-function useElementWidth(ref: RefObject<HTMLElement | null>): number {
+/**
+ * The WINDOW width decides stacking (plan Review Focus 5: "jendela < 768 px"). It starts at 0 so the
+ * server render and the first client render agree; 0 never stacks, and the effect sets the real value.
+ */
+function useWindowWidth(): number {
   const [width, setWidth] = useState(0);
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref]);
+    const onResize = () => setWidth(window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   return width;
 }
 
@@ -46,7 +49,7 @@ function useElementWidth(ref: RefObject<HTMLElement | null>): number {
 export function SplitWorkspace({ projectId, main, state, onChange, onRequestClose, onSwap, onPaneDirtyChange, onRequestTabChange }: SplitWorkspaceProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
-  const width = useElementWidth(rootRef);
+  const width = useWindowWidth();
   const arrangement = arrangementFor(state.panes.length, state.dir, width);
   const [r0, r1] = state.ratios;
 
