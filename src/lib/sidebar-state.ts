@@ -65,3 +65,21 @@ export function useSidebarOpen(): boolean {
 export function useSidebarChoice(): boolean {
   return useSyncExternalStore(subscribe, getSidebarChoice, () => true);
 }
+
+export interface SidebarKeyInput {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  /** The key was pressed in a text field or editor, where Cmd/Ctrl+B means bold. */
+  targetEditable: boolean;
+}
+
+/** Ctrl+B or Cmd+B shows or hides the sidebar, unless the key went to a text editor. */
+export function isSidebarToggleKey(input: SidebarKeyInput): boolean {
+  if (input.targetEditable) return false;
+  if (input.altKey || input.shiftKey) return false;
+  if (!(input.metaKey || input.ctrlKey)) return false;
+  return input.key.toLowerCase() === "b";
+}

@@ -18,7 +18,7 @@ import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
 import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
-import { setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
+import { getSidebarChoice, isSidebarToggleKey, setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
 import "~/styles.css";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -146,6 +146,28 @@ function RootComponent() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   // Controlled, so the project's chat can fold it on a narrow window (P3.2).
   const sidebarOpen = useSidebarOpen();
+  // Hovering the logo while the sidebar is hidden shows it until the pointer moves away.
+  const [sidebarPeek, setSidebarPeek] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const targetEditable = !!target?.closest?.(
+        'input, textarea, select, [contenteditable="true"], [contenteditable=""], .cm-editor, .ProseMirror, [role="textbox"]',
+      );
+      if (!isSidebarToggleKey({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, targetEditable })) return;
+      e.preventDefault();
+      setSidebarOpen(!getSidebarChoice());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  useEffect(() => {
+    if (!sidebarPeek) return;
+    // The sidebar is 220px wide; leaving that area ends the peek.
+    const onMove = (e: MouseEvent) => { if (e.clientX > 260) setSidebarPeek(false); };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [sidebarPeek]);
   const location = useLocation();
   const pathname = location.pathname;
   const isDashboardActive = pathname === "/";
@@ -188,8 +210,20 @@ function RootComponent() {
         </div>
         <InstanceWatch />
         <QuickOpenModal />
+        {!sidebarOpen && (
+          <button
+            type="button"
+            onMouseEnter={() => setSidebarPeek(true)}
+            onClick={() => setSidebarOpen(true)}
+            title="Tampilkan sidebar (Ctrl/⌘B)"
+            aria-label="Tampilkan sidebar"
+            className="fixed left-2 top-2 z-50 flex items-center justify-center size-8 rounded bg-kumo-elevated/80 border border-kumo-line hover:bg-kumo-elevated transition-colors cursor-pointer"
+          >
+            <img src="/logo-icon.png" alt="" className="h-5 w-5 object-contain" />
+          </button>
+        )}
         <div className="flex flex-1 min-h-0">
-          <Sidebar.Provider open={sidebarOpen} onOpenChange={setSidebarOpen} collapsible="icon" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
+          <Sidebar.Provider open={sidebarOpen || sidebarPeek} onOpenChange={setSidebarOpen} collapsible="offcanvas" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
             <SidebarPersistence />
             <Sidebar>
               <AppSidebarHeader />
