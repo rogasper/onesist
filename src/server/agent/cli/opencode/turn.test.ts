@@ -240,3 +240,14 @@ test("a server that goes away mid-turn ends the stream with an error", async () 
   expect(last.type).toBe("error");
   expect(String(last.error?.message ?? last.error)).toContain("terputus");
 });
+
+test("a chosen variant goes with the model when the session is created", async () => {
+  onPrompt = () => finishText("ok");
+  const turn = await startOpenCodeTurn(input({ model: "go/flash", variant: "high" }));
+  for await (const _ of turn.stream as any) {
+    /* drain */
+  }
+  await turn.usage;
+  const created = received.find((r) => r.method === "POST" && r.path === "/api/session");
+  expect(created?.body.model).toEqual({ providerID: "go", id: "flash", variant: "high" });
+});

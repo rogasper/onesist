@@ -28,6 +28,8 @@ export interface ThreadSummary {
   hasSummary: boolean;
   /** Reasoning effort picked for this thread; null = the provider's default. */
   reasoningEffort?: "low" | "medium" | "high" | null;
+  /** Per-model options picked for this thread (OpenCode variant); empty = the model's defaults. */
+  modelOptions?: Record<string, string>;
   /** What the thread is doing now: a run, and the answers it waits for (M5). */
   activity?: { running: boolean; pendingApprovals: number; pendingQuestions: number };
   createdAt: string | null;

@@ -1,0 +1,1 @@
+ALTER TABLE `chat_threads` ADD `model_options_json` text;

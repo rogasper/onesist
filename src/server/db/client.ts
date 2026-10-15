@@ -238,6 +238,7 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE llm_providers ADD COLUMN input_price_per_mtok REAL",
     "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",
     "ALTER TABLE chat_threads ADD COLUMN cli_session_id TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN model_options_json TEXT",
   ];
   for (const sql of statements) {
     try { runSql(sql); } catch {}

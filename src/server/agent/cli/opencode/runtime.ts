@@ -114,6 +114,7 @@ export const opencodeRuntime: CliRuntime = {
       permissionMode: thread.permissionMode as PermissionMode,
       threadMode: thread.mode as ThreadMode,
       model: thread.model ?? provider.model ?? null,
+      variant: input.modelOptions.variant ?? null,
       text: input.text,
       title: thread.title,
       cliSessionId: thread.cliSessionId ?? null,

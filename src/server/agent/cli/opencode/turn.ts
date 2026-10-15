@@ -31,6 +31,8 @@ export interface OpenCodeTurnInput {
   threadMode: ThreadMode;
   /** `provider/model`, or null for OpenCode's default model. */
   model: string | null;
+  /** OpenCode variant of that model (e.g. "high"); null = the model's default. */
+  variant?: string | null;
   text: string;
   title: string | null;
   cliSessionId: string | null;
@@ -48,7 +50,7 @@ export async function startOpenCodeTurn(input: OpenCodeTurnInput): Promise<OpenC
   const run = createRun({ runId: input.runId, threadId: input.threadId, projectId: input.projectId });
   const conn = await getOpenCodeConnection({ binary: input.binary, serverUrl: input.serverUrl, serverPassword: input.serverPassword });
   const rules = permissionRules(input.permissionMode, input.threadMode);
-  const model = parseModelRef(input.model);
+  const model = parseModelRef(input.model, input.variant);
 
   let sessionId = input.cliSessionId;
   if (sessionId) {

@@ -358,6 +358,8 @@ export const chatThreads = sqliteTable(
     reasoningEffort: text("reasoning_effort"),
     /** The CLI agent's own session (OpenCode `ses_…`) this thread continues. Null = native or not started. */
     cliSessionId: text("cli_session_id"),
+    /** Per-model options picked for this thread, as JSON (`{"variant":"high"}`). Null = the model's defaults. */
+    modelOptionsJson: text("model_options_json"),
     /** Step limit per turn (FR-L7). Default 60, clamped 5..500; the ceiling is
      *  reported in the transcript when reached, and the notice can raise it. */
     maxSteps: integer("max_steps").notNull().default(60),

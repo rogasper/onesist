@@ -2,6 +2,7 @@
  * Where the chat route hands a turn to a CLI runtime instead of the native agent.
  * Pictures are not sent to CLI agents yet.
  */
+import { parseModelOptions } from "~/lib/model-options";
 import type { UIMessage } from "~/server/agent/ai";
 import type { ProviderRow } from "~/server/agent/config";
 import { cliRuntimeFor } from "~/server/agent/runtime/registry";
@@ -35,7 +36,7 @@ export async function startCliTurn(input: {
     root: input.root,
     provider: input.provider,
     text,
-    modelOptions: {},
+    modelOptions: parseModelOptions(input.thread.modelOptionsJson),
     mcp: null,
   });
 }

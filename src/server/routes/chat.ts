@@ -98,6 +98,7 @@ import { eventBus } from "~/server/realtime/events";
 import { detectRoute } from "~/lib/file-router";
 import type { FileChange } from "~/server/agent/tools";
 import { normalizeMaxSteps } from "~/server/agent/types";
+import { nextModelOptionsJson, parseModelOptions } from "~/lib/model-options";
 
 export const router = new Router();
 
@@ -115,6 +116,7 @@ function publicThread(row: NonNullable<ReturnType<typeof getThread>>) {
     archived: row.archived,
     hasSummary: !!row.summary?.trim(),
     reasoningEffort: row.reasoningEffort ?? null,
+    modelOptions: parseModelOptions(row.modelOptionsJson),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -320,6 +322,11 @@ router.put("chat/threads/:id", async (ctx) => {
     patch.summaryUptoSeq = null;
   }
   if (body.reasoningEffort !== undefined) patch.reasoningEffort = parseReasoningLevel(body.reasoningEffort);
+  const modelChanged =
+    (patch.providerId !== undefined && patch.providerId !== thread.providerId) ||
+    (patch.model !== undefined && patch.model !== thread.model);
+  const nextOptions = nextModelOptionsJson(body, modelChanged);
+  if (nextOptions !== undefined) patch.modelOptionsJson = nextOptions;
   updateThread(thread.id, patch);
   return json({ thread: publicThread(getThread(thread.id)!) });
 });
