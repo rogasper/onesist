@@ -23,6 +23,7 @@ import {
   toolFamily,
   touchedPaths,
   workSummary,
+  handoffNoticeText,
 } from "./chat-view";
 
 test("consecutive work blocks form one run; the answer splits runs and stays in place", () => {
@@ -122,4 +123,13 @@ test("a code_search result keeps its files, hits and notes apart", () => {
     { kind: "hit", text: "rule kedua" },
   ]);
   expect(codeSearchLines(null)).toEqual([]);
+});
+
+test("a handover divider says where the thread went and how much it carried", () => {
+  expect(handoffNoticeText({ mode: "handoff", provider: "OpenCode", included: 6, omitted: 0 })).toBe("Pindah ke OpenCode · 6 item dibawa");
+  expect(handoffNoticeText({ mode: "handoff", provider: "OpenCode", included: 6, omitted: 3 })).toBe(
+    "Pindah ke OpenCode · 6 item dibawa, 3 dilewati (bisa dibaca lewat MCP)",
+  );
+  expect(handoffNoticeText({ mode: "delta", provider: "OpenCode", included: 2, omitted: 0 })).toBe("Kembali ke OpenCode · 2 item sejak terakhir dibawa");
+  expect(handoffNoticeText({})).toBe("Pindah ke provider lain · 0 item dibawa");
 });

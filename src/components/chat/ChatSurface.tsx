@@ -20,6 +20,7 @@ import { supportsReasoningEffort, parseReasoningLevel, type ReasoningLevel } fro
 import { workspaceImageSrc } from "~/lib/workspace-image";
 import {
   bashExitCode,
+  handoffNoticeText,
   changeStats,
   changeTitle,
   exploreTitle,
@@ -2124,6 +2125,16 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
             <span className="text-xs text-kumo-subtle">Batas tersimpan di percakapan ini, jadi tugas berikutnya tidak terpotong lagi.</span>
           </span>
         ) : null}
+      </div>
+    );
+  }
+  if (data?.kind === "handoff") {
+    // Fase 4A: the thread moved to a CLI session; this is what that session was told.
+    return (
+      <div className="flex items-center gap-2 py-1 text-xs text-kumo-subtle">
+        <span className="h-px flex-1 bg-kumo-line" />
+        <span>{handoffNoticeText(data)}</span>
+        <span className="h-px flex-1 bg-kumo-line" />
       </div>
     );
   }

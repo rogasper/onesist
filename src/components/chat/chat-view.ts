@@ -191,3 +191,12 @@ export function codeSearchLines(output: unknown): CodeSearchLine[] {
       return { kind: "file", text: line };
     });
 }
+
+/** The divider shown where a thread was handed to a CLI session (Fase 4A). */
+export function handoffNoticeText(data: { mode?: string; provider?: string; included?: number; omitted?: number }): string {
+  const provider = data.provider || "provider lain";
+  const included = data.included ?? 0;
+  if (data.mode === "delta") return `Kembali ke ${provider} · ${included} item sejak terakhir dibawa`;
+  const skipped = data.omitted ? `, ${data.omitted} dilewati (bisa dibaca lewat MCP)` : "";
+  return `Pindah ke ${provider} · ${included} item dibawa${skipped}`;
+}
