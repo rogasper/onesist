@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Popover } from "@cloudflare/kumo";
-import { ArrowsInSimple, ArrowsOutSimple, Brain, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, TerminalWindow, X, type Icon } from "@phosphor-icons/react";
+import { ArrowsInSimple, ArrowsOutSimple, Brain, GitBranch, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, TerminalWindow, X, type Icon } from "@phosphor-icons/react";
 import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePanel";
 import { ChatSurface } from "~/components/chat/ChatSurface";
 import { ThreadIdProvider } from "~/components/chat/thread-context";
 import { subscribeChatTasks, takePendingChatTasks } from "~/lib/chat-task";
 import { launchInTerminal } from "~/lib/terminal-launch";
+import { lineageText } from "~/components/chat/chat-view";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import { fetchTerminalCommand, useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { fetchTerminalCommand, mergeBackThread, useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
 import { isDetailFor, threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
@@ -89,6 +90,22 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   const canContinueInTerminal = !!detail?.thread.cliSessionId && threadProvider?.apiStyle === "cli" && threadProvider.cliAgent === "opencode";
   const threadBusy = !!detail?.activeRun || !!active?.activity?.running;
   const [terminalNote, setTerminalNote] = useState<string | null>(null);
+  // Fase 4B: a branch shows where it came from and can bring its work back.
+  const [merging, setMerging] = useState(false);
+  async function mergeBack() {
+    if (!detail) return;
+    setMerging(true);
+    setTerminalNote(null);
+    try {
+      const result = await mergeBackThread(detail.thread.id);
+      await refresh();
+      setActiveId(result.parentThreadId);
+    } catch (err) {
+      setTerminalNote(err instanceof Error ? err.message : "Gagal membawa hasil cabang");
+    } finally {
+      setMerging(false);
+    }
+  }
   async function continueInTerminal() {
     if (!detail) return;
     setTerminalNote(null);
@@ -243,6 +260,27 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
           </Button>
         </header>
 
+        {detail?.lineage ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-kumo-line text-xs text-kumo-subtle">
+            <GitBranch size={12} className="shrink-0" />
+            <span className="truncate">{lineageText(detail.lineage)}</span>
+            {!detail.lineage.parentMissing ? (
+              <button onClick={() => setActiveId(detail.lineage!.parentThreadId)} className="shrink-0 text-kumo-brand hover:underline">
+                Buka induk
+              </button>
+            ) : null}
+            {!detail.lineage.parentMissing && detail.lineage.unmerged > 0 ? (
+              <button
+                onClick={() => void mergeBack()}
+                disabled={merging || threadBusy}
+                title={threadBusy ? "Tunggu sampai agent selesai" : "Bawa hasil kerja cabang ini ke thread induk"}
+                className="ml-auto shrink-0 rounded-md px-2 py-0.5 ring ring-kumo-line text-kumo-default hover:bg-kumo-elevated disabled:opacity-50"
+              >
+                {merging ? "Membawa…" : `Bawa hasil ke induk (${detail.lineage.unmerged})`}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {terminalNote ? (
           <div className="px-3 py-2 border-b border-kumo-line">
             <InlineAlert>{terminalNote}</InlineAlert>

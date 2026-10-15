@@ -24,6 +24,8 @@ import {
   touchedPaths,
   workSummary,
   handoffNoticeText,
+  lineageText,
+  mergeNoticeText,
 } from "./chat-view";
 
 test("consecutive work blocks form one run; the answer splits runs and stays in place", () => {
@@ -132,4 +134,16 @@ test("a handover divider says where the thread went and how much it carried", ()
   );
   expect(handoffNoticeText({ mode: "delta", provider: "OpenCode", included: 2, omitted: 0 })).toBe("Kembali ke OpenCode · 2 item sejak terakhir dibawa");
   expect(handoffNoticeText({})).toBe("Pindah ke provider lain · 0 item dibawa");
+});
+
+test("the lineage strip names the parent, or says it is gone", () => {
+  expect(lineageText({ parentTitle: "ERD klaim", parentMissing: false })).toBe('Cabang dari "ERD klaim"');
+  expect(lineageText({ parentTitle: null, parentMissing: false })).toBe('Cabang dari "Percakapan"');
+  expect(lineageText({ parentTitle: null, parentMissing: true })).toBe("Cabang dari thread yang sudah dihapus");
+});
+
+test("the merge divider says which branch came back and how much it carried", () => {
+  expect(mergeNoticeText({ title: "Cabang: ERD", included: 3, omitted: 0 })).toBe('Hasil cabang "Cabang: ERD" dibawa · 3 item');
+  expect(mergeNoticeText({ title: "Cabang: ERD", included: 3, omitted: 2 })).toBe('Hasil cabang "Cabang: ERD" dibawa · 3 item, 2 dilewati (bisa dibaca lewat MCP)');
+  expect(mergeNoticeText({})).toBe('Hasil cabang "Cabang" dibawa · 0 item');
 });

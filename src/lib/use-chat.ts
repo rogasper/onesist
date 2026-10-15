@@ -86,6 +86,8 @@ export interface ThreadDetail {
   activeRun?: string | null;
   /** Absolute workspace root — used to open a changed file with the OS. */
   rootPath?: string | null;
+  /** Fase 4B: where a branch came from and how much of its work is not merged back yet. */
+  lineage?: { parentThreadId: string; parentTitle: string | null; parentMissing: boolean; unmerged: number } | null;
   messages: { id: string; role: "user" | "assistant" | "system"; parts: any[]; metadata?: MessageMetadata }[];
   files: ThreadFile[];
   toolCalls: ThreadToolCall[];
@@ -937,6 +939,14 @@ export async function fetchTerminalCommand(threadId: string): Promise<string> {
   const body = (await res.json().catch(() => ({}))) as { command?: string; error?: string };
   if (!res.ok || !body.command) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body.command;
+}
+
+/** Brings a branch's work back to its parent thread. */
+export async function mergeBackThread(threadId: string): Promise<{ parentThreadId: string; included: number; omitted: number }> {
+  const res = await fetch(`/api/chat/threads/${encodeURIComponent(threadId)}/merge-back`, { method: "POST", cache: "no-store" });
+  const body = (await res.json().catch(() => ({}))) as { parentThreadId?: string; included?: number; omitted?: number; error?: string };
+  if (!res.ok || !body.parentThreadId) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return { parentThreadId: body.parentThreadId, included: body.included ?? 0, omitted: body.omitted ?? 0 };
 }
 
 export function useChatProviders() {

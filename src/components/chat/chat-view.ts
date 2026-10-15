@@ -200,3 +200,15 @@ export function handoffNoticeText(data: { mode?: string; provider?: string; incl
   const skipped = data.omitted ? `, ${data.omitted} dilewati (bisa dibaca lewat MCP)` : "";
   return `Pindah ke ${provider} · ${included} item dibawa${skipped}`;
 }
+
+/** The lineage strip above a branch (Fase 4B). */
+export function lineageText(l: { parentTitle: string | null; parentMissing: boolean }): string {
+  if (l.parentMissing) return "Cabang dari thread yang sudah dihapus";
+  return `Cabang dari "${l.parentTitle || "Percakapan"}"`;
+}
+
+/** The divider where a branch's work came back to its parent (Fase 4B). */
+export function mergeNoticeText(data: { title?: string; included?: number; omitted?: number }): string {
+  const skipped = data.omitted ? `, ${data.omitted} dilewati (bisa dibaca lewat MCP)` : "";
+  return `Hasil cabang "${data.title || "Cabang"}" dibawa · ${data.included ?? 0} item${skipped}`;
+}
