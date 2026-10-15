@@ -212,3 +212,16 @@ export function mergeNoticeText(data: { title?: string; included?: number; omitt
   const skipped = data.omitted ? `, ${data.omitted} dilewati (bisa dibaca lewat MCP)` : "";
   return `Hasil cabang "${data.title || "Cabang"}" dibawa · ${data.included ?? 0} item${skipped}`;
 }
+
+/** The divider where a thread's workspace moved (Fase 4C). */
+export function workspaceNoticeText(data: { label?: string; reason?: string }): string {
+  const label = data.label || "Root project";
+  if (data.reason === "removed") return `Worktree dihapus · thread kembali ke ${label}`;
+  return `Workspace pindah ke ${label} · sesi CLI dimulai ulang, percakapan dibawa`;
+}
+
+/** The divider for a new worktree's setup command (Fase 4C). */
+export function workspaceSetupText(data: { ok?: boolean; exitCode?: number | null; command?: string }): string {
+  const head = data.ok ? "Setup worktree selesai" : `Setup worktree gagal (exit ${data.exitCode ?? "—"})`;
+  return data.command ? `${head} · ${data.command}` : head;
+}

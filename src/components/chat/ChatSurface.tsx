@@ -22,6 +22,8 @@ import {
   bashExitCode,
   handoffNoticeText,
   mergeNoticeText,
+  workspaceNoticeText,
+  workspaceSetupText,
   changeStats,
   changeTitle,
   exploreTitle,
@@ -2146,6 +2148,33 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
         <span className="h-px flex-1 bg-kumo-line" />
         <span>{mergeNoticeText(data)}</span>
         <span className="h-px flex-1 bg-kumo-line" />
+      </div>
+    );
+  }
+  if (data?.kind === "workspace") {
+    // Fase 4C: the thread's CLI agent works somewhere else from here on.
+    return (
+      <div className="flex items-center gap-2 py-1 text-xs text-kumo-subtle">
+        <span className="h-px flex-1 bg-kumo-line" />
+        <span title={data.path ?? undefined}>{workspaceNoticeText(data)}</span>
+        <span className="h-px flex-1 bg-kumo-line" />
+      </div>
+    );
+  }
+  if (data?.kind === "workspaceSetup") {
+    return (
+      <div className="py-1 text-xs text-kumo-subtle">
+        <div className="flex items-center gap-2">
+          <span className="h-px flex-1 bg-kumo-line" />
+          <span className={data.ok ? "" : "text-red-400"}>{workspaceSetupText(data)}</span>
+          <span className="h-px flex-1 bg-kumo-line" />
+        </div>
+        {data.tail ? (
+          <details className="mt-1">
+            <summary className="cursor-pointer">Output setup</summary>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-kumo-elevated p-2 font-mono text-[11px] text-kumo-default">{String(data.tail)}</pre>
+          </details>
+        ) : null}
       </div>
     );
   }
