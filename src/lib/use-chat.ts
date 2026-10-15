@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MentionRef } from "~/lib/mention-ref";
+import type { RuntimeCapabilities } from "~/lib/runtime-types";
 import { DefaultChatTransport, type UIMessage } from "~/lib/ai-client";
 import { useFileChanged } from "~/lib/use-file-data";
 import { subscribe } from "~/lib/event-stream";
@@ -105,6 +106,8 @@ export interface ChatProviderOption {
   apiStyle: string;
   cliAgent?: string | null;
   preset?: string | null;
+  /** Composer controls this provider gets; missing on old servers = derive from apiStyle. */
+  capabilities?: RuntimeCapabilities;
   /** The model reads pictures (set in provider settings). */
   supportsVision?: boolean;
   envFallback: boolean;

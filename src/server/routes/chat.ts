@@ -99,6 +99,7 @@ import { detectRoute } from "~/lib/file-router";
 import type { FileChange } from "~/server/agent/tools";
 import { normalizeMaxSteps } from "~/server/agent/types";
 import { nextModelOptionsJson, parseModelOptions } from "~/lib/model-options";
+import { runtimeCapabilities } from "~/server/agent/runtime/registry";
 
 export const router = new Router();
 
@@ -1314,6 +1315,8 @@ router.get("chat/providers", async () => {
       // Which logo the picker shows (src/lib/provider-logo.ts).
       cliAgent: p.cliAgent ?? null,
       preset: p.preset ?? null,
+      // Which composer controls this provider gets (reasoning effort, model options).
+      capabilities: runtimeCapabilities(p),
       envFallback: p.id === ENV_PROVIDER_ID,
     })),
   });

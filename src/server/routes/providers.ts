@@ -25,6 +25,7 @@ import {
   type ProviderRow,
 } from "~/server/agent/config";
 import { PROVIDER_PRESETS, getPreset, presetRequiresApiKey } from "~/server/agent/presets";
+import { cliRuntimeFor } from "~/server/agent/runtime/registry";
 import { newId } from "~/server/agent/store";
 
 export const router = new Router();
@@ -406,6 +407,34 @@ router.post("providers/models", async (ctx) => {
   }
   const result = await discoverModels(candidate);
   return json(result);
+});
+
+// GET /api/providers/:id/status — can this provider's runtime be used right now?
+// API providers are not probed here: their state is what the Test button records.
+router.get("providers/:id/status", async (ctx) => {
+  const row = ctx.params.id === ENV_PROVIDER_ID ? envBootstrapProvider() : getProvider(ctx.params.id);
+  if (!row) return json({ error: "Provider tidak ditemukan." }, 404);
+  const runtime = cliRuntimeFor(row);
+  if (runtime) return json({ status: await runtime.probe(row) });
+  if (row.apiStyle === "cli") {
+    return json({ status: { state: "error", version: null, message: "Provider CLI ini belum didukung di chat. Saat ini baru OpenCode." } });
+  }
+  return json({ status: { state: "ready", version: null, message: "Provider API — koneksinya dicek lewat tombol Test." } });
+});
+
+// GET /api/providers/:id/model-options?model=<id> — the options the model picker shows for one model.
+router.get("providers/:id/model-options", async (ctx) => {
+  const row = ctx.params.id === ENV_PROVIDER_ID ? envBootstrapProvider() : getProvider(ctx.params.id);
+  if (!row) return json({ error: "Provider tidak ditemukan." }, 404);
+  const model = new URL(ctx.request.url).searchParams.get("model")?.trim() ?? "";
+  const runtime = cliRuntimeFor(row);
+  if (!runtime || !model) return json({ options: [] });
+  try {
+    const models = await runtime.listModels(row);
+    return json({ options: models.find((m) => m.id === model)?.options ?? [] });
+  } catch (err) {
+    return json({ options: [], message: redactSecrets(err, row.apiKey) });
+  }
 });
 
 // GET /api/providers/:id
