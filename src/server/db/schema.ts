@@ -280,6 +280,34 @@ export const subagents = sqliteTable(
   (t) => [uniqueIndex("idx_subagents_name").on(t.name)],
 );
 
+/** External MCP server configuration. */
+export const mcpServers = sqliteTable(
+  "mcp_servers",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    preset: text("preset").notNull().default("custom"),
+    transport: text("transport").notNull().default("http"),
+    url: text("url"),
+    command: text("command"),
+    argsJson: text("args_json"),
+    envJson: text("env_json"),
+    authKind: text("auth_kind").notNull().default("none"),
+    authHeader: text("auth_header"),
+    authValue: text("auth_value"),
+    readOnly: integer("read_only", { mode: "boolean" }).notNull().default(false),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    instructions: text("instructions"),
+    toolCount: integer("tool_count").notNull().default(0),
+    lastStatus: text("last_status"),
+    lastError: text("last_error"),
+    lastCheckedAt: text("last_checked_at"),
+    createdAt: text("created_at").default("datetime('now')"),
+    updatedAt: text("updated_at").default("datetime('now')"),
+  },
+  (t) => [uniqueIndex("idx_mcp_servers_name").on(t.name)],
+);
+
 /** BYOK provider configuration. Several rows may share the same `preset`
  *  (users reasonably hold multiple keys for the same provider). */
 export const llmProviders = sqliteTable("llm_providers", {

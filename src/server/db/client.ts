@@ -41,6 +41,15 @@ const RUNTIME_TABLES = [
     source text DEFAULT 'user' NOT NULL,
     created_at text DEFAULT (datetime('now')), updated_at text DEFAULT (datetime('now'))
   )`,
+  `CREATE TABLE IF NOT EXISTS mcp_servers (
+    id text PRIMARY KEY NOT NULL, name text NOT NULL, preset text DEFAULT 'custom' NOT NULL,
+    transport text DEFAULT 'http' NOT NULL, url text, command text, args_json text, env_json text,
+    auth_kind text DEFAULT 'none' NOT NULL, auth_header text, auth_value text,
+    read_only integer DEFAULT false NOT NULL, enabled integer DEFAULT true NOT NULL,
+    instructions text, tool_count integer DEFAULT 0 NOT NULL,
+    last_status text, last_error text, last_checked_at text,
+    created_at text DEFAULT (datetime('now')), updated_at text DEFAULT (datetime('now'))
+  )`,
   `CREATE TABLE IF NOT EXISTS chat_threads (
     id text PRIMARY KEY NOT NULL, project_id text NOT NULL, title text,
     mode text DEFAULT 'agent' NOT NULL, provider_id text, model text,
