@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MentionRef } from "~/lib/mention-ref";
-import type { RuntimeCapabilities } from "~/lib/runtime-types";
+import type { ModelOptionDescriptor, RuntimeCapabilities } from "~/lib/runtime-types";
 import { DefaultChatTransport, type UIMessage } from "~/lib/ai-client";
 import { useFileChanged } from "~/lib/use-file-data";
 import { subscribe } from "~/lib/event-stream";
@@ -907,6 +907,18 @@ export async function refreshProviderModels(providerId: string): Promise<string[
   if (!res.ok) throw new Error(`Gagal mengambil daftar model (HTTP ${res.status})`);
   const body = (await res.json()) as { ids?: string[] };
   return body.ids ?? [];
+}
+
+/** Options of one model (OpenCode variants). Empty when it has none or the lookup fails. */
+export async function fetchModelOptions(providerId: string, model: string): Promise<ModelOptionDescriptor[]> {
+  try {
+    const res = await fetch(`/api/providers/${encodeURIComponent(providerId)}/model-options?model=${encodeURIComponent(model)}`, { cache: "no-store" });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { options?: ModelOptionDescriptor[] };
+    return body.options ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export function useChatProviders() {

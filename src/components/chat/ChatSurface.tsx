@@ -63,7 +63,10 @@ import {
   type PendingApproval,
   type ThreadDetail,
   type ThreadFile,
+  fetchModelOptions,
 } from "~/lib/use-chat";
+import { parseModelOptions, withModelOption } from "~/lib/model-options";
+import type { ModelOptionDescriptor } from "~/lib/runtime-types";
 
 /**
  * Chat surface (FR-B, FR-C, FR-E4).
@@ -319,6 +322,34 @@ export function ChatSurface({
   function changeReasoning(level: ReasoningLevel | null) {
     setReasoningLevel(level);
     void patchThread({ reasoningEffort: level });
+  }
+
+  // Per-model options (OpenCode variants): the selected model's descriptors and this thread's choices.
+  const selectedProvider = providers.find((p) => p.id === providerId) ?? providers.find((p) => p.isDefault) ?? null;
+  const capabilities = selectedProvider?.capabilities ?? null;
+  const optionModel = model ?? selectedProvider?.model ?? null;
+  const [optionDescriptors, setOptionDescriptors] = useState<ModelOptionDescriptor[]>([]);
+  useEffect(() => {
+    if (!selectedProvider || !capabilities?.modelOptions || !optionModel) {
+      setOptionDescriptors([]);
+      return;
+    }
+    let alive = true;
+    void fetchModelOptions(selectedProvider.id, optionModel).then((list) => {
+      if (alive) setOptionDescriptors(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [selectedProvider?.id, capabilities?.modelOptions, optionModel]);
+  const [modelOptions, setModelOptions] = useState<Record<string, string>>(parseModelOptions(detail.thread.modelOptions));
+  useEffect(() => {
+    setModelOptions(parseModelOptions(detail.thread.modelOptions));
+  }, [threadId, detail.thread.modelOptions]);
+  function changeModelOption(id: string, value: string | null) {
+    const next = withModelOption(modelOptions, id, value);
+    setModelOptions(next);
+    void patchThread({ modelOptions: next });
   }
 
   // The draft of this thread (text and attachments) survives a reload and a switch to
@@ -1306,6 +1337,7 @@ export function ChatSurface({
         onSelectModel={(nextProviderId, nextModel) => {
           setProviderId(nextProviderId);
           setModel(nextModel);
+          setModelOptions({});
           void patchThread({ providerId: nextProviderId || null, model: nextModel });
         }}
         onOpenProviders={onOpenProviders}
@@ -1343,7 +1375,10 @@ export function ChatSurface({
         compacting={compacting}
         reasoningLevel={reasoningLevel}
         onReasoningLevel={changeReasoning}
-        reasoningSupported={supportsReasoningEffort(selectedStyle)}
+        reasoningSupported={capabilities ? capabilities.reasoningEffort : supportsReasoningEffort(selectedStyle)}
+        optionDescriptors={optionDescriptors}
+        modelOptions={modelOptions}
+        onModelOption={changeModelOption}
       />
     </div>
   );

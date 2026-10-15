@@ -4,6 +4,8 @@ import { visibleModels } from "~/components/chat/model-list";
 import { refreshProviderModels, type ChatProviderOption } from "~/lib/use-chat";
 import { providerLogo } from "~/lib/provider-logo";
 import { RUNTIME_STATE_LABEL, runtimeStateClass, useRuntimeStatus } from "~/lib/runtime-status";
+import { activeChoice } from "~/lib/model-options";
+import type { ModelOptionDescriptor } from "~/lib/runtime-types";
 
 /**
  * Model picker in the composer (ADR-001 D8, FR-A9, FR-L4, FR-L12).
@@ -58,6 +60,10 @@ interface Props {
   reasoningSupported: boolean;
   reasoningLevel: ReasoningValue;
   onReasoningLevel: (level: ReasoningValue) => void;
+  /** Options of the selected model from its runtime (OpenCode variants). */
+  optionDescriptors: ModelOptionDescriptor[];
+  modelOptions: Record<string, string>;
+  onModelOption: (id: string, value: string | null) => void;
 }
 
 /** Why a CLI provider's models may be missing; nothing when it is ready. */
@@ -71,7 +77,19 @@ function CliGroupStatus({ providerId, open }: { providerId: string; open: boolea
   );
 }
 
-export function ModelPicker({ providers, providerId, model, onSelect, onOpenProviders, reasoningSupported, reasoningLevel, onReasoningLevel }: Props) {
+export function ModelPicker({
+  providers,
+  providerId,
+  model,
+  onSelect,
+  onOpenProviders,
+  reasoningSupported,
+  reasoningLevel,
+  onReasoningLevel,
+  optionDescriptors,
+  modelOptions,
+  onModelOption,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [manual, setManual] = useState("");
@@ -307,6 +325,29 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
               </div>
             </div>
           ) : null}
+
+          {optionDescriptors.map((d) => {
+            const active = activeChoice(d, modelOptions);
+            return (
+              <div key={d.id} className="grid gap-1.5 px-2.5 pt-2 pb-2 mt-1 border-t border-kumo-line">
+                <span className="text-[11px] uppercase tracking-wide text-kumo-subtle">{d.label}</span>
+                <div className="flex flex-wrap w-fit rounded-lg ring ring-kumo-line p-0.5">
+                  {[{ value: null as string | null, label: "Default" }, ...d.choices].map((c) => (
+                    <button
+                      key={c.value ?? "default"}
+                      onClick={() => onModelOption(d.id, c.value)}
+                      title={c.value === null ? "Ikut default model" : undefined}
+                      className={`rounded-md px-2 py-0.5 text-xs ${
+                        active === c.value ? "bg-kumo-tint text-kumo-default" : "text-kumo-subtle hover:bg-kumo-elevated"
+                      }`}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
 
           <button
             onClick={() => {

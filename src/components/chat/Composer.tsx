@@ -9,6 +9,7 @@ import { FRESH_CURSOR, attachmentLabel, isLongPaste, pastedTextName, stepHistory
 import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ContextUsage, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
 import { refSlug, type MentionRef } from "~/lib/mention-ref";
 import { isFolderPath } from "~/lib/mentions";
+import type { ModelOptionDescriptor } from "~/lib/runtime-types";
 
 /**
  * Chat composer (FR-B, FR-C10, FR-C11, ADR-001 D8).
@@ -110,6 +111,10 @@ interface Props {
   onReasoningLevel: (level: "low" | "medium" | "high" | null) => void;
   /** Hides the reasoning control for providers that have no such setting. */
   reasoningSupported: boolean;
+  /** Options of the selected model (OpenCode variants), shown in the model picker. */
+  optionDescriptors: ModelOptionDescriptor[];
+  modelOptions: Record<string, string>;
+  onModelOption: (id: string, value: string | null) => void;
   images: PendingImage[];
   onRemoveImage: (id: string) => void;
 }
@@ -152,6 +157,9 @@ export function Composer(props: Props) {
     reasoningLevel,
     onReasoningLevel,
     reasoningSupported,
+    optionDescriptors,
+    modelOptions,
+    onModelOption,
     images,
     onRemoveImage,
   } = props;
@@ -484,6 +492,9 @@ export function Composer(props: Props) {
               reasoningSupported={reasoningSupported}
               reasoningLevel={reasoningLevel}
               onReasoningLevel={onReasoningLevel}
+              optionDescriptors={optionDescriptors}
+              modelOptions={modelOptions}
+              onModelOption={onModelOption}
             />
 
             <div className="ml-auto flex items-center gap-1.5 shrink-0">
