@@ -1291,7 +1291,7 @@ export function ChatSurface({
 
       {/* Queued messages, held by the server and sent one at a time once the run
           that is working ends. Numbered, because the order is the promise made. */}
-      {queue.items.length > 0 ? (
+      {queue.items.length > 0 || queue.paused ? (
         <div className="border-t border-kumo-line shrink-0">
           {/* Flex column, not grid: a grid item defaults to `min-width: auto`, which
               lets a `truncate` child grow past the panel (reported 2026-09-27). */}

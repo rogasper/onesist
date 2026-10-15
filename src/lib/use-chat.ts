@@ -966,6 +966,18 @@ export function setThreadWorkspace(threadId: string, req: WorkspaceRequest): Pro
   });
 }
 
+/**
+ * Puts a prompt in another thread's queue. The server starts it at once when that thread is
+ * free, so a task opened next to another one still runs.
+ */
+export async function queueChatText(threadId: string, text: string): Promise<void> {
+  await api(`/api/chat/threads/${encodeURIComponent(threadId)}/queue`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ texts: [text] }),
+  });
+}
+
 export async function fetchProjectWorktrees(projectId: string): Promise<ProjectWorktree[]> {
   return (await api<{ worktrees: ProjectWorktree[] }>(`/api/chat/projects/${encodeURIComponent(projectId)}/worktrees`)).worktrees;
 }

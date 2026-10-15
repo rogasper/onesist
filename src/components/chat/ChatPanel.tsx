@@ -5,14 +5,14 @@ import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePan
 import { ChatSurface } from "~/components/chat/ChatSurface";
 import { WorkspaceDialog } from "~/components/chat/WorkspaceDialog";
 import { ThreadIdProvider } from "~/components/chat/thread-context";
-import { subscribeChatTasks, takePendingChatTasks } from "~/lib/chat-task";
+import { splitChatTasks, subscribeChatTasks, takePendingChatTasks } from "~/lib/chat-task";
 import { launchInTerminal } from "~/lib/terminal-launch";
 import { lineageText } from "~/components/chat/chat-view";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import { fetchTerminalCommand, mergeBackThread, useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, useChatWorkspaceEvents, type ThreadSummary } from "~/lib/use-chat";
+import { fetchTerminalCommand, mergeBackThread, queueChatText, useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, useChatWorkspaceEvents, type ThreadSummary } from "~/lib/use-chat";
 import { isDetailFor, threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
@@ -133,7 +133,9 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   const [autoSend, setAutoSend] = useState<{ threadId: string; text: string } | null>(null);
   useEffect(() => {
     const take = () => {
-      const next = takePendingChatTasks().at(-1);
+      const { open: next, queued } = splitChatTasks(takePendingChatTasks());
+      // Earlier tasks of the same click are not dropped: their prompts wait in their own threads.
+      for (const task of queued) void queueChatText(task.threadId, task.text ?? "").catch(() => {});
       if (!next) return;
       void refresh().then(() => {
         setActiveId(next.threadId);

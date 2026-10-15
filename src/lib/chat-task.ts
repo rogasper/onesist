@@ -29,3 +29,13 @@ export function subscribeChatTasks(listener: (request: ChatTaskRequest) => void)
 export function takePendingChatTasks(): ChatTaskRequest[] {
   return pending.splice(0, pending.length);
 }
+
+/**
+ * The chat opens one thread at a time. When several tasks arrive together, the newest opens
+ * and the earlier ones that carry a prompt are returned as `queued`: the chat puts their
+ * prompts in those threads' queues, so no task is left as an empty thread.
+ */
+export function splitChatTasks(tasks: ChatTaskRequest[]): { open: ChatTaskRequest | undefined; queued: ChatTaskRequest[] } {
+  const open = tasks.at(-1);
+  return { open, queued: tasks.slice(0, -1).filter((t) => !!t.text) };
+}
