@@ -27,9 +27,14 @@ test("a custom OpenAI-compatible or Responses endpoint shows the OpenAI mark, an
   expect(providerLogo({ apiStyle: "anthropic-messages", preset: "custom-anthropic" })).toBe(ANTHROPIC_LOGO);
 });
 
-test("a preset without its own mark shows none, not its protocol's (Groq is OpenAI-compatible but has its own brand)", () => {
-  expect(providerLogo({ apiStyle: "completions", preset: "groq" })).toBeNull();
-  expect(providerLogo({ apiStyle: "completions", preset: "zhipu" })).toBeNull();
+test("Groq, Zhipu and xAI show their own marks, not their protocol's", () => {
+  expect(providerLogo({ apiStyle: "completions", preset: "groq" })).toBe("/icons/brand/groq.png");
+  expect(providerLogo({ apiStyle: "completions", preset: "zhipu" })).toBe("/icons/brand/zhipu.png");
+  expect(providerLogo({ apiStyle: "completions", preset: "xai" })).toBe("/icons/brand/xai.png");
+});
+
+test("a preset without a mark shows none, not its protocol's", () => {
+  expect(providerLogo({ apiStyle: "completions", preset: "tidak-ada" })).toBeNull();
 });
 
 test("a provider with no preset id falls back to its protocol, and none without one", () => {
