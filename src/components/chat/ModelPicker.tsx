@@ -3,6 +3,7 @@ import { CaretDown, Check, MagnifyingGlass, Sliders } from "@phosphor-icons/reac
 import { visibleModels } from "~/components/chat/model-list";
 import { refreshProviderModels, type ChatProviderOption } from "~/lib/use-chat";
 import { providerLogo } from "~/lib/provider-logo";
+import { RUNTIME_STATE_LABEL, runtimeStateClass, useRuntimeStatus } from "~/lib/runtime-status";
 
 /**
  * Model picker in the composer (ADR-001 D8, FR-A9, FR-L4, FR-L12).
@@ -57,6 +58,17 @@ interface Props {
   reasoningSupported: boolean;
   reasoningLevel: ReasoningValue;
   onReasoningLevel: (level: ReasoningValue) => void;
+}
+
+/** Why a CLI provider's models may be missing; nothing when it is ready. */
+function CliGroupStatus({ providerId, open }: { providerId: string; open: boolean }) {
+  const status = useRuntimeStatus(providerId, open);
+  if (!status || status.state === "ready") return null;
+  return (
+    <p className={`px-2.5 pb-1 text-xs ${runtimeStateClass(status.state)}`}>
+      {RUNTIME_STATE_LABEL[status.state]}: {status.message}
+    </p>
+  );
 }
 
 export function ModelPicker({ providers, providerId, model, onSelect, onOpenProviders, reasoningSupported, reasoningLevel, onReasoningLevel }: Props) {
@@ -204,6 +216,7 @@ export function ModelPicker({ providers, providerId, model, onSelect, onOpenProv
                   ) : null}
                 </div>
                 {pending.has(provider.id) ? <p className="px-2.5 pb-1 text-xs text-kumo-subtle">Memuat daftar model…</p> : null}
+                {provider.apiStyle === "cli" ? <CliGroupStatus providerId={provider.id} open={open} /> : null}
                 {shown.map((m) => {
                   const active = providerId === provider.id && (model ?? provider.model) === m;
                   return (
