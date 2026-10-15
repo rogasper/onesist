@@ -99,6 +99,8 @@ import { detectRoute } from "~/lib/file-router";
 import type { FileChange } from "~/server/agent/tools";
 import { normalizeMaxSteps } from "~/server/agent/types";
 import { nextModelOptionsJson, parseModelOptions } from "~/lib/model-options";
+import { findToolOutput } from "~/server/agent/tool-output";
+import { viewMessages } from "~/server/agent/tool-output-view";
 import { runtimeCapabilities } from "~/server/agent/runtime/registry";
 
 export const router = new Router();
@@ -263,7 +265,7 @@ router.get("chat/threads/:id", async (ctx) => {
     // The workspace root, so the UI can open a changed file with the OS
     // (open in default app / show in Finder) without asking the server again.
     rootPath: root,
-    messages: toUIMessages(page.rows),
+    messages: viewMessages(page.rows),
     // The newest page only; older pages come from `chat/threads/:id/messages`.
     hasMoreMessages: page.hasMore,
     files: listThreadFiles(thread.id),
@@ -1024,7 +1026,16 @@ router.get("chat/threads/:id/messages", async (ctx) => {
   const seq = before ? messageSeq(thread.id, before) : null;
   if (before && seq == null) return json({ error: "Pesan tidak ditemukan." }, 404);
   const page = listMessagePage(thread.id, { beforeSeq: seq ?? undefined });
-  return json({ messages: toUIMessages(page.rows), hasMore: page.hasMore });
+  return json({ messages: viewMessages(page.rows), hasMore: page.hasMore });
+});
+
+// The whole stored output of one tool call, for a transcript card that was shortened.
+router.get("chat/threads/:id/tool-output/:toolCallId", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const { found, output } = findToolOutput(toUIMessages(listMessages(thread.id)), ctx.params.toolCallId);
+  if (!found) return json({ error: "Output tool tidak ditemukan." }, 404);
+  return json({ output });
 });
 
 router.get("chat/threads/:id/stream", async (ctx) => {
