@@ -5,11 +5,12 @@
  */
 import { supportsReasoningEffort } from "~/lib/reasoning-level";
 import type { RuntimeCapabilities } from "~/lib/runtime-types";
+import { antigravityRuntime } from "~/server/agent/cli/antigravity/runtime";
 import { opencodeRuntime } from "~/server/agent/cli/opencode/runtime";
 import type { ProviderRow } from "~/server/agent/config";
 import type { CliRuntime } from "./types";
 
-const CLI_RUNTIMES: Record<string, CliRuntime> = { opencode: opencodeRuntime };
+const CLI_RUNTIMES: Record<string, CliRuntime> = { opencode: opencodeRuntime, antigravity: antigravityRuntime };
 
 type ProviderKind = Pick<ProviderRow, "apiStyle" | "cliAgent">;
 
