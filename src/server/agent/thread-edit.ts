@@ -148,6 +148,11 @@ export function forkThread(input: { threadId: string; messageId: string }): stri
     rootThreadId: thread.rootThreadId ?? thread.id,
     forkedAtSeq: copied,
     mergedUptoSeq: copied,
+    // Fase 4C: a branch works where its parent works (a native OpenCode fork stays in that directory).
+    workspaceStrategy: thread.workspaceStrategy,
+    workspaceRepo: thread.workspaceRepo,
+    workspacePath: thread.workspacePath,
+    workspaceBranch: thread.workspaceBranch,
   });
   return copy.id;
 }

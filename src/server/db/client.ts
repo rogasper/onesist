@@ -244,6 +244,10 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE chat_threads ADD COLUMN root_thread_id TEXT",
     "ALTER TABLE chat_threads ADD COLUMN forked_at_seq INTEGER",
     "ALTER TABLE chat_threads ADD COLUMN merged_upto_seq INTEGER",
+    "ALTER TABLE chat_threads ADD COLUMN workspace_strategy TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN workspace_repo TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN workspace_path TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN workspace_branch TEXT",
   ];
   for (const sql of statements) {
     try { runSql(sql); } catch {}

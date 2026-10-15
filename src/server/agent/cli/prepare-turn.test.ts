@@ -105,3 +105,21 @@ test("an older thread whose OpenCode session predates this table keeps that sess
   expect(other.transition).toEqual({ kind: "handoff" });
   expect(other.sessionId).toBeNull();
 });
+
+test("after the thread's sessions are reset, the next CLI turn is a handoff in a new session", () => {
+  const t = newThread();
+  say(t.id, "user", "satu");
+  const a = say(t.id, "assistant", "dua", "oc");
+  store.saveProviderSession(t.id, "oc", "ses_old", store.messageSeq(t.id, a.id)!);
+  store.updateThread(t.id, { cliSessionId: "ses_old" });
+
+  store.resetProviderSessions(t.id);
+
+  expect(store.getProviderSession(t.id, "oc")).toBeNull();
+  expect(store.getThread(t.id)!.cliSessionId).toBeNull();
+  const u = say(t.id, "user", "tiga");
+  const p = prepareCliTurn({ thread: store.getThread(t.id)!, providerId: "oc", userText: "tiga", userMessageId: u.id, contextWindow: null });
+  expect(p.transition).toEqual({ kind: "handoff" });
+  expect(p.sessionId).toBeNull();
+  expect(p.text).toContain("dua");
+});
