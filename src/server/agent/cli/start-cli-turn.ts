@@ -1,13 +1,12 @@
 /**
- * Where the chat route hands a turn to a CLI agent instead of the native agent.
- * Only OpenCode is wired in Fase 3A; pictures are not sent to CLI agents yet.
+ * Where the chat route hands a turn to a CLI runtime instead of the native agent.
+ * Pictures are not sent to CLI agents yet.
  */
 import type { UIMessage } from "~/server/agent/ai";
 import type { ProviderRow } from "~/server/agent/config";
-import { updateThread, type ThreadRow } from "~/server/agent/store";
-import type { PermissionMode, ThreadMode } from "~/server/agent/types";
-import { openCodeTargetOf } from "./opencode/target";
-import { startOpenCodeTurn, type OpenCodeTurn } from "./opencode/turn";
+import { cliRuntimeFor } from "~/server/agent/runtime/registry";
+import type { CliTurn } from "~/server/agent/runtime/types";
+import type { ThreadRow } from "~/server/agent/store";
 
 export function textOfMessage(message: { parts?: unknown[] } | undefined): string {
   return (message?.parts ?? [])
@@ -23,25 +22,20 @@ export async function startCliTurn(input: {
   root: string;
   provider: ProviderRow;
   lastUser: UIMessage | undefined;
-}): Promise<OpenCodeTurn> {
-  const { thread, provider } = input;
-  if (provider.cliAgent !== "opencode") {
-    throw new Error(`Provider CLI "${provider.cliAgent ?? "?"}" belum didukung di chat. Saat ini baru OpenCode.`);
+}): Promise<CliTurn> {
+  const runtime = cliRuntimeFor(input.provider);
+  if (!runtime) {
+    throw new Error(`Provider CLI "${input.provider.cliAgent ?? "?"}" belum didukung di chat. Saat ini baru OpenCode.`);
   }
   const text = textOfMessage(input.lastUser as any);
   if (!text) throw new Error("Provider CLI baru menerima pesan teks; gambar belum didukung.");
-  return startOpenCodeTurn({
+  return runtime.startTurn({
     runId: input.runId,
-    threadId: thread.id,
-    projectId: thread.projectId,
+    thread: input.thread,
     root: input.root,
-    ...openCodeTargetOf(provider),
-    permissionMode: thread.permissionMode as PermissionMode,
-    threadMode: thread.mode as ThreadMode,
-    model: thread.model ?? provider.model ?? null,
+    provider: input.provider,
     text,
-    title: thread.title,
-    cliSessionId: thread.cliSessionId ?? null,
-    onSessionCreated: (sessionId) => updateThread(thread.id, { cliSessionId: sessionId }),
+    modelOptions: {},
+    mcp: null,
   });
 }

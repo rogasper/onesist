@@ -350,7 +350,13 @@ export function isTestResultCurrent(row: ProviderRow): boolean {
 
 export async function testConnection(config: ProviderRow): Promise<TestConnectionResult> {
   if (config.apiStyle === "cli") {
-    return { success: false, message: "Provider CLI diuji dengan mendeteksi binary-nya, bukan lewat HTTP.", errorCategory: "cli" };
+    const { cliRuntimeFor } = await import("./runtime/registry");
+    const runtime = cliRuntimeFor(config);
+    if (!runtime) return { success: false, message: "Provider CLI ini belum didukung di chat. Saat ini baru OpenCode.", errorCategory: "cli" };
+    const started = Date.now();
+    const status = await runtime.probe(config);
+    if (status.state === "ready") return { success: true, message: status.message, latencyMs: Date.now() - started };
+    return { success: false, message: status.message, errorCategory: "cli" };
   }
   const started = Date.now();
   try {
@@ -456,14 +462,12 @@ export async function discoverModels(config: ProviderRow): Promise<DiscoverModel
   const saved = savedModels(config);
   const endpoint = config.endpoint?.trim().replace(/\/+$/, "");
   if (config.apiStyle === "cli") {
-    if (config.cliAgent !== "opencode") return { models: saved, supported: false, message: "Provider CLI tidak menyediakan daftar model." };
+    const { cliRuntimeFor } = await import("./runtime/registry");
+    const runtime = cliRuntimeFor(config);
+    if (!runtime) return { models: saved, supported: false, message: "Provider CLI tidak menyediakan daftar model." };
     try {
-      const { getOpenCodeConnection } = await import("./cli/opencode/server");
-      const { ocListModels } = await import("./cli/opencode/client");
-      const { openCodeTargetOf } = await import("./cli/opencode/target");
-      const conn = await getOpenCodeConnection(openCodeTargetOf(config));
-      const listed = await ocListModels(conn);
-      const discovered: ModelInfo[] = listed.map((m) => ({ id: `${m.providerID}/${m.id}`, displayName: m.name }));
+      const listed = await runtime.listModels(config, { force: true });
+      const discovered: ModelInfo[] = listed.map((m) => ({ id: m.id, displayName: m.name }));
       return {
         models: mergeModels(saved, discovered),
         supported: true,
