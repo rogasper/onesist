@@ -15,9 +15,8 @@ import { Placeholder } from "~/components/ui/Placeholder";
 import { SearchInput } from "~/components/ui/SearchInput";
 import { FilePicker } from "~/components/ui/FilePicker";
 import { Toast, type ToastMessage } from "~/components/ui/Toast";
-import { AgentStream } from "~/components/agent/AgentStream";
-import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
-import { FeedbackBox } from "~/components/agent/FeedbackBox";
+import { AgentTaskNotice } from "~/components/agent/AgentTaskNotice";
+import { useAgentTask } from "~/lib/use-agent-task";
 import { subscribe } from "~/lib/event-stream";
 
 /** The API Spec tab's content. Used by its route and by split panes. */
@@ -29,16 +28,9 @@ export function SpecView({ projectId }: { projectId: string }) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncedStats, setSyncedStats] = useState<{ specs: number; endpoints: number; skipped?: number } | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [genSessionId, setGenSessionId] = useState<string | null>(null);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [SwaggerUI, setSwaggerUI] = useState<React.ComponentType<any> | null>(null);
 
-  const agentStorageKey = `onesist:openapi-agent:${id}`;
-  const clearStoredAgent = useCallback(() => {
-    try { sessionStorage.removeItem(agentStorageKey); } catch {}
-  }, [agentStorageKey]);
 
   // Swagger UI is browser-only (references DOM at module scope — would crash
   // SSR), so load it lazily on the client.
@@ -192,53 +184,7 @@ export function SpecView({ projectId }: { projectId: string }) {
     }
   }, [openapiContent]);
 
-  const startAgent = useCallback(async (feedback?: string, model?: string) => {
-    // If a run is active (or a finished session is parked), stop it first so
-    // the new run always starts clean. For feedback, `prev` lets the server
-    // resume the SAME agent session with the correction.
-    const prev = genSessionId;
-    if (prev) {
-      await fetch("/api/agent/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: prev }),
-      }).catch(() => {});
-    }
-    clearStoredAgent();
-    setGenSessionId(null);
-    setGenerating(true);
-    try {
-      const detectRes = await fetch("/api/agent/detect", { cache: "no-store" });
-      const agents = await detectRes.json();
-      const found = (agents ?? []).find((a: any) => a.found);
-      const command = found?.command ?? "opencode";
-      const sid = crypto.randomUUID();
-      const res = await fetch(`/api/agent/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: sid,
-          command,
-          agentName: found?.name ?? "opencode",
-          mode: "openapi",
-          projectId: id,
-          ...(feedback ? { feedback, previousSessionId: prev } : {}),
-          ...(model ? { model } : {}),
-        }),
-      });
-      if (res.ok) {
-        setGenSessionId(sid);
-        try { sessionStorage.setItem(agentStorageKey, sid); } catch {}
-      } else {
-        setGenerating(false);
-      }
-    } catch {
-      setGenerating(false);
-    }
-  }, [genSessionId, id, agentStorageKey, clearStoredAgent]);
 
-  const handleGenerateOpenapi = useCallback(() => setModelPickerOpen(true), []);
-  const handleFeedback = useCallback((text: string) => { void startAgent(text); }, [startAgent]);
 
   const copyPrompt = useCallback(async () => {
     try {
@@ -258,57 +204,18 @@ export function SpecView({ projectId }: { projectId: string }) {
     }
   }, [id]);
 
-  const handleAgentDone = useCallback(() => {
-    setGenerating(false);
-    // Keep genSessionId so the completed panel + feedback box stay visible.
+
+
+
+
+
+  // Generate runs as a chat thread; when it ends, the page re-reads what the agent wrote.
+  const task = useAgentTask(id, "openapi", () => {
     refreshFiles();
     refreshOpenapi();
-  }, [refreshFiles, refreshOpenapi]);
-
-  const handleAgentError = useCallback(() => {
-    setGenerating(false);
-    // Keep genSessionId so the failed panel + feedback box stay visible.
-  }, []);
-
-  const handleAgentStopped = useCallback(() => {
-    setGenerating(false);
-    setGenSessionId(null);
-    clearStoredAgent();
-  }, [clearStoredAgent]);
-
-  const handleClose = useCallback(() => {
-    setGenerating(false);
-    setGenSessionId(null);
-    clearStoredAgent();
-  }, [clearStoredAgent]);
-
-  // Restore a running (or already-finished) Generate-OpenAPI session after a
-  // page refresh, so the stream isn't lost — AgentStream replays the buffer.
-  useEffect(() => {
-    let cancelled = false;
-    const stored = (() => { try { return sessionStorage.getItem(agentStorageKey); } catch { return null; } })();
-    if (!stored) return;
-    (async () => {
-      try {
-        const [statusRes, logsRes] = await Promise.all([
-          fetch("/api/agent/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ running: [] })),
-          fetch(`/api/agent/logs?sessionId=${encodeURIComponent(stored)}`, { cache: "no-store" })
-            .then((r) => r.json())
-            .catch(() => ({ events: [] })),
-        ]);
-        if (cancelled) return;
-        const running = (statusRes?.running ?? []).some((a: any) => a.sessionId === stored);
-        const hasEvents = Array.isArray(logsRes?.events) && logsRes.events.length > 0;
-        if (running || hasEvents) {
-          setGenSessionId(stored);
-          setGenerating(running);
-        } else {
-          clearStoredAgent();
-        }
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, [agentStorageKey, clearStoredAgent]);
+  });
+  const generating = task.running;
+  const handleGenerateOpenapi = useCallback(() => void task.start(), [task]);
 
   const handleDownloadOpenapi = useCallback(() => {
     if (!openapiContent || !selectedOpenapi) return;
@@ -351,11 +258,12 @@ export function SpecView({ projectId }: { projectId: string }) {
           <>
             <AppButton
               onClick={handleGenerateOpenapi}
+              disabled={generating}
               variant="primary"
               size="sm"
               icon={<ArrowsClockwise size={12} className={generating ? "animate-spin" : ""} />}
               className="rounded-full px-3"
-              title={generating ? "Agent sedang berjalan — klik untuk stop & mulai ulang" : "Generate openapi.yaml dari spec via AI"}
+              title={generating ? "Sedang berjalan di chat" : "Generate openapi.yaml dari spec lewat chat"}
             >
               {generating ? "Generating…" : "Generate OpenAPI"}
             </AppButton>
@@ -384,12 +292,7 @@ export function SpecView({ projectId }: { projectId: string }) {
         }
         below={
           <>
-            {generating && (
-              <div className="flex items-center gap-1.5 text-[11px] text-amber-400/90">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                Agent sedang berjalan — progress tampil di panel di bawah. Tidak terkunci di tampilan OpenAPI.
-              </div>
-            )}
+            <AgentTaskNotice task={task} />
             {/* File selector: searchable, so a long list of spec files stays usable (V4) */}
             <div className="flex items-center gap-2 py-2 px-1.5 min-w-0">
               <FilePicker
@@ -439,21 +342,9 @@ export function SpecView({ projectId }: { projectId: string }) {
         }
       />
 
-      {/* Agent progress lives at PAGE level — visible in every view mode, not
-          locked inside the fullscreen OpenAPI overlay. */}
-      {genSessionId && (
-        <div className="shrink-0 mb-3">
-          <AgentStream sessionId={genSessionId} onDone={handleAgentDone} onError={handleAgentError} onStopped={handleAgentStopped} onFeedback={handleFeedback} onClose={handleClose} />
-        </div>
-      )}
 
       <Toast toast={toast} onClose={() => setToast(null)} />
 
-      <ModelPickerDialog
-        open={modelPickerOpen}
-        onClose={() => setModelPickerOpen(false)}
-        onRun={(model) => { setModelPickerOpen(false); void startAgent(undefined, model); }}
-      />
 
       {!activeContent ? (
         <Placeholder className="flex-1 text-sm">No spec files found</Placeholder>
@@ -495,11 +386,12 @@ export function SpecView({ projectId }: { projectId: string }) {
             <div className="ml-auto flex items-center gap-1.5 shrink-0">
               <AppButton
                 onClick={handleGenerateOpenapi}
+                disabled={generating}
                 variant="primary"
                 size="sm"
                 icon={<ArrowsClockwise size={12} className={generating ? "animate-spin" : ""} />}
                 className="rounded-full px-3"
-                title={generating ? "Agent sedang berjalan — klik untuk stop & mulai ulang" : "Generate openapi.yaml dari spec via AI"}
+                title={generating ? "Sedang berjalan di chat" : "Generate openapi.yaml dari spec lewat chat"}
               >
                 {generating ? "Generating…" : "Generate OpenAPI"}
               </AppButton>
@@ -520,17 +412,10 @@ export function SpecView({ projectId }: { projectId: string }) {
           {generating && (
             <div className="shrink-0 px-4 py-2 border-b border-kumo-line bg-kumo-elevated/30 text-[11px] text-amber-400/90 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-              Agent sedang berjalan — tekan Back untuk melihat progress live di halaman spec.
+              Sedang berjalan di chat — progress tampil di panel Chat.
             </div>
           )}
 
-          {/* When the agent finished, the feedback box lives HERE too — the
-              page-level AgentStream is hidden behind this fullscreen overlay. */}
-          {genSessionId && !generating && (
-            <div className="shrink-0 px-4 py-2 border-b border-kumo-line bg-kumo-elevated/20">
-              <FeedbackBox onSend={handleFeedback} placeholder="Hasil error? Kasih tahu agent untuk memperbaiki…" />
-            </div>
-          )}
 
           {openapiFiles.length === 0 ? (
             <div className="flex items-center justify-center flex-1 text-kumo-subtle text-sm">
