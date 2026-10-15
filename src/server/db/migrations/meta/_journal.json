@@ -155,6 +155,13 @@
       "when": 1792048525884,
       "tag": "0021_fuzzy_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1792057199099,
+      "tag": "0022_known_centennial",
+      "breakpoints": true
     }
   ]
 }

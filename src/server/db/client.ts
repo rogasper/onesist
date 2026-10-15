@@ -239,6 +239,11 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",
     "ALTER TABLE chat_threads ADD COLUMN cli_session_id TEXT",
     "ALTER TABLE chat_threads ADD COLUMN model_options_json TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN parent_thread_id TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN relationship_to_parent TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN root_thread_id TEXT",
+    "ALTER TABLE chat_threads ADD COLUMN forked_at_seq INTEGER",
+    "ALTER TABLE chat_threads ADD COLUMN merged_upto_seq INTEGER",
   ];
   for (const sql of statements) {
     try { runSql(sql); } catch {}

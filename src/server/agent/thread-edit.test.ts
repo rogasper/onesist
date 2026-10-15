@@ -123,3 +123,30 @@ test("a summarised thread cannot be resent from", () => {
   const res = edit.truncateFromMessage({ threadId: t, root, messageId: "sum-u1", resetFiles: false, conversationOnly: true });
   expect(res.ok).toBe(false);
 });
+
+test("a fork records where it came from, its family root, and where its own work starts", () => {
+  const parent = store.createThread({ projectId: "p-edit", title: "Induk" } as any);
+  store.appendMessage({ threadId: parent.id, role: "user", id: "lin-u1", parts: [{ type: "text", text: "satu" }] });
+  store.appendMessage({ threadId: parent.id, role: "assistant", id: "lin-a1", parts: [{ type: "text", text: "dua" }] });
+  const childId = edit.forkThread({ threadId: parent.id, messageId: "lin-a1" }) as string;
+  const child = store.getThread(childId)!;
+  expect(child.parentThreadId).toBe(parent.id);
+  expect(child.relationshipToParent).toBe("fork");
+  expect(child.rootThreadId).toBe(parent.id);
+  expect(child.forkedAtSeq).toBe(2);
+  expect(child.mergedUptoSeq).toBe(2);
+
+  store.appendMessage({ threadId: childId, role: "user", id: "lin-u2", parts: [{ type: "text", text: "tiga" }] });
+  const grandId = edit.forkThread({ threadId: childId, messageId: "lin-u2" }) as string;
+  expect(store.getThread(grandId)!.rootThreadId).toBe(parent.id);
+  expect(store.getThread(grandId)!.parentThreadId).toBe(childId);
+});
+
+test("deleting a parent leaves its fork in place", () => {
+  const parent = store.createThread({ projectId: "p-edit", title: "Induk hapus" } as any);
+  store.appendMessage({ threadId: parent.id, role: "user", id: "lin-del-1", parts: [{ type: "text", text: "x" }] });
+  const childId = edit.forkThread({ threadId: parent.id, messageId: "lin-del-1" }) as string;
+  store.deleteThread(parent.id);
+  expect(store.getThread(parent.id)).toBeUndefined();
+  expect(store.getThread(childId)!.parentThreadId).toBe(parent.id);
+});

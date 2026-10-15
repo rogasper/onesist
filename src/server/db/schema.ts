@@ -360,6 +360,16 @@ export const chatThreads = sqliteTable(
     cliSessionId: text("cli_session_id"),
     /** Per-model options picked for this thread, as JSON (`{"variant":"high"}`). Null = the model's defaults. */
     modelOptionsJson: text("model_options_json"),
+    /** Fase 4B lineage. No foreign key: a fork stays usable after its parent is deleted. */
+    parentThreadId: text("parent_thread_id"),
+    /** "fork" (a "subagent" value is reserved, not used yet). */
+    relationshipToParent: text("relationship_to_parent"),
+    /** The first thread of the family. */
+    rootThreadId: text("root_thread_id"),
+    /** Last seq copied from the parent, in this thread's numbering: what follows is this branch's own work. */
+    forkedAtSeq: integer("forked_at_seq"),
+    /** Seq up to which this branch's work was brought back to the parent. */
+    mergedUptoSeq: integer("merged_upto_seq"),
     /** Step limit per turn (FR-L7). Default 60, clamped 5..500; the ceiling is
      *  reported in the transcript when reached, and the notice can raise it. */
     maxSteps: integer("max_steps").notNull().default(60),

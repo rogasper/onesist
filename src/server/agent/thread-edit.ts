@@ -15,7 +15,7 @@ import { db } from "~/server/db/client";
 import { chatCheckpoints, chatMessages, chatThreadFiles, chatToolCalls } from "~/server/db/schema";
 import { applyTurnAction, turnChanges } from "./checkpoints";
 import { getRunForThread } from "./run-registry";
-import { appendMessage, createThread, getThread, messageSeq, type MessageRow } from "./store";
+import { appendMessage, createThread, getThread, latestSeq, messageSeq, updateThread, type MessageRow } from "./store";
 
 export type TruncateResult =
   | { ok: true; removedIds: string[]; undone: string[] }
@@ -141,5 +141,13 @@ export function forkThread(input: { threadId: string; messageId: string }): stri
       status: (row.status as "ok" | "error" | "aborted" | null) ?? undefined,
     } as any);
   }
+  const copied = latestSeq(copy.id);
+  updateThread(copy.id, {
+    parentThreadId: thread.id,
+    relationshipToParent: "fork",
+    rootThreadId: thread.rootThreadId ?? thread.id,
+    forkedAtSeq: copied,
+    mergedUptoSeq: copied,
+  });
   return copy.id;
 }
