@@ -62,6 +62,14 @@ export interface OpenCodeMapper {
   usage(): { inputTokens: number | null; outputTokens: number | null };
 }
 
+/**
+ * OpenCode names an MCP tool `<server>_<tool>`, so Onesist's tools arrive as
+ * `onesist_onesist_thread_list`; the transcript shows the tool's own name.
+ */
+export function displayToolName(name: string): string {
+  return name.startsWith("onesist_onesist_") ? name.slice("onesist_".length) : name;
+}
+
 export function createOpenCodeMapper(sessionId: string, modelId: string): OpenCodeMapper {
   let started = false;
   let done = false;
@@ -78,7 +86,7 @@ export function createOpenCodeMapper(sessionId: string, modelId: string): OpenCo
     return [{ type: "start" } as Part];
   };
   const blockId = (d: any) => `${d.assistantMessageID ?? "msg"}:${d.ordinal ?? 0}`;
-  const toolName = (d: any) => toolNames.get(d.id) ?? (typeof d.name === "string" ? d.name : "tool");
+  const toolName = (d: any) => displayToolName(toolNames.get(d.id) ?? (typeof d.name === "string" ? d.name : "tool"));
 
   return {
     get done() {

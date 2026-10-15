@@ -144,3 +144,29 @@ export async function ocOpenEvents(conn: OpenCodeConnection, signal: AbortSignal
   }
   return iterate();
 }
+
+const locationQuery = (directory: string) => `location[directory]=${encodeURIComponent(directory)}`;
+
+/** MCP servers OpenCode has for one folder (the user's own included), with their status. */
+export async function ocListMcp(conn: OpenCodeConnection, directory: string): Promise<{ name: string; status: string }[]> {
+  const body: any = await (await request(conn, "GET", `/api/mcp?${locationQuery(directory)}`)).json();
+  const list: any[] = Array.isArray(body?.data) ? body.data : [];
+  return list
+    .filter((s) => typeof s?.name === "string")
+    .map((s) => ({ name: s.name, status: typeof s.status?.status === "string" ? s.status.status : "" }));
+}
+
+/**
+ * Adds (or replaces) a remote MCP server for one folder until OpenCode restarts.
+ * `codemode: false` keeps every tool its own tool instead of one `execute` wrapper.
+ */
+export async function ocPutMcp(
+  conn: OpenCodeConnection,
+  directory: string,
+  name: string,
+  remote: { url: string; headers: Record<string, string> },
+): Promise<void> {
+  await request(conn, "PUT", `/api/experimental/mcp/${seg(name)}?${locationQuery(directory)}`, {
+    config: { type: "remote", url: remote.url, headers: remote.headers, oauth: false, codemode: false },
+  });
+}

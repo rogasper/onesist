@@ -52,3 +52,9 @@ test("the question names the action and up to three resources", () => {
   expect(permissionQuestion("edit", ["a.md", "b.md", "c.md", "d.md"])).toBe("OpenCode meminta izin mengubah berkas: a.md, b.md, c.md.");
   expect(permissionQuestion("webfetch", [])).toBe('OpenCode meminta izin melakukan "webfetch".');
 });
+
+test("Onesist's own read-only MCP tools are allowed without asking, outside auto mode too", () => {
+  expect(autoDecision("ask", "agent", "onesist_onesist_thread_list")).toBe("once");
+  expect(autoDecision("readonly", "ask", "onesist_onesist_db_query")).toBe("once");
+  expect(autoDecision("ask", "agent", "playwright_click")).toBeNull();
+});

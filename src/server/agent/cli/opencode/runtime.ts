@@ -119,6 +119,7 @@ export const opencodeRuntime: CliRuntime = {
       title: thread.title,
       cliSessionId: thread.cliSessionId ?? null,
       onSessionCreated: (sessionId) => updateThread(thread.id, { cliSessionId: sessionId }),
+      mcp: input.mcp,
     });
   },
 };

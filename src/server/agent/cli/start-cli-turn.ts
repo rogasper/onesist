@@ -6,6 +6,9 @@ import { parseModelOptions } from "~/lib/model-options";
 import type { UIMessage } from "~/server/agent/ai";
 import type { ProviderRow } from "~/server/agent/config";
 import { cliRuntimeFor } from "~/server/agent/runtime/registry";
+import { mcpEndpointUrl } from "~/server/mcp/snippets";
+import { getMcpToken } from "~/server/mcp/token";
+import { selfOrigin } from "~/server/self-origin";
 import type { CliTurn } from "~/server/agent/runtime/types";
 import type { ThreadRow } from "~/server/agent/store";
 
@@ -37,6 +40,12 @@ export async function startCliTurn(input: {
     provider: input.provider,
     text,
     modelOptions: parseModelOptions(input.thread.modelOptionsJson),
-    mcp: null,
+    mcp: onesistMcpFor(input.thread.projectId),
   });
+}
+
+/** Onesist's MCP endpoint for a project, once a loopback origin has been seen. */
+function onesistMcpFor(projectId: string): { url: string; token: string } | null {
+  const origin = selfOrigin();
+  return origin ? { url: mcpEndpointUrl(origin, projectId), token: getMcpToken() } : null;
 }

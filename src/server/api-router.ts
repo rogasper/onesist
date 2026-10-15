@@ -1,9 +1,12 @@
 import { json } from "./http/response";
+import { rememberOrigin } from "./self-origin";
 import { routers } from "./routes";
 
 export async function handleApiRequest(request: Request): Promise<Response | null> {
   const reqUrl = new URL(request.url);
   if (!reqUrl.pathname.startsWith("/api/")) return null;
+  // Where OpenCode can reach Onesist's MCP endpoint (loopback origins only).
+  rememberOrigin(request.url);
 
   try {
     for (const router of routers) {

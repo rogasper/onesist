@@ -7,7 +7,7 @@
  */
 import { expect, test } from "bun:test";
 import { readUIMessageStream, toUIMessageStream } from "ai";
-import { CLI_TOOL_OUTPUT_MAX_CHARS, createOpenCodeMapper, toolOutputText, usageFromTokens } from "./stream-mapper";
+import { CLI_TOOL_OUTPUT_MAX_CHARS, createOpenCodeMapper, displayToolName, toolOutputText, usageFromTokens } from "./stream-mapper";
 import type { OpenCodeEvent } from "./sse";
 
 const S = "ses_map";
@@ -122,4 +122,10 @@ test("the AI SDK turns the parts into one assistant message with text and a fini
   expect(last.parts.find((p: any) => p.type === "text")?.text).toBe("OK");
   const tool = last.parts.find((p: any) => p.type === "dynamic-tool");
   expect(tool).toMatchObject({ toolName: "shell", toolCallId: "call_1", state: "output-available", output: "total 0\n" });
+});
+
+test("Onesist's MCP tools keep one onesist_ prefix in the transcript", () => {
+  expect(displayToolName("onesist_onesist_thread_list")).toBe("onesist_thread_list");
+  expect(displayToolName("onesist_thread_list")).toBe("onesist_thread_list");
+  expect(displayToolName("bash")).toBe("bash");
 });

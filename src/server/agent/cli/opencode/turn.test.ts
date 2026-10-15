@@ -251,3 +251,16 @@ test("a chosen variant goes with the model when the session is created", async (
   const created = received.find((r) => r.method === "POST" && r.path === "/api/session");
   expect(created?.body.model).toEqual({ providerID: "go", id: "flash", variant: "high" });
 });
+
+test("with an MCP endpoint, Onesist is added to the folder before the session is created", async () => {
+  onPrompt = () => finishText("ok");
+  const turn = await startOpenCodeTurn(input({ root: "/proj-mcp/", mcp: { url: "http://localhost:4321/api/mcp/projects/p-oc-turn", token: "k".repeat(64) } }));
+  for await (const _ of turn.stream as any) {
+    /* drain */
+  }
+  await turn.usage;
+  const put = received.findIndex((r) => r.method === "PUT" && r.path === "/api/experimental/mcp/onesist");
+  const created = received.findIndex((r) => r.method === "POST" && r.path === "/api/session");
+  expect(put).toBeGreaterThanOrEqual(0);
+  expect(put).toBeLessThan(created);
+});

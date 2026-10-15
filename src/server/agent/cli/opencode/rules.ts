@@ -32,6 +32,8 @@ export function permissionRules(mode: PermissionMode, threadMode: ThreadMode): O
 
 /** A decision taken without asking the user, or `null` when the user decides. */
 export function autoDecision(mode: PermissionMode, threadMode: ThreadMode, action: string): OcDecision | null {
+  // Onesist's own MCP tools are read-only by design (server/mcp/registry.ts).
+  if (action.startsWith("onesist_")) return "once";
   if (action === "shell" && (mode === "no-shell" || readOnly(mode, threadMode))) return "reject";
   if (mode === "auto" && threadMode === "agent") return "once";
   return null;

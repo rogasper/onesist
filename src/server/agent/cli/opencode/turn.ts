@@ -15,6 +15,7 @@ import {
   ocCreateSession, ocInterrupt, ocOpenEvents, ocPrompt, ocReplyPermission, ocSetModel, ocUpdatePermissions, parseModelRef,
 } from "./client";
 import { PERMISSION_OPTIONS, autoDecision, decisionFromAnswer, permissionQuestion, permissionRules } from "./rules";
+import { ensureOnesistMcp, type OnesistMcp } from "./mcp";
 import { getOpenCodeConnection } from "./server";
 import { createOpenCodeMapper } from "./stream-mapper";
 
@@ -37,6 +38,8 @@ export interface OpenCodeTurnInput {
   title: string | null;
   cliSessionId: string | null;
   onSessionCreated: (sessionId: string) => void;
+  /** Onesist's MCP endpoint for this project; null/absent = OpenCode runs without Onesist's tools. */
+  mcp?: OnesistMcp | null;
 }
 
 export interface OpenCodeTurn {
@@ -51,6 +54,8 @@ export async function startOpenCodeTurn(input: OpenCodeTurnInput): Promise<OpenC
   const conn = await getOpenCodeConnection({ binary: input.binary, serverUrl: input.serverUrl, serverPassword: input.serverPassword });
   const rules = permissionRules(input.permissionMode, input.threadMode);
   const model = parseModelRef(input.model, input.variant);
+  // Before the session exists, so its first turn already sees Onesist's tools. Not fatal.
+  if (input.mcp) await ensureOnesistMcp(conn, input.root, input.mcp);
 
   let sessionId = input.cliSessionId;
   if (sessionId) {
