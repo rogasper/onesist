@@ -22,6 +22,8 @@ import {
   bashExitCode,
   handoffNoticeText,
   mergeNoticeText,
+  workspaceNoticeText,
+  workspaceSetupText,
   changeStats,
   changeTitle,
   exploreTitle,
@@ -1289,7 +1291,7 @@ export function ChatSurface({
 
       {/* Queued messages, held by the server and sent one at a time once the run
           that is working ends. Numbered, because the order is the promise made. */}
-      {queue.items.length > 0 ? (
+      {queue.items.length > 0 || queue.paused ? (
         <div className="border-t border-kumo-line shrink-0">
           {/* Flex column, not grid: a grid item defaults to `min-width: auto`, which
               lets a `truncate` child grow past the panel (reported 2026-09-27). */}
@@ -2146,6 +2148,33 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
         <span className="h-px flex-1 bg-kumo-line" />
         <span>{mergeNoticeText(data)}</span>
         <span className="h-px flex-1 bg-kumo-line" />
+      </div>
+    );
+  }
+  if (data?.kind === "workspace") {
+    // Fase 4C: the thread's CLI agent works somewhere else from here on.
+    return (
+      <div className="flex items-center gap-2 py-1 text-xs text-kumo-subtle">
+        <span className="h-px flex-1 bg-kumo-line" />
+        <span title={data.path ?? undefined}>{workspaceNoticeText(data)}</span>
+        <span className="h-px flex-1 bg-kumo-line" />
+      </div>
+    );
+  }
+  if (data?.kind === "workspaceSetup") {
+    return (
+      <div className="py-1 text-xs text-kumo-subtle">
+        <div className="flex items-center gap-2">
+          <span className="h-px flex-1 bg-kumo-line" />
+          <span className={data.ok ? "" : "text-red-400"}>{workspaceSetupText(data)}</span>
+          <span className="h-px flex-1 bg-kumo-line" />
+        </div>
+        {data.tail ? (
+          <details className="mt-1">
+            <summary className="cursor-pointer">Output setup</summary>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-kumo-elevated p-2 font-mono text-[11px] text-kumo-default">{String(data.tail)}</pre>
+          </details>
+        ) : null}
       </div>
     );
   }

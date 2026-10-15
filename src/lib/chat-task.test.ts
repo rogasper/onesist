@@ -5,7 +5,7 @@
  *   bun test src/lib/chat-task.test.ts
  */
 import { expect, test } from "bun:test";
-import { openChatTask, subscribeChatTasks, takePendingChatTasks } from "./chat-task";
+import { openChatTask, splitChatTasks, subscribeChatTasks, takePendingChatTasks } from "./chat-task";
 
 test("listeners hear a task at once, and it waits until taken", () => {
   takePendingChatTasks();
@@ -17,4 +17,15 @@ test("listeners hear a task at once, and it waits until taken", () => {
   expect(heard).toEqual(["thr_a"]);
   expect(takePendingChatTasks()).toEqual([{ threadId: "thr_a", text: "buat openapi" }, { threadId: "thr_b" }]);
   expect(takePendingChatTasks()).toEqual([]);
+});
+
+test("with several tasks at once, the last one opens and the earlier ones with a prompt are queued", () => {
+  const { open, queued } = splitChatTasks([
+    { threadId: "thr_a", text: "openapi" },
+    { threadId: "thr_b" },
+    { threadId: "thr_c", text: "rtm" },
+  ]);
+  expect(open).toEqual({ threadId: "thr_c", text: "rtm" });
+  expect(queued).toEqual([{ threadId: "thr_a", text: "openapi" }]);
+  expect(splitChatTasks([])).toEqual({ open: undefined, queued: [] });
 });

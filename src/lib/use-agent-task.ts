@@ -22,6 +22,9 @@ export function useAgentTask(projectId: string, mode: AgentTaskMode, onDone: () 
   const [error, setError] = useState<string | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+  // A second click before the first request answers would start a second task. The state
+  // (`running`) lands too late to stop it, so the guard is a ref set synchronously.
+  const startingRef = useRef(false);
 
   useEffect(() => {
     if (!threadId) return;
@@ -35,6 +38,8 @@ export function useAgentTask(projectId: string, mode: AgentTaskMode, onDone: () 
 
   const start = useCallback(
     async (scope: { fsd?: string; fds?: string[] } = {}) => {
+      if (startingRef.current) return;
+      startingRef.current = true;
       setError(null);
       try {
         const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/agent-tasks`, {
@@ -50,6 +55,8 @@ export function useAgentTask(projectId: string, mode: AgentTaskMode, onDone: () 
         openChatTask({ threadId: body.threadId, text: body.text ?? null });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal memulai tugas");
+      } finally {
+        startingRef.current = false;
       }
     },
     [projectId, mode],

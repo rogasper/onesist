@@ -105,6 +105,9 @@ import { forkForChat } from "~/server/agent/fork";
 import { mergeBackIntoParent, threadLineage } from "~/server/agent/merge-back";
 import { viewMessages } from "~/server/agent/tool-output-view";
 import { terminalResumeCommand } from "~/server/agent/cli/opencode/resume";
+import { listOnesistWorktrees, removeOnesistWorktree } from "~/server/agent/workspace/cleanup";
+import { resolveTurnWorkspace, setThreadWorkspace, workspaceDetail, workspaceOptions } from "~/server/agent/workspace/thread-workspace";
+import type { WorkspaceRequest } from "~/lib/workspace-view";
 import { runtimeCapabilities } from "~/server/agent/runtime/registry";
 
 export const router = new Router();
@@ -265,6 +268,8 @@ router.get("chat/threads/:id", async (ctx) => {
     thread: publicThread(thread),
     // Fase 4B: where a branch came from and how much of its work is not merged back yet.
     lineage: threadLineage(thread),
+    // Fase 4C: where the thread's CLI agent works.
+    workspace: workspaceDetail(thread),
     // A run may still be working after the client left (see the stream route).
     // The UI shows that state and waits for the `chat:run` event instead of
     // presenting the transcript as finished.
@@ -487,6 +492,11 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
     return json({ error: "Masih ada run yang berjalan di percakapan ini.", runId: activeRun.runId }, 409);
   }
 
+  // Fase 4C: a CLI turn runs in the thread's workspace. Checked before the user message is
+  // stored, so a refused turn (its worktree was deleted) leaves nothing behind to retry around.
+  const workspace = resolveTurnWorkspace(thread, root, provider.apiStyle === "cli");
+  if (!workspace.ok) return json({ error: workspace.error }, 409);
+
   // The user message is persisted BEFORE the run starts, so it survives even if
   // the run fails or the app closes midway.
   const lastUser = [...uiMessages].reverse().find((m) => m.role === "user");
@@ -524,7 +534,7 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
   const stored = toUIMessages(visibleRows(current)).filter((m) => m.role !== "system") as UIMessage[];
   const modelMessages = lastUser && !stored.some((m) => m.id === lastUser.id) ? [...stored, lastUser as UIMessage] : stored;
 
-  const system = threadSystemPrompt(current, root);
+  const system = threadSystemPrompt(current, root) + (workspace.note ? `\n\n${workspace.note}` : "");
 
   const runId = makeRunId();
   let errorText: string | null = null;
@@ -570,7 +580,7 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
   let result;
   try {
     if (provider.apiStyle === "cli") {
-      result = await startCliTurn({ runId, thread: current, root, provider, lastUser: lastUser as UIMessage | undefined });
+      result = await startCliTurn({ runId, thread: current, root: workspace.cwd, provider, lastUser: lastUser as UIMessage | undefined });
     } else result = await startTurn({
       runId,
       threadId: current.id,
@@ -1056,7 +1066,7 @@ router.get("chat/threads/:id/terminal-command", async (ctx) => {
   const thread = getThread(ctx.params.id);
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
   const provider = resolveProvider(thread.providerId);
-  const command = provider ? terminalResumeCommand(provider, thread.cliSessionId ?? null) : null;
+  const command = provider ? terminalResumeCommand(provider, thread.cliSessionId ?? null, thread.workspacePath ?? null) : null;
   if (!command) return json({ error: "Thread ini belum punya sesi OpenCode untuk dilanjutkan di terminal." }, 409);
   return json({ command });
 });
@@ -1066,6 +1076,37 @@ router.post("chat/threads/:id/merge-back", async (ctx) => {
   const result = mergeBackIntoParent(ctx.params.id);
   if (!result.ok) return json({ error: result.error }, result.status);
   return json({ parentThreadId: result.parentThreadId, included: result.included, omitted: result.omitted });
+});
+
+// Fase 4C: where a thread's CLI agent works, and the project's worktrees.
+router.get("chat/threads/:id/workspace", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const root = projectRootOf(thread.projectId);
+  if (!root) return json({ error: "Project belum punya root path." }, 400);
+  return json(await workspaceOptions(thread, root));
+});
+
+router.post("chat/threads/:id/workspace", async (ctx) => {
+  const body = await ctx.body();
+  const result = await setThreadWorkspace(ctx.params.id, (body ?? {}) as WorkspaceRequest);
+  if (!result.ok) return json({ error: result.error }, result.status);
+  return json({ workspace: result.workspace, changed: result.changed, setupStarted: result.setupStarted });
+});
+
+router.get("chat/projects/:id/worktrees", async (ctx) => {
+  const root = projectRootOf(ctx.params.id);
+  if (!root) return json({ error: "Project tidak ditemukan atau belum punya root path." }, 404);
+  return json({ worktrees: await listOnesistWorktrees(ctx.params.id, root) });
+});
+
+router.post("chat/projects/:id/worktrees/remove", async (ctx) => {
+  const root = projectRootOf(ctx.params.id);
+  if (!root) return json({ error: "Project tidak ditemukan atau belum punya root path." }, 404);
+  const body = await ctx.body();
+  const result = await removeOnesistWorktree({ projectId: ctx.params.id, projectRoot: root, path: String(body?.path ?? ""), force: body?.force === true });
+  if (!result.ok) return json({ error: result.error, dirtyFiles: result.dirtyFiles }, result.status);
+  return json({ resetThreads: result.resetThreads });
 });
 
 router.get("chat/threads/:id/stream", async (ctx) => {

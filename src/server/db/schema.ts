@@ -370,6 +370,14 @@ export const chatThreads = sqliteTable(
     forkedAtSeq: integer("forked_at_seq"),
     /** Seq up to which this branch's work was brought back to the parent. */
     mergedUptoSeq: integer("merged_upto_seq"),
+    /** Fase 4C workspace: root | worktree | existing_worktree. Null = the project root (planning/docs chat). */
+    workspaceStrategy: text("workspace_strategy"),
+    /** The repo the workspace belongs to, relative to the project root ("." = the root itself is the repo). */
+    workspaceRepo: text("workspace_repo"),
+    /** Absolute real path the CLI agent works in. Null = the project root. */
+    workspacePath: text("workspace_path"),
+    /** Branch checked out there, for display. */
+    workspaceBranch: text("workspace_branch"),
     /** Step limit per turn (FR-L7). Default 60, clamped 5..500; the ceiling is
      *  reported in the transcript when reached, and the notice can raise it. */
     maxSteps: integer("max_steps").notNull().default(60),

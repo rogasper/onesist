@@ -666,6 +666,16 @@ export function markProviderSessionSeen(threadId: string, providerId: string, se
     .run();
 }
 
+/**
+ * Fase 4C: the thread's CLI sessions belong to its old workspace directory. Dropping them
+ * makes the next CLI turn start a new session where the thread now works, handed the
+ * conversation by prepareCliTurn (t3code's restart_and_resume).
+ */
+export function resetProviderSessions(threadId: string): void {
+  db.delete(chatProviderSessions).where(eq(chatProviderSessions.threadId, threadId)).run();
+  updateThread(threadId, { cliSessionId: null });
+}
+
 /** The newest message's seq in the thread; 0 when it has none. */
 export function latestSeq(threadId: string): number {
   return nextSeq(threadId) - 1;

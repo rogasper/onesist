@@ -3,15 +3,16 @@ import { Button, Popover } from "@cloudflare/kumo";
 import { ArrowsInSimple, ArrowsOutSimple, Brain, GitBranch, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, TerminalWindow, X, type Icon } from "@phosphor-icons/react";
 import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePanel";
 import { ChatSurface } from "~/components/chat/ChatSurface";
+import { WorkspaceDialog } from "~/components/chat/WorkspaceDialog";
 import { ThreadIdProvider } from "~/components/chat/thread-context";
-import { subscribeChatTasks, takePendingChatTasks } from "~/lib/chat-task";
+import { splitChatTasks, subscribeChatTasks, takePendingChatTasks } from "~/lib/chat-task";
 import { launchInTerminal } from "~/lib/terminal-launch";
 import { lineageText } from "~/components/chat/chat-view";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import { fetchTerminalCommand, mergeBackThread, useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { fetchTerminalCommand, mergeBackThread, queueChatText, useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, useChatWorkspaceEvents, type ThreadSummary } from "~/lib/use-chat";
 import { isDetailFor, threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
@@ -92,6 +93,16 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   const [terminalNote, setTerminalNote] = useState<string | null>(null);
   // Fase 4B: a branch shows where it came from and can bring its work back.
   const [merging, setMerging] = useState(false);
+  // Fase 4C: where the thread's CLI agent works. After a move the transcript is mounted
+  // again so the workspace divider shows (a move never happens during a run).
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [surfaceEpoch, setSurfaceEpoch] = useState(0);
+  const showWorkspace = !!detail && (threadProvider?.apiStyle === "cli" || !!detail.workspace?.strategy);
+  useChatWorkspaceEvents(activeId, () => void refreshDetail());
+  async function workspaceChanged() {
+    await refreshDetail();
+    setSurfaceEpoch((e) => e + 1);
+  }
   async function mergeBack() {
     if (!detail) return;
     setMerging(true);
@@ -122,7 +133,9 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   const [autoSend, setAutoSend] = useState<{ threadId: string; text: string } | null>(null);
   useEffect(() => {
     const take = () => {
-      const next = takePendingChatTasks().at(-1);
+      const { open: next, queued } = splitChatTasks(takePendingChatTasks());
+      // Earlier tasks of the same click are not dropped: their prompts wait in their own threads.
+      for (const task of queued) void queueChatText(task.threadId, task.text ?? "").catch(() => {});
       if (!next) return;
       void refresh().then(() => {
         setActiveId(next.threadId);
@@ -281,6 +294,29 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
             ) : null}
           </div>
         ) : null}
+        {showWorkspace && detail ? (
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-kumo-line text-xs text-kumo-subtle">
+            <FolderOpen size={12} className="shrink-0" />
+            <span className="truncate" title={detail.workspace?.path ?? detail.rootPath ?? undefined}>
+              {detail.workspace?.label ?? "Root project"}
+            </span>
+            {detail.workspace?.missing ? <span className="shrink-0 text-red-400">· folder tidak ditemukan</span> : null}
+            {detail.workspace?.setup?.state === "running" ? <span className="shrink-0">· setup berjalan…</span> : null}
+            {detail.workspace?.setup?.state === "failed" ? (
+              <span className="shrink-0 text-red-400" title={detail.workspace.setup.tail}>
+                · setup gagal
+              </span>
+            ) : null}
+            <button
+              onClick={() => setWorkspaceOpen(true)}
+              disabled={threadBusy}
+              title={threadBusy ? "Tunggu sampai agent selesai" : "Pilih tempat agent CLI bekerja"}
+              className="ml-auto shrink-0 rounded-md px-2 py-0.5 ring ring-kumo-line text-kumo-default hover:bg-kumo-elevated disabled:opacity-50"
+            >
+              Ganti workspace
+            </button>
+          </div>
+        ) : null}
         {terminalNote ? (
           <div className="px-3 py-2 border-b border-kumo-line">
             <InlineAlert>{terminalNote}</InlineAlert>
@@ -302,7 +338,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
             <ProjectIdProvider projectId={projectId}>
               <ThreadIdProvider value={detail.thread.id}>
                 <ChatSurface
-                  key={detail.thread.id}
+                  key={`${detail.thread.id}:${surfaceEpoch}`}
                   threadId={detail.thread.id}
                   detail={detail}
                   providers={providers}
@@ -319,6 +355,13 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
                   onAutoSent={() => setAutoSend(null)}
                 />
               </ThreadIdProvider>
+              <WorkspaceDialog
+                open={workspaceOpen}
+                threadId={detail.thread.id}
+                projectId={projectId}
+                onOpenChange={setWorkspaceOpen}
+                onChanged={() => void workspaceChanged()}
+              />
               {side ? <ChatSidePanel view={side} detail={detail} projectId={projectId} onClose={() => setSide(null)} /> : null}
             </ProjectIdProvider>
           ) : null}

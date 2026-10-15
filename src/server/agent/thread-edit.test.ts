@@ -150,3 +150,20 @@ test("deleting a parent leaves its fork in place", () => {
   expect(store.getThread(parent.id)).toBeUndefined();
   expect(store.getThread(childId)!.parentThreadId).toBe(parent.id);
 });
+
+test("a fork works in its parent's workspace", () => {
+  const parent = store.createThread({ projectId: "p-edit", title: "Induk ws" } as any);
+  store.updateThread(parent.id, {
+    workspaceStrategy: "worktree",
+    workspaceRepo: "input/code/api",
+    workspacePath: "/tmp/onesist-wt/api-x",
+    workspaceBranch: "onesist/x",
+  });
+  store.appendMessage({ threadId: parent.id, role: "user", id: "ws-fork-1", parts: [{ type: "text", text: "x" }] });
+  const childId = edit.forkThread({ threadId: parent.id, messageId: "ws-fork-1" }) as string;
+  const child = store.getThread(childId)!;
+  expect(child.workspaceStrategy).toBe("worktree");
+  expect(child.workspaceRepo).toBe("input/code/api");
+  expect(child.workspacePath).toBe("/tmp/onesist-wt/api-x");
+  expect(child.workspaceBranch).toBe("onesist/x");
+});

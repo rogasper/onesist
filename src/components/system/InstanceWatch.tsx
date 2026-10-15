@@ -103,8 +103,10 @@ export function InstanceWatch() {
     return `${Math.floor(secs / 86400)}d`;
   };
 
+  // Bottom-left, above the sidebar footer. Bottom-right sat on the chat composer's send
+  // button: the panel docks there, so clicks on Kirim landed on this widget instead.
   return (
-    <div className="fixed right-3 bottom-3 z-50">
+    <div className="fixed left-3 bottom-14 z-50">
       {open ? (
         <div className="mb-2 w-[360px] max-w-[calc(100vw-2rem)] rounded-xl border border-kumo-line bg-kumo-elevated shadow-2xl overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-kumo-line bg-kumo-elevated/60">

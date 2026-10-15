@@ -592,62 +592,66 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
               {modelsNote ? <p className="text-sm text-kumo-subtle">{modelsNote}</p> : null}
             </FieldRow>
 
-            <FieldRow label="Context window" hint="Token. Kosong = 128000. Isi manual untuk model lokal atau custom.">
-              <input
-                className={inputCls}
-                type="number"
-                value={draft.contextWindow ?? ""}
-                disabled={readOnly}
-                placeholder="Auto (128000)"
-                onChange={(e) => setDraft((d) => ({ ...d, contextWindow: e.target.value ? Number(e.target.value) : null }))}
-              />
-            </FieldRow>
+            {!isCli ? (
+              <>
+              <FieldRow label="Context window" hint="Token. Kosong = 128000. Isi manual untuk model lokal atau custom.">
+                <input
+                  className={inputCls}
+                  type="number"
+                  value={draft.contextWindow ?? ""}
+                  disabled={readOnly}
+                  placeholder="Auto (128000)"
+                  onChange={(e) => setDraft((d) => ({ ...d, contextWindow: e.target.value ? Number(e.target.value) : null }))}
+                />
+              </FieldRow>
 
-            <FieldRow label="Max output tokens" hint="Wajib. Tanpa nilai eksplisit, sebagian provider membatasi output ke 4096 token dan artefak bisa terpotong tanpa peringatan.">
-              <input
-                className={inputCls}
-                type="number"
-                value={draft.maxOutputTokens ?? ""}
-                disabled={readOnly}
-                placeholder="8192"
-                onChange={(e) => setDraft((d) => ({ ...d, maxOutputTokens: e.target.value ? Number(e.target.value) : null }))}
-              />
-              {typeof draft.maxOutputTokens === "number" && draft.maxOutputTokens > 0 && draft.maxOutputTokens <= 8192 ? (
-                // Measured 2026-09-18: at 8192 the agent's attempt to write a full
-                // spec in ONE tool call was cut off mid-arguments — the file was
-                // never created and nothing reported an error. The ceiling is a
-                // real limit on how much the model can write in a single step.
-                <p className="mt-1.5 text-xs text-amber-400">
-                  Nilai ini membatasi panjang satu tulisan: berkas artefak besar (spec/ERD/docs) akan terpotong di tengah
-                  jalan dan toolnya tidak dijalankan. Naikkan (mis. 16384–32768) bila agent menulis dokumen panjang.
-                </p>
-              ) : null}
-            </FieldRow>
+              <FieldRow label="Max output tokens" hint="Wajib. Tanpa nilai eksplisit, sebagian provider membatasi output ke 4096 token dan artefak bisa terpotong tanpa peringatan.">
+                <input
+                  className={inputCls}
+                  type="number"
+                  value={draft.maxOutputTokens ?? ""}
+                  disabled={readOnly}
+                  placeholder="8192"
+                  onChange={(e) => setDraft((d) => ({ ...d, maxOutputTokens: e.target.value ? Number(e.target.value) : null }))}
+                />
+                {typeof draft.maxOutputTokens === "number" && draft.maxOutputTokens > 0 && draft.maxOutputTokens <= 8192 ? (
+                  // Measured 2026-09-18: at 8192 the agent's attempt to write a full
+                  // spec in ONE tool call was cut off mid-arguments — the file was
+                  // never created and nothing reported an error. The ceiling is a
+                  // real limit on how much the model can write in a single step.
+                  <p className="mt-1.5 text-xs text-amber-400">
+                    Nilai ini membatasi panjang satu tulisan: berkas artefak besar (spec/ERD/docs) akan terpotong di tengah
+                    jalan dan toolnya tidak dijalankan. Naikkan (mis. 16384–32768) bila agent menulis dokumen panjang.
+                  </p>
+                ) : null}
+              </FieldRow>
 
-            <FieldRow
-              label="Header HTTP tambahan"
-              hint="Opsional. Satu header per baris, format `Nama: nilai`. Sebagian endpoint memerlukannya — mis. gateway yang meminta header sesi khusus. Header ini dikirim apa adanya, jadi jangan taruh kredensial di sini kalau endpoint-nya bukan milik Anda."
-            >
-              <textarea
-                className={`${inputCls} min-h-[72px] font-mono text-[0.8125rem]`}
-                value={Object.entries(draft.customHeaders ?? {})
-                  .map(([k, v]) => `${k}: ${v}`)
-                  .join("\n")}
-                disabled={readOnly}
-                placeholder={"x-opencode-session: abc123"}
-                onChange={(e) => {
-                  const next: Record<string, string> = {};
-                  for (const line of e.target.value.split("\n")) {
-                    const sep = line.indexOf(":");
-                    if (sep <= 0) continue;
-                    const name = line.slice(0, sep).trim();
-                    const value = line.slice(sep + 1).trim();
-                    if (name) next[name] = value;
-                  }
-                  setDraft((d) => ({ ...d, customHeaders: next }));
-                }}
-              />
-            </FieldRow>
+              <FieldRow
+                label="Header HTTP tambahan"
+                hint="Opsional. Satu header per baris, format `Nama: nilai`. Sebagian endpoint memerlukannya — mis. gateway yang meminta header sesi khusus. Header ini dikirim apa adanya, jadi jangan taruh kredensial di sini kalau endpoint-nya bukan milik Anda."
+              >
+                <textarea
+                  className={`${inputCls} min-h-[72px] font-mono text-[0.8125rem]`}
+                  value={Object.entries(draft.customHeaders ?? {})
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join("\n")}
+                  disabled={readOnly}
+                  placeholder={"x-opencode-session: abc123"}
+                  onChange={(e) => {
+                    const next: Record<string, string> = {};
+                    for (const line of e.target.value.split("\n")) {
+                      const sep = line.indexOf(":");
+                      if (sep <= 0) continue;
+                      const name = line.slice(0, sep).trim();
+                      const value = line.slice(sep + 1).trim();
+                      if (name) next[name] = value;
+                    }
+                    setDraft((d) => ({ ...d, customHeaders: next }));
+                  }}
+                />
+              </FieldRow>
+              </>
+            ) : null}
 
             <FieldRow
               label="Harga per 1 juta token"

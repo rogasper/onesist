@@ -26,6 +26,8 @@ import {
   handoffNoticeText,
   lineageText,
   mergeNoticeText,
+  workspaceNoticeText,
+  workspaceSetupText,
 } from "./chat-view";
 
 test("consecutive work blocks form one run; the answer splits runs and stays in place", () => {
@@ -146,4 +148,15 @@ test("the merge divider says which branch came back and how much it carried", ()
   expect(mergeNoticeText({ title: "Cabang: ERD", included: 3, omitted: 0 })).toBe('Hasil cabang "Cabang: ERD" dibawa · 3 item');
   expect(mergeNoticeText({ title: "Cabang: ERD", included: 3, omitted: 2 })).toBe('Hasil cabang "Cabang: ERD" dibawa · 3 item, 2 dilewati (bisa dibaca lewat MCP)');
   expect(mergeNoticeText({})).toBe('Hasil cabang "Cabang" dibawa · 0 item');
+});
+
+test("workspace dividers say where the thread moved and how its setup went", () => {
+  expect(workspaceNoticeText({ label: "Worktree onesist/klaim · input/code/api" })).toBe(
+    "Workspace pindah ke Worktree onesist/klaim · input/code/api · sesi CLI dimulai ulang, percakapan dibawa",
+  );
+  expect(workspaceNoticeText({ label: "Root project", reason: "removed" })).toBe("Worktree dihapus · thread kembali ke Root project");
+  expect(workspaceNoticeText({})).toBe("Workspace pindah ke Root project · sesi CLI dimulai ulang, percakapan dibawa");
+  expect(workspaceSetupText({ ok: true, command: "bun install" })).toBe("Setup worktree selesai · bun install");
+  expect(workspaceSetupText({ ok: false, exitCode: 3, command: "bun install" })).toBe("Setup worktree gagal (exit 3) · bun install");
+  expect(workspaceSetupText({ ok: false, exitCode: null })).toBe("Setup worktree gagal (exit —)");
 });

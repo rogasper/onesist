@@ -12,7 +12,7 @@ export const OPENCODE_LOGO = "/images/opencode.png";
 export const OPENAI_LOGO = "/icons/developer/DevOps-AI-ML/openai.svg";
 export const ANTHROPIC_LOGO = `${BRAND}/anthropic.svg`;
 
-/** Logo per preset id. Presets missing here (Groq, xAI, Zhipu GLM) have no mark yet. */
+/** Logo per preset id. A preset missing here shows no mark. Groq, Zhipu and xAI marks are PNGs the owner supplied. */
 const PRESET_LOGOS: Record<string, string> = {
   openai: OPENAI_LOGO,
   "custom-responses": OPENAI_LOGO,
@@ -29,6 +29,9 @@ const PRESET_LOGOS: Record<string, string> = {
   ollama: `${BRAND}/ollama.svg`,
   lmstudio: `${BRAND}/lmstudio.svg`,
   vllm: `${BRAND}/vllm.svg`,
+  groq: `${BRAND}/groq.png`,
+  zhipu: `${BRAND}/zhipu.png`,
+  xai: `${BRAND}/xai.png`,
   "cli-opencode": OPENCODE_LOGO,
   "cli-claude": "/images/claude.png",
   "cli-codex": "/images/codex.png",

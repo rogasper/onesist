@@ -4,6 +4,7 @@ import type { ModelOptionDescriptor, RuntimeCapabilities } from "~/lib/runtime-t
 import { DefaultChatTransport, type UIMessage } from "~/lib/ai-client";
 import { useFileChanged } from "~/lib/use-file-data";
 import { subscribe } from "~/lib/event-stream";
+import type { ProjectWorktree, WorkspaceDetail, WorkspaceOptions, WorkspaceRequest } from "~/lib/workspace-view";
 
 /**
  * Data hook for the Chat tab (FR-B, FR-C).
@@ -88,6 +89,8 @@ export interface ThreadDetail {
   rootPath?: string | null;
   /** Fase 4B: where a branch came from and how much of its work is not merged back yet. */
   lineage?: { parentThreadId: string; parentTitle: string | null; parentMissing: boolean; unmerged: number } | null;
+  /** Fase 4C: where the thread's CLI agent works. */
+  workspace?: WorkspaceDetail;
   messages: { id: string; role: "user" | "assistant" | "system"; parts: any[]; metadata?: MessageMetadata }[];
   files: ThreadFile[];
   toolCalls: ThreadToolCall[];
@@ -947,6 +950,56 @@ export async function mergeBackThread(threadId: string): Promise<{ parentThreadI
   const body = (await res.json().catch(() => ({}))) as { parentThreadId?: string; included?: number; omitted?: number; error?: string };
   if (!res.ok || !body.parentThreadId) throw new Error(body.error ?? `HTTP ${res.status}`);
   return { parentThreadId: body.parentThreadId, included: body.included ?? 0, omitted: body.omitted ?? 0 };
+}
+
+/** Fase 4C: what the workspace dialog offers for a thread. */
+export function fetchWorkspaceOptions(threadId: string): Promise<WorkspaceOptions> {
+  return api<WorkspaceOptions>(`/api/chat/threads/${encodeURIComponent(threadId)}/workspace`);
+}
+
+/** Moves a thread to another workspace; its next CLI turn starts a new session there. */
+export function setThreadWorkspace(threadId: string, req: WorkspaceRequest): Promise<{ changed: boolean; setupStarted: boolean }> {
+  return api<{ changed: boolean; setupStarted: boolean }>(`/api/chat/threads/${encodeURIComponent(threadId)}/workspace`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}
+
+/**
+ * Puts a prompt in another thread's queue. The server starts it at once when that thread is
+ * free, so a task opened next to another one still runs.
+ */
+export async function queueChatText(threadId: string, text: string): Promise<void> {
+  await api(`/api/chat/threads/${encodeURIComponent(threadId)}/queue`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ texts: [text] }),
+  });
+}
+
+export async function fetchProjectWorktrees(projectId: string): Promise<ProjectWorktree[]> {
+  return (await api<{ worktrees: ProjectWorktree[] }>(`/api/chat/projects/${encodeURIComponent(projectId)}/worktrees`)).worktrees;
+}
+
+export async function removeProjectWorktree(projectId: string, path: string, force: boolean): Promise<void> {
+  await api(`/api/chat/projects/${encodeURIComponent(projectId)}/worktrees/remove`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path, force }),
+  });
+}
+
+/** The open thread's workspace moved, or its worktree setup started or ended. */
+export function useChatWorkspaceEvents(threadId: string | null, onChange: () => void) {
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  useEffect(() => {
+    if (!threadId) return;
+    return subscribe("chat:workspace", (data: any) => {
+      if (data?.threadId === threadId) latest.current();
+    });
+  }, [threadId]);
 }
 
 export function useChatProviders() {
