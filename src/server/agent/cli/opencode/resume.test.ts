@@ -25,3 +25,16 @@ test("no session, a malformed session id, or a non-OpenCode provider gives no co
   expect(terminalResumeCommand({ apiStyle: "completions", cliAgent: null, cliPath: null }, "ses_abc")).toBeNull();
   expect(terminalResumeCommand({ apiStyle: "cli", cliAgent: "claude", cliPath: null }, "ses_abc")).toBeNull();
 });
+
+test("a thread in a worktree goes there first", () => {
+  expect(terminalResumeCommand(oc(), "ses_abc", "/Users/a/.onesist/worktrees/p1/api-fitur", "darwin")).toBe(
+    "cd '/Users/a/.onesist/worktrees/p1/api-fitur' && opencode --session ses_abc",
+  );
+  expect(terminalResumeCommand(oc(), "ses_abc", "/Users/a/Library/Application Support/x/it's", "linux")).toBe(
+    "cd '/Users/a/Library/Application Support/x/it'\\''s' && opencode --session ses_abc",
+  );
+  expect(terminalResumeCommand(oc(), "ses_abc", "C:\\Users\\a\\wt\\api", "win32")).toBe('cd /d "C:\\Users\\a\\wt\\api" && opencode --session ses_abc');
+  expect(terminalResumeCommand(oc(), "ses_abc", 'C:\\a"b', "win32")).toBeNull();
+  expect(terminalResumeCommand(oc(), "ses_abc", "C:\\%PATH%", "win32")).toBeNull();
+  expect(terminalResumeCommand(oc(), "ses_abc", null, "darwin")).toBe("opencode --session ses_abc");
+});
