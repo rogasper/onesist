@@ -7,8 +7,9 @@ import { PageHeader } from "~/components/ui/PageHeader";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { ListSkeleton } from "~/components/ui/Skeleton";
 import { Toast, type ToastMessage } from "~/components/ui/Toast";
-import { AgentStream } from "~/components/agent/AgentStream";
-import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
+import { AgentTaskNotice } from "~/components/agent/AgentTaskNotice";
+import { useAgentTask } from "~/lib/use-agent-task";
+import { openChatTask } from "~/lib/chat-task";
 import { SitDashboard } from "~/components/sit/SitDashboard";
 import { SitTestCaseDetail } from "~/components/sit/SitTestCaseDetail";
 import type { QualityCounts } from "~/components/sit/SitQualityPanel";
@@ -27,16 +28,12 @@ function SitPage() {
   const [selectedTc, setSelectedTc] = useState<SitTestCase | null>(null);
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null);
 
-  const [generating, setGenerating] = useState(false);
-  const [genSessionId, setGenSessionId] = useState<string | null>(null);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [issues, setIssues] = useState<SitQualityIssue[]>([]);
   const [qualityCounts, setQualityCounts] = useState<QualityCounts>({ errors: 0, warnings: 0, infos: 0 });
   const [qualityBusy, setQualityBusy] = useState(false);
 
-  const agentStorageKey = `onesist:sit-agent:${id}`;
 
   const showToast = useCallback((kind: "success" | "error", text: string) => {
     setToast({ kind, text });
@@ -127,9 +124,6 @@ function SitPage() {
     }
   }, [id, load, loadQuality, showToast]);
 
-  const clearStoredAgent = useCallback(() => {
-    try { sessionStorage.removeItem(agentStorageKey); } catch {}
-  }, [agentStorageKey]);
 
   const selectTc = useCallback(async (entry: SitFileEntry) => {
     setSelectedFilename(entry.filename);
@@ -139,47 +133,6 @@ function SitPage() {
     } catch {}
   }, [id]);
 
-  const startAgent = useCallback(async (feedback?: string, model?: string) => {
-    const prev = genSessionId;
-    if (prev) {
-      await fetch("/api/agent/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: prev }),
-      }).catch(() => {});
-    }
-    clearStoredAgent();
-    setGenSessionId(null);
-    setGenerating(true);
-    try {
-      const detectRes = await fetch("/api/agent/detect", { cache: "no-store" });
-      const agents = await detectRes.json();
-      const found = (agents ?? []).find((a: any) => a.found);
-      const command = found?.command ?? "opencode";
-      const sid = crypto.randomUUID();
-      const res = await fetch("/api/agent/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: sid,
-          command,
-          agentName: found?.name ?? "opencode",
-          mode: "sit",
-          projectId: id,
-          ...(feedback ? { feedback, previousSessionId: prev } : {}),
-          ...(model ? { model } : {}),
-        }),
-      });
-      if (res.ok) {
-        setGenSessionId(sid);
-        try { sessionStorage.setItem(agentStorageKey, sid); } catch {}
-      } else {
-        setGenerating(false);
-      }
-    } catch {
-      setGenerating(false);
-    }
-  }, [genSessionId, id, agentStorageKey, clearStoredAgent]);
 
   // Build a refinement prompt from the current issues and run it via the agent.
   const fixWithAgent = useCallback(async () => {
@@ -189,14 +142,33 @@ function SitPage() {
       const d = await res.json();
       const feedback = d.feedback as string;
       if (feedback && feedback.trim()) {
-        void startAgent(feedback);
+        // The fix runs as a chat thread, like Generate: the feedback is sent in it once.
+        const res2 = await fetch("/api/chat/threads", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId: id, title: "Perbaiki SIT", mode: "agent", permissionMode: "ask" }),
+          cache: "no-store",
+        });
+        if (!res2.ok) throw new Error("thread create failed");
+        const created = (await res2.json()) as { thread: { id: string } };
+        openChatTask({ threadId: created.thread.id, text: feedback });
       } else {
         showToast("error", "Tidak ada feedback untuk agent");
       }
     } catch {
       showToast("error", "Gagal menyiapkan perbaikan agent");
     }
-  }, [id, startAgent, showToast]);
+  }, [id, showToast]);
+
+  // Generate SIT runs as a chat thread; when it ends, the page reloads the test cases.
+  const task = useAgentTask(id, "sit", () => {
+    setSelectedTc(null);
+    setSelectedFilename(null);
+    void load();
+    void loadQuality();
+  });
+  const generating = task.running;
+  const handleGenerate = useCallback(() => void task.start(), [task]);
 
   const copyPrompt = useCallback(async () => {
     try {
@@ -241,52 +213,9 @@ function SitPage() {
     }
   }, [id, showToast]);
 
-  const handleAgentDone = useCallback(() => {
-    setGenerating(false);
-    setSelectedTc(null);
-    setSelectedFilename(null);
-    void load();
-    void loadQuality();
-  }, [load, loadQuality]);
 
-  const handleAgentError = useCallback(() => setGenerating(false), []);
-  const handleAgentStopped = useCallback(() => {
-    setGenerating(false);
-    setGenSessionId(null);
-    clearStoredAgent();
-  }, [clearStoredAgent]);
-  const handleClose = useCallback(() => {
-    setGenerating(false);
-    setGenSessionId(null);
-    clearStoredAgent();
-  }, [clearStoredAgent]);
 
-  const handleGenerate = useCallback(() => setModelPickerOpen(true), []);
-  const handleFeedback = useCallback((text: string) => { void startAgent(text); }, [startAgent]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const stored = (() => { try { return sessionStorage.getItem(agentStorageKey); } catch { return null; } })();
-    if (!stored) return;
-    (async () => {
-      try {
-        const [statusRes, logsRes] = await Promise.all([
-          fetch("/api/agent/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ running: [] })),
-          fetch(`/api/agent/logs?sessionId=${encodeURIComponent(stored)}`, { cache: "no-store" }).then((r) => r.json()).catch(() => ({ events: [] })),
-        ]);
-        if (cancelled) return;
-        const running = (statusRes?.running ?? []).some((a: any) => a.sessionId === stored);
-        const hasEvents = Array.isArray(logsRes?.events) && logsRes.events.length > 0;
-        if (running || hasEvents) {
-          setGenSessionId(stored);
-          setGenerating(running);
-        } else {
-          clearStoredAgent();
-        }
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, [agentStorageKey, clearStoredAgent]);
 
   return (
     <div className="h-full flex flex-col">
@@ -306,12 +235,12 @@ function SitPage() {
         actions={
           <>
             <AppButton
-              onClick={handleGenerate}
+              onClick={handleGenerate} disabled={generating}
               variant="primary"
               size="sm"
               icon={<Robot size={12} className={generating ? "animate-pulse" : ""} />}
               className="rounded-full px-3"
-              title={generating ? "Agent sedang berjalan" : "Jalankan agent untuk generate SIT dari all artifacts"}
+              title={generating ? "Sedang berjalan di chat" : "Generate SIT dari semua artifact lewat chat"}
             >
               {generating ? "Agent berjalan…" : "Generate SIT"}
             </AppButton>
@@ -343,18 +272,9 @@ function SitPage() {
 
       <Toast toast={toast} onClose={() => setToast(null)} />
 
-      {genSessionId && (
-        <div className="shrink-0 mb-3">
-          <AgentStream
-            sessionId={genSessionId}
-            onDone={handleAgentDone}
-            onError={handleAgentError}
-            onStopped={handleAgentStopped}
-            onFeedback={handleFeedback}
-            onClose={handleClose}
-          />
-        </div>
-      )}
+      <div className="shrink-0 mb-3 empty:hidden">
+        <AgentTaskNotice task={task} />
+      </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
         {!loaded ? (
@@ -379,7 +299,7 @@ function SitPage() {
             description="Generate test cases dari FSD, ERD, API Spec, Tasks, dan RTM untuk dijadikan panduan QC — atau copy prompt untuk menjalankan agent manual via terminal."
             action={
               <div className="flex items-center gap-2">
-                <AppButton onClick={handleGenerate} variant="primary" size="sm" icon={<Robot size={12} />} className="rounded-full px-4">
+                <AppButton onClick={handleGenerate} disabled={generating} variant="primary" size="sm" icon={<Robot size={12} />} className="rounded-full px-4">
                   Generate SIT
                 </AppButton>
                 <AppButton onClick={copyPrompt} variant="secondary" size="sm" icon={<Copy size={12} />} className="rounded-full px-4">
@@ -392,11 +312,6 @@ function SitPage() {
         )}
       </div>
 
-      <ModelPickerDialog
-        open={modelPickerOpen}
-        onClose={() => setModelPickerOpen(false)}
-        onRun={(model) => { setModelPickerOpen(false); void startAgent(undefined, model); }}
-      />
     </div>
   );
 }

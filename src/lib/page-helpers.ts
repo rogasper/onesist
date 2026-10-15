@@ -173,9 +173,9 @@ const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     tips: {
       id: [
         "Klik Generate SIT untuk membuat test cases komprehensif dari FSD, ERD, API Spec, Tasks, dan RTM.",
-        "Copy Prompt untuk menjalankan agent manual via AgentTerminal — fallback jika Generate button error.",
+        "Generate SIT membuka thread di panel Chat dan langsung berjalan; progress dan persetujuan tulis berkas ada di sana.",
         "Output disimpan sebagai markdown files di output/sit/ (TC01.md, TC02.md, ...) + SIT_SUMMARY.md.",
-        "Gunakan FeedbackBox setelah generate selesai untuk iterasi perbaikan tanpa restart sesi agent.",
+        "Untuk memperbaiki hasil, balas di thread chat yang sama — agent melanjutkan dari percakapan itu.",
         "Setiap step mencakup 3 aspek validation: UI, Business, dan Data Validation.",
         "Browser matrix: Desktop Chrome, Safari, Firefox, iOS, Android — 5 platform per step.",
         "Export XLSX menghasilkan panduan QC (multi-sheet: Cover, Summary, Board, per-TC) untuk distribusi ke tim testing.",
@@ -183,9 +183,9 @@ const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
       ],
       en: [
         "Click Generate SIT to create comprehensive test cases from FSD, ERD, API Spec, Tasks, and RTM.",
-        "Copy Prompt to run agent manually via AgentTerminal — fallback if Generate button errors.",
+        "Generate SIT opens a thread in the Chat panel and starts right away; progress and file-write approvals are there.",
         "Output stored as markdown files in output/sit/ (TC01.md, TC02.md, ...) + SIT_SUMMARY.md.",
-        "Use the FeedbackBox after generate completes to iterate corrections without restarting the agent session.",
+        "To fix the result, reply in the same chat thread — the agent continues from that conversation.",
         "Each step includes 3 validation aspects: UI, Business, and Data Validation.",
         "Browser matrix: Desktop Chrome, Safari, Firefox, iOS, Android — 5 platforms per step.",
         "Export XLSX produces a QC guide (multi-sheet: Cover, Summary, Board, per-TC) for the testing team.",
