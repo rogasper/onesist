@@ -13,11 +13,15 @@ export interface OpenCodeConnection {
 export interface ModelRef {
   id: string;
   providerID: string;
+  /** OpenCode model variant (reasoning effort and the like), e.g. "high". */
+  variant?: string;
 }
 export interface OcModel {
   id: string;
   providerID: string;
   name: string;
+  /** Variant ids the model offers; empty when it has none. */
+  variants: string[];
 }
 
 export function basicAuth(password: string): string {
@@ -25,11 +29,13 @@ export function basicAuth(password: string): string {
 }
 
 /** `provider/model` as stored on a thread; the model part may itself contain slashes. */
-export function parseModelRef(value: string | null | undefined): ModelRef | null {
+export function parseModelRef(value: string | null | undefined, variant?: string | null): ModelRef | null {
   if (!value) return null;
   const slash = value.indexOf("/");
   if (slash <= 0 || slash === value.length - 1) return null;
-  return { providerID: value.slice(0, slash), id: value.slice(slash + 1) };
+  const ref: ModelRef = { providerID: value.slice(0, slash), id: value.slice(slash + 1) };
+  if (variant) ref.variant = variant;
+  return ref;
 }
 
 const seg = (value: string) => encodeURIComponent(value);
@@ -92,12 +98,24 @@ export async function ocInterrupt(conn: OpenCodeConnection, sessionId: string): 
   await request(conn, "POST", `/api/session/${seg(sessionId)}/interrupt`);
 }
 
-export async function ocListModels(conn: OpenCodeConnection): Promise<OcModel[]> {
-  const body: any = await (await request(conn, "GET", "/api/model")).json();
+/** Variant ids from either shape OpenCode has used: an array of `{ id }` or an object keyed by id. */
+function variantIds(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map((v: any) => (typeof v?.id === "string" ? v.id : null)).filter((v): v is string => !!v);
+  if (raw && typeof raw === "object") return Object.keys(raw);
+  return [];
+}
+
+export async function ocListModels(conn: OpenCodeConnection, signal?: AbortSignal): Promise<OcModel[]> {
+  const body: any = await (await request(conn, "GET", "/api/model", undefined, signal)).json();
   const list: any[] = Array.isArray(body?.data) ? body.data : [];
   return list
     .filter((m) => typeof m?.id === "string" && typeof m?.providerID === "string")
-    .map((m) => ({ id: m.id, providerID: m.providerID, name: typeof m.name === "string" ? m.name : m.id }));
+    .map((m) => ({
+      id: m.id,
+      providerID: m.providerID,
+      name: typeof m.name === "string" ? m.name : m.id,
+      variants: variantIds(m.variants),
+    }));
 }
 
 /**

@@ -23,7 +23,16 @@ const server = Bun.serve({
     calls.push({ method: req.method, path: url.pathname, body: text ? JSON.parse(text) : null, auth: req.headers.get("authorization") });
     if (url.pathname === "/api/info") return Response.json({ version: "2.0.28" });
     if (url.pathname === "/api/session" && req.method === "POST") return Response.json({ data: { id: "ses_new" } });
-    if (url.pathname === "/api/model") return Response.json({ location: { directory: "/x" }, data: [{ id: "m1", providerID: "p1", name: "Model Satu" }] });
+    if (url.pathname === "/api/model") {
+      return Response.json({
+        location: { directory: "/x" },
+        data: [
+          { id: "m1", providerID: "p1", name: "Model Satu", variants: [{ id: "low", settings: {} }, { id: "high", settings: {} }] },
+          { id: "m2", providerID: "p1", name: "Model Dua" },
+          { id: "m3", providerID: "p1", name: "Model Tiga", variants: { fast: {}, slow: {} } },
+        ],
+      });
+    }
     if (url.pathname === "/api/session/ses_bad/prompt") return new Response("nope", { status: 500 });
     if (url.pathname === "/api/event") {
       return new Response(
@@ -56,6 +65,18 @@ test("model refs are provider/model, split at the first slash", () => {
   expect(parseModelRef("/x")).toBeNull();
   expect(parseModelRef("x/")).toBeNull();
   expect(parseModelRef(null)).toBeNull();
+});
+
+test("a variant rides along on the model ref only when one is given", () => {
+  expect(parseModelRef("p1/m1", "high")).toEqual({ providerID: "p1", id: "m1", variant: "high" });
+  expect(parseModelRef("p1/m1", null)).toEqual({ providerID: "p1", id: "m1" });
+  expect(parseModelRef("p1/m1", "")).toEqual({ providerID: "p1", id: "m1" });
+  expect(parseModelRef(null, "high")).toBeNull();
+});
+
+test("a session is created with the chosen variant", async () => {
+  await ocCreateSession(conn, { title: null, directory: "/proj", permissions: [], model: parseModelRef("p1/m1", "low") });
+  expect(last().body.model).toEqual({ providerID: "p1", id: "m1", variant: "low" });
 });
 
 test("info reads the version with the auth header", async () => {
@@ -95,8 +116,13 @@ test("a failed call throws with the status and the server's text", async () => {
   await expect(ocPrompt(conn, "ses_bad", "x")).rejects.toThrow("HTTP 500");
 });
 
-test("models come back with id, provider and name", async () => {
-  expect(await ocListModels(conn)).toEqual([{ id: "m1", providerID: "p1", name: "Model Satu" }]);
+test("models come back with id, provider, name and their variant ids", async () => {
+  expect(await ocListModels(conn)).toEqual([
+    { id: "m1", providerID: "p1", name: "Model Satu", variants: ["low", "high"] },
+    { id: "m2", providerID: "p1", name: "Model Dua", variants: [] },
+    // An object of variants (older shape) still yields its ids.
+    { id: "m3", providerID: "p1", name: "Model Tiga", variants: ["fast", "slow"] },
+  ]);
 });
 
 test("the event stream yields events across chunk boundaries", async () => {
