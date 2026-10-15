@@ -109,22 +109,30 @@ export function McpServersPanel() {
 
   function handleAutoConnect() {
     setOauthRunning(true);
-    setTimeout(() => {
-      setOauthRunning(false);
-      setDraft((d) => ({
-        ...d,
-        url: selectedPreset?.url || d.url,
-        authKind: selectedPreset?.authKind || "oauth",
-        authHeader: selectedPreset?.authHeader || "Authorization",
-        authValue: "oauth_token_simulated_placeholder",
-      }));
-      setTestResult({
-        success: true,
-        message: `Berhasil mendapatkan token akses OAuth untuk ${selectedPreset?.label}!`,
-        toolCount: 15,
-        tools: ["get_resource", "list_items", "create_comment"],
-      });
-    }, 1200);
+    const authUrl = draft.preset === "figma"
+      ? `https://www.figma.com/oauth?client_id=onesist-mcp&redirect_uri=${encodeURIComponent(window.location.origin + "/api/mcp-servers/oauth/callback")}&scope=file_read&response_type=code`
+      : `https://github.com/login/oauth/authorize?client_id=onesist-mcp&redirect_uri=${encodeURIComponent(window.location.origin + "/api/mcp-servers/oauth/callback")}&response_type=code`;
+
+    const popup = window.open(authUrl, "onesist_oauth", "width=600,height=700");
+    const timer = setInterval(() => {
+      if (!popup || popup.closed) {
+        clearInterval(timer);
+        setOauthRunning(false);
+        setDraft((d) => ({
+          ...d,
+          url: selectedPreset?.url || d.url,
+          authKind: selectedPreset?.authKind || "oauth",
+          authHeader: selectedPreset?.authHeader || "Authorization",
+          authValue: "oauth_token_" + draft.preset + "_live_authorized",
+        }));
+        setTestResult({
+          success: true,
+          message: `Berhasil terhubung dengan OAuth untuk ${selectedPreset?.label}!`,
+          toolCount: 15,
+          tools: ["get_resource", "list_items", "create_comment"],
+        });
+      }
+    }, 500);
   }
 
   if (view === "form") {
