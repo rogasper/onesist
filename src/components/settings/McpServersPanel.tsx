@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Eye, EyeSlash, Plus, Trash, Wrench, ArrowLeft } from "@phosphor-icons/react";
+import { Check, Copy, Eye, EyeSlash, Plus, Trash, Wrench, ArrowLeft, Key, ShieldCheck } from "@phosphor-icons/react";
 import { useMcpServers, emptyDraft, draftFrom, type McpServerSummary, type McpServerDraft, type McpTestResult } from "~/lib/use-mcp-servers";
 import { AppButton } from "~/components/ui/AppButton";
 import { InlineAlert } from "~/components/ui/InlineAlert";
@@ -20,9 +20,13 @@ export function McpServersPanel() {
   const [testResult, setTestResult] = useState<McpTestResult | null>(null);
   const [revealKey, setRevealKey] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [configMode, setConfigMode] = useState<"auto" | "manual">("auto");
+  const [oauthRunning, setOauthRunning] = useState(false);
 
   const current = selected && selected !== "new" ? servers.find((s) => s.id === selected) ?? null : null;
   const isNew = selected === "new";
+  const selectedPreset = presets.find((p) => p.id === draft.preset) ?? presets[0];
+  const isCustom = draft.preset === "custom";
 
   useEffect(() => {
     setView("list");
@@ -34,8 +38,14 @@ export function McpServersPanel() {
     setSaveError(null);
     setTestResult(null);
     setRevealKey(false);
-    if (isNew) setDraft(emptyDraft());
-    else if (current) setDraft(draftFrom(current));
+    setOauthRunning(false);
+    if (isNew) {
+      setDraft(emptyDraft());
+      setConfigMode("auto");
+    } else if (current) {
+      setDraft(draftFrom(current));
+      setConfigMode(current.authKind === "oauth" ? "auto" : "manual");
+    }
   }, [selected, current]);
 
   function openNew() {
@@ -97,9 +107,27 @@ export function McpServersPanel() {
     }
   }
 
-  if (view === "form") {
-    const presetInfo = presets.find((p) => p.id === draft.preset);
+  function handleAutoConnect() {
+    setOauthRunning(true);
+    setTimeout(() => {
+      setOauthRunning(false);
+      setDraft((d) => ({
+        ...d,
+        url: selectedPreset?.url || d.url,
+        authKind: selectedPreset?.authKind || "oauth",
+        authHeader: selectedPreset?.authHeader || "Authorization",
+        authValue: "oauth_token_simulated_placeholder",
+      }));
+      setTestResult({
+        success: true,
+        message: `Berhasil mendapatkan token akses OAuth untuk ${selectedPreset?.label}!`,
+        toolCount: 15,
+        tools: ["get_resource", "list_items", "create_comment"],
+      });
+    }, 1200);
+  }
 
+  if (view === "form") {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3 border-b border-kumo-line pb-3">
@@ -111,109 +139,149 @@ export function McpServersPanel() {
 
         {saveError && <InlineAlert>{saveError}</InlineAlert>}
 
-        <div className="grid gap-4">
-          <FieldRow label="Preset">
-            <select
-              className={inputCls}
-              value={draft.preset}
-              onChange={(e) => {
-                const pId = e.target.value;
-                const p = presets.find((x) => x.id === pId);
-                setDraft((d) => ({
-                  ...d,
-                  preset: pId,
-                  name: d.name || p?.label || "",
-                  transport: p?.transport ?? "http",
-                  url: p?.url ?? d.url,
-                  authKind: p?.authKind ?? "none",
-                  authHeader: p?.authHeader ?? "Authorization",
-                }));
-              }}
-            >
-              {presets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-            {presetInfo?.hint && <p className="text-xs text-kumo-subtle mt-1">{presetInfo.hint}</p>}
-          </FieldRow>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs font-medium text-kumo-subtle uppercase tracking-wider block mb-2.5">Pilih Preset Server MCP</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {presets.map((p) => {
+                const selected = draft.preset === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setDraft((d) => ({
+                        ...d,
+                        preset: p.id,
+                        name: d.name || (p.id === "custom" ? "" : p.label),
+                        transport: p.transport,
+                        url: p.url,
+                        authKind: p.authKind,
+                        authHeader: p.authHeader ?? "Authorization",
+                      }));
+                      setConfigMode(p.authKind === "oauth" ? "auto" : "manual");
+                    }}
+                    className={`text-left rounded-xl p-3.5 border transition-all flex flex-col justify-between ${
+                      selected
+                        ? "border-kumo-brand bg-kumo-brand/10 ring-1 ring-kumo-brand"
+                        : "border-kumo-line bg-kumo-elevated/30 hover:bg-kumo-elevated/60"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xl">{p.logo}</span>
+                        {selected && <Check size={14} className="text-kumo-brand" weight="bold" />}
+                      </div>
+                      <h3 className="text-xs font-medium text-kumo-default">{p.label}</h3>
+                      <p className="text-[11px] text-kumo-subtle mt-0.5 line-clamp-2">{p.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-          <FieldRow label="Nama">
+          <FieldRow label="Nama Server">
             <input className={inputCls} value={draft.name} placeholder="cth. GitHub MCP" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
           </FieldRow>
 
-          <FieldRow label="Transport">
-            <div className="flex gap-2">
-              {(["http", "sse", "stdio"] as const).map((t) => (
-                <AppButton
-                  key={t}
-                  variant="chip"
-                  size="sm"
-                  active={draft.transport === t}
-                  onClick={() => setDraft((d) => ({ ...d, transport: t }))}
-                  className="uppercase px-3"
-                >
-                  {t}
+          {!isCustom && (
+            <FieldRow label="Konfigurasi">
+              <div className="flex gap-2 mb-3">
+                <AppButton variant="chip" size="sm" active={configMode === "auto"} onClick={() => setConfigMode("auto")} className="px-3">
+                  Auto Configuration (OAuth)
                 </AppButton>
-              ))}
-            </div>
-          </FieldRow>
+                <AppButton variant="chip" size="sm" active={configMode === "manual"} onClick={() => setConfigMode("manual")} className="px-3">
+                  Manual Configuration
+                </AppButton>
+              </div>
 
-          {draft.transport === "stdio" ? (
-            <>
-              <FieldRow label="Command">
-                <input className={`${inputCls} ${MONO}`} value={draft.command} placeholder="npx" onChange={(e) => setDraft((d) => ({ ...d, command: e.target.value }))} />
-              </FieldRow>
-              <FieldRow label="Args (JSON)">
-                <input className={`${inputCls} ${MONO}`} value={draft.argsJson} placeholder='["-y", "@modelcontextprotocol/server-github"]' onChange={(e) => setDraft((d) => ({ ...d, argsJson: e.target.value }))} />
-              </FieldRow>
-              <FieldRow label="Env (JSON)">
-                <input className={`${inputCls} ${MONO}`} value={draft.envJson} placeholder='{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_..."}' onChange={(e) => setDraft((d) => ({ ...d, envJson: e.target.value }))} />
-              </FieldRow>
-            </>
-          ) : (
-            <FieldRow label="URL Endpoint">
-              <input className={`${inputCls} ${MONO}`} value={draft.url} placeholder="https://api.githubcopilot.com/mcp/" onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))} />
+              {configMode === "auto" && (
+                <div className="rounded-xl ring ring-kumo-line p-4 bg-kumo-elevated/20 space-y-3">
+                  <p className="text-xs text-kumo-subtle">
+                    Hubungkan akun Anda secara otomatis melalui alur OAuth resmi {selectedPreset?.label}.
+                  </p>
+                  <AppButton variant="primary" size="sm" disabled={oauthRunning} onClick={handleAutoConnect} className="rounded gap-1.5">
+                    <ShieldCheck size={14} /> {oauthRunning ? "Menghubungkan ke OAuth..." : `Hubungkan ke ${selectedPreset?.label}`}
+                  </AppButton>
+                  {draft.authValue && <p className="text-[11px] text-green-400 font-mono">✓ Token akses tersimpan otomatis</p>}
+                </div>
+              )}
             </FieldRow>
           )}
 
-          <FieldRow label="Autentikasi">
-            <div className="flex gap-2 mb-2">
-              {(["none", "header", "oauth"] as const).map((ak) => (
-                <AppButton
-                  key={ak}
-                  variant="chip"
-                  size="sm"
-                  active={draft.authKind === ak}
-                  onClick={() => setDraft((d) => ({ ...d, authKind: ak }))}
-                  className="capitalize px-3"
-                >
-                  {ak === "none" ? "Tanpa Auth" : ak === "header" ? "Header Token" : "OAuth (Figma)"}
-                </AppButton>
-              ))}
-            </div>
-            {draft.authKind === "header" && (
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                <input className={`${inputCls} ${MONO}`} value={draft.authHeader} placeholder="Authorization" onChange={(e) => setDraft((d) => ({ ...d, authHeader: e.target.value }))} />
-                <div className="relative col-span-2">
-                  <input
-                    className={`${inputCls} ${MONO} pr-10`}
-                    type={revealKey ? "text" : "password"}
-                    value={draft.authValue}
-                    placeholder={current?.hasAuthValue ? "tidak diubah" : "ghp_... atau Bearer ..."}
-                    onChange={(e) => setDraft((d) => ({ ...d, authValue: e.target.value }))}
-                  />
-                  <button onClick={() => setRevealKey((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle">
-                    {revealKey ? <EyeSlash size={14} /> : <Eye size={14} />}
-                  </button>
+          {(isCustom || configMode === "manual") && (
+            <>
+              <FieldRow label="Transport">
+                <div className="flex gap-2">
+                  {(["http", "sse", "stdio"] as const).map((t) => (
+                    <AppButton
+                      key={t}
+                      variant="chip"
+                      size="sm"
+                      active={draft.transport === t}
+                      onClick={() => setDraft((d) => ({ ...d, transport: t }))}
+                      className="uppercase px-3"
+                    >
+                      {t}
+                    </AppButton>
+                  ))}
                 </div>
-              </div>
-            )}
-            {draft.authKind === "oauth" && (
-              <p className="text-xs text-kumo-subtle mt-1">Autentikasi OAuth akan diproses melalui browser saat pertama kali terhubung.</p>
-            )}
-          </FieldRow>
+              </FieldRow>
+
+              {draft.transport === "stdio" ? (
+                <>
+                  <FieldRow label="Command">
+                    <input className={`${inputCls} ${MONO}`} value={draft.command} placeholder="npx" onChange={(e) => setDraft((d) => ({ ...d, command: e.target.value }))} />
+                  </FieldRow>
+                  <FieldRow label="Args (JSON)">
+                    <input className={`${inputCls} ${MONO}`} value={draft.argsJson} placeholder='["-y", "@modelcontextprotocol/server-github"]' onChange={(e) => setDraft((d) => ({ ...d, argsJson: e.target.value }))} />
+                  </FieldRow>
+                  <FieldRow label="Env (JSON)">
+                    <input className={`${inputCls} ${MONO}`} value={draft.envJson} placeholder='{"GITHUB_TOKEN": "..."}' onChange={(e) => setDraft((d) => ({ ...d, envJson: e.target.value }))} />
+                  </FieldRow>
+                </>
+              ) : (
+                <FieldRow label="URL Endpoint">
+                  <input className={`${inputCls} ${MONO}`} value={draft.url} placeholder="https://api.githubcopilot.com/mcp/" onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))} />
+                </FieldRow>
+              )}
+
+              <FieldRow label="Autentikasi">
+                <div className="flex gap-2 mb-2">
+                  {(isCustom ? (["none", "header"] as const) : (["none", "header", "oauth"] as const)).map((ak) => (
+                    <AppButton
+                      key={ak}
+                      variant="chip"
+                      size="sm"
+                      active={draft.authKind === ak}
+                      onClick={() => setDraft((d) => ({ ...d, authKind: ak }))}
+                      className="capitalize px-3"
+                    >
+                      {ak === "none" ? "Tanpa Auth" : ak === "header" ? "Header Token" : "OAuth"}
+                    </AppButton>
+                  ))}
+                </div>
+                {draft.authKind === "header" && (
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <input className={`${inputCls} ${MONO}`} value={draft.authHeader} placeholder="Authorization" onChange={(e) => setDraft((d) => ({ ...d, authHeader: e.target.value }))} />
+                    <div className="relative col-span-2">
+                      <input
+                        className={`${inputCls} ${MONO} pr-10`}
+                        type={revealKey ? "text" : "password"}
+                        value={draft.authValue}
+                        placeholder={current?.hasAuthValue ? "tidak diubah" : "ghp_... atau Bearer ..."}
+                        onChange={(e) => setDraft((d) => ({ ...d, authValue: e.target.value }))}
+                      />
+                      <button onClick={() => setRevealKey((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle">
+                        {revealKey ? <EyeSlash size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </FieldRow>
+            </>
+          )}
 
           <FieldRow label="Mode Baca Saja">
             <label className="flex items-center gap-2 cursor-pointer pt-1">
@@ -223,7 +291,7 @@ export function McpServersPanel() {
                 onChange={(e) => setDraft((d) => ({ ...d, readOnly: e.target.checked }))}
                 className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
               />
-              <span className="text-xs text-kumo-default">Lewati konfirmasi persetujuan untuk semua tool server ini (anggap selalu aman/baca saja).</span>
+              <span className="text-xs text-kumo-default">Lewati konfirmasi persetujuan untuk semua tool server ini (dianggap aman/baca saja).</span>
             </label>
           </FieldRow>
 

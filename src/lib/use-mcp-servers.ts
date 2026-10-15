@@ -28,6 +28,8 @@ export interface McpServerSummary {
 export interface McpPresetInfo {
   id: string;
   label: string;
+  description: string;
+  logo: string;
   transport: "http" | "sse" | "stdio";
   url: string;
   authKind: "none" | "header" | "oauth";
