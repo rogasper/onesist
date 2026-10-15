@@ -4,6 +4,7 @@ import { ArrowsInSimple, ArrowsOutSimple, Brain, CaretUpDown, Check, FolderOpen,
 import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePanel";
 import { ChatSurface } from "~/components/chat/ChatSurface";
 import { ThreadIdProvider } from "~/components/chat/thread-context";
+import { subscribeChatTasks, takePendingChatTasks } from "~/lib/chat-task";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -81,6 +82,23 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   }, [threads, activeId, loading]);
 
   const active = useMemo(() => threads.find((t) => t.id === activeId) ?? null, [threads, activeId]);
+
+  // A task from another page opens its thread here; a task with a prompt sends it once.
+  // The list is re-read first: the new thread is not in it yet, and the effect above would
+  // otherwise drop the selection as a thread that no longer exists.
+  const [autoSend, setAutoSend] = useState<{ threadId: string; text: string } | null>(null);
+  useEffect(() => {
+    const take = () => {
+      const next = takePendingChatTasks().at(-1);
+      if (!next) return;
+      void refresh().then(() => {
+        setActiveId(next.threadId);
+        if (next.text) setAutoSend({ threadId: next.threadId, text: next.text });
+      });
+    };
+    take();
+    return subscribeChatTasks(take);
+  }, [refresh]);
 
   async function handleNew() {
     setCreating(true);
@@ -226,6 +244,8 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
                     setActiveId(id);
                     void refresh();
                   }}
+                  autoSend={autoSend?.threadId === detail.thread.id ? autoSend.text : null}
+                  onAutoSent={() => setAutoSend(null)}
                 />
               </ThreadIdProvider>
               {side ? <ChatSidePanel view={side} detail={detail} projectId={projectId} onClose={() => setSide(null)} /> : null}

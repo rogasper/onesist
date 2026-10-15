@@ -31,6 +31,7 @@ import {
   type SplitTab,
 } from "~/lib/split-layout";
 import { subscribeQuotes } from "~/lib/chat-quote";
+import { subscribeChatTasks } from "~/lib/chat-task";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
@@ -77,6 +78,7 @@ function ProjectLayout() {
   const [chatOpen, setChatOpen] = useState(false);
   // A quote sent from a viewer opens the chat, so the reader sees where it went.
   useEffect(() => subscribeQuotes(() => setChatOpen(true)), []);
+  useEffect(() => subscribeChatTasks(() => setChatOpen(true)), []);
   // The chat folds the app sidebar on a narrow window and gives it back when it closes (P3.2).
   useEffect(() => {
     if (chatOpen) foldSidebarForChat(window.innerWidth);

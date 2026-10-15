@@ -97,6 +97,10 @@ interface Props {
   onOpenProviders: () => void;
   /** Opens another thread (used after forking one). */
   onOpenThread?: (threadId: string) => void;
+  /** A task's prompt (Generate OpenAPI/RTM/SIT), sent once when the thread opens. */
+  autoSend?: string | null;
+  /** Called once `autoSend` has been sent, so the panel forgets it. */
+  onAutoSent?: () => void;
 }
 
 const MONO = "font-mono text-[0.8125rem]";
@@ -140,6 +144,8 @@ export function ChatSurface({
   onRefresh,
   onOpenProviders,
   onOpenThread,
+  autoSend,
+  onAutoSent,
 }: Props) {
   const projectId = detail.thread.projectId;
   const transport = useThreadTransport(threadId);
@@ -461,6 +467,18 @@ export function ChatSurface({
   /** The status strip folded to a capsule: the elapsed time and Hentikan only. */
   const [stripCompact, setStripCompact] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  // A task started from another page arrives with its prompt; it is sent once, as if typed.
+  const autoSentRef = useRef(false);
+  useEffect(() => {
+    if (!autoSend || autoSentRef.current || detail.activeRun) return;
+    autoSentRef.current = true;
+    onAutoSent?.();
+    atBottomRef.current = true;
+    setNow(Date.now());
+    void sendMessage({ text: autoSend });
+    // Runs when the prompt arrives; the ref keeps it to one send.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSend, detail.activeRun]);
 
   useEffect(() => {
     if (streaming) {
