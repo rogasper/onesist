@@ -5,7 +5,7 @@ export interface McpPreset {
   id: string;
   label: string;
   description: string;
-  logo: string; // icon name or URL / emoji
+  logo: string;
   transport: "http" | "sse" | "stdio";
   url: string;
   authKind: "none" | "header" | "oauth";
@@ -32,7 +32,7 @@ export const MCP_PRESETS: McpPreset[] = [
     url: "https://api.githubcopilot.com/mcp/",
     authKind: "header",
     authHeader: "Authorization",
-    hint: "Gunakan Personal Access Token (PAT) dengan prefix Bearer.",
+    hint: "Gunakan Personal Access Token (PAT) dengan prefix Bearer atau klik Hubungkan.",
   },
   {
     id: "figma",
@@ -41,8 +41,9 @@ export const MCP_PRESETS: McpPreset[] = [
     logo: "🎨",
     transport: "http",
     url: "https://mcp.figma.com/mcp",
-    authKind: "oauth",
-    hint: "Memerlukan autentikasi OAuth Figma.",
+    authKind: "header",
+    authHeader: "Authorization",
+    hint: "Gunakan Figma Personal Access Token via Manual Configuration atau klik Hubungkan.",
   },
   {
     id: "miro",
