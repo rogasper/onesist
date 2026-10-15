@@ -29,6 +29,7 @@ export interface AgyResult {
   status?: string;
   response?: string;
   error?: unknown;
+  num_turns?: number;
   usage?: AgyUsage;
   denied_actions?: AgyDenied[];
 }
