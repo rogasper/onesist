@@ -4,7 +4,6 @@ import { MagnifyingGlass, Play, Stop, FloppyDisk, SealCheck, Plus, UploadSimple,
 import { FsdEditor, type EditorMode } from "~/components/fsd/FsdEditor";
 import { FsdCompleteness } from "~/components/fsd/FsdCompleteness";
 import { FsdUploadDialog } from "~/components/fsd/FsdUploadDialog";
-import { AgentStream } from "~/components/agent/AgentStream";
 import { FileTree, type FileTreeHandle } from "~/components/ui/FileTree";
 import { ContextMenu } from "~/components/ui/ContextMenu";
 import { AppButton } from "~/components/ui/AppButton";

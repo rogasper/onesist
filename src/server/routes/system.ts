@@ -5,7 +5,6 @@ import { Router } from "../http/router";
 import { getProject, runCommand } from "../http/route-utils";
 import { killTree, scanInstances } from "~/server/system-instances";
 import { buildOpenapiPrompt, buildRtmPrompt, buildSitPrompt } from "~/lib/agent-prompts";
-import { listAgentModels } from "~/lib/agent-cli";
 
 export const router = new Router();
 
@@ -197,66 +196,6 @@ router.get("agent/detect", async () => {
   return json(detectAllAgents());
 });
 
-// /api/agent/run
-router.post("agent/run", async ({ body }) => {
-  const data = await body();
-  const { runAgent, isAgentRunning } = await import("~/server/services/agent-runner");
-  const sessionId = data.sessionId as string;
-  if (isAgentRunning(sessionId)) {
-    return json({ error: "Agent already running for this session" }, 409);
-  }
-  const mode = (data.mode as string) || "generate";
-  const command = data.command as string;
-  const agentName = data.agentName as string;
-  const fsdFile = data.fsdFile as string;
-  const feedback = data.feedback as string | undefined;
-  const previousSessionId = data.previousSessionId as string | undefined;
-  const model = data.model as string | undefined;
-  const fsd = data.fsd as string | undefined;
-  const fds = Array.isArray(data.fds) ? (data.fds as string[]) : undefined;
-  if (!command || !agentName || !sessionId) {
-    return json({ error: "Missing required fields: command, agentName, sessionId" }, 400);
-  }
-  // Resolve the project root so the agent reads artifacts from (and writes to)
-  // the OPEN project's rootPath — not the dev default root. Falls back to the
-  // default root when no projectId is given (e.g. legacy callers).
-  let root: string | undefined;
-  const projectId = data.projectId as string | undefined;
-  if (projectId) {
-    try {
-      const proj = getProject(projectId);
-      if (proj?.rootPath) root = proj.rootPath;
-    } catch {}
-  }
-  runAgent({ sessionId, command, mode: mode as "generate" | "gap" | "td" | "openapi" | "rtm", fsdFile, agentName, root, feedback, previousSessionId, model, fsd, fds }).catch(() => {});
-  return json({ started: true, sessionId, root: root ?? null });
-});
-
-// /api/agent/stop
-router.post("agent/stop", async ({ body }) => {
-  const data = await body();
-  const { stopAgent } = await import("~/server/services/agent-runner");
-  const sessionId = data.sessionId as string | undefined;
-  stopAgent(sessionId);
-  return json({ stopped: true });
-});
-
-// /api/agent/status
-router.get("agent/status", async () => {
-  const { getRunningAgents } = await import("~/server/services/agent-runner");
-  return json({ running: getRunningAgents() });
-});
-
-// /api/agent/logs?sessionId= — replay buffered agent events for a session.
-// Clients that connect after an agent started (or already finished) fetch this
-// so they don't see a silent "Connected to event stream" with no context.
-router.get("agent/logs", async ({ query }) => {
-  const { eventBus } = await import("../realtime/events");
-  const sessionId = query.get("sessionId");
-  if (!sessionId) return json({ events: [] });
-  return json({ events: eventBus.getAgentHistory(sessionId) });
-});
-
 // /api/system/instances — running instances of this app (for duplicate detection)
 router.get("system/instances", async () => {
   return json({
@@ -274,14 +213,6 @@ router.post("system/instances/kill", async ({ body }) => {
   if (!pid) return json({ error: "pid is required" }, 400);
   if (pid === process.pid) return json({ error: "Refusing to kill the current server" }, 400);
   return json({ killed: killTree(pid) });
-});
-
-// /api/agent/models?agent=opencode — selectable models for the given agent CLI.
-// opencode (`opencode models`), antigravity (`agy models`), and pi (`pi --list-models`)
-// expose a model list; claude/codex return supported:false.
-router.get("agent/models", async ({ query }) => {
-  const agent = query.get("agent") || "opencode";
-  return json(listAgentModels(agent));
 });
 
 // /api/agent/prompt?projectId=&mode=rtm|openapi — the exact prompt + run command

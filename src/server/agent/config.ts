@@ -250,7 +250,7 @@ export function buildLanguageModel(config: ProviderRow, opts: { sessionId?: stri
 
   if (config.apiStyle === "cli") {
     throw new ProviderConfigError(
-      "Provider bergaya CLI tidak memakai AI SDK — jalankan lewat adapter agent-runner.",
+      "Provider bergaya CLI tidak memakai AI SDK — ia dijalankan oleh runtime CLI-nya sendiri, bukan lewat jalur model biasa.",
       "cli",
     );
   }

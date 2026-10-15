@@ -357,7 +357,7 @@ export function createSidecarPreset(x: number, y: number): ExcalidrawElementStub
     { text: "SSR · TanStack Router · /api/*", color: "#0ea5e9" },
     { text: "SQLite WAL + Drizzle · checkpointWal()", color: "#0ea5e9" },
     { text: "realtime: SSE + file-watcher.ts", color: "#0ea5e9" },
-    { text: "services/agent-runner.ts · xterm WS", color: "#0ea5e9" },
+    { text: "agent/runtime · xterm WS", color: "#0ea5e9" },
   ];
   bunRows.forEach((r, i) => {
     const ry = colY + 48 + i * 28;
