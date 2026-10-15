@@ -107,6 +107,14 @@ function variantIds(raw: unknown): string[] {
   return [];
 }
 
+/** A new session holding a copy of this one's whole history (OpenCode 2 `fork` without `before`). */
+export async function ocForkSession(conn: OpenCodeConnection, sessionId: string): Promise<string> {
+  const body: any = await (await request(conn, "POST", `/api/session/${seg(sessionId)}/fork`, {})).json();
+  const id = body?.data?.id;
+  if (typeof id !== "string" || !id) throw new Error("OpenCode tidak mengembalikan id sesi cabang.");
+  return id;
+}
+
 export async function ocListModels(conn: OpenCodeConnection, signal?: AbortSignal): Promise<OcModel[]> {
   const body: any = await (await request(conn, "GET", "/api/model", undefined, signal)).json();
   const list: any[] = Array.isArray(body?.data) ? body.data : [];

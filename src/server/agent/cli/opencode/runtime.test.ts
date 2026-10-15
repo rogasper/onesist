@@ -25,6 +25,7 @@ const server = Bun.serve({
     if (req.headers.get("authorization") !== basicAuth("pw-runtime")) return new Response("no", { status: 401 });
     const p = new URL(req.url).pathname;
     if (p === "/api/info") return Response.json({ version: "2.0.29" });
+    if (p === "/api/session/ses_a/fork") return Response.json({ data: { id: "ses_a_fork" } });
     if (p === "/api/model") {
       modelCalls++;
       return Response.json({ data: models });
@@ -105,4 +106,8 @@ test("a wrong password is an error, and the password never shows in the message"
   const status = await opencodeRuntime.probe(provider({ apiKey: "salah-rahasia" }));
   expect(status.state).toBe("error");
   expect(status.message).not.toContain("salah-rahasia");
+});
+
+test("the OpenCode runtime forks a session on the provider's own server", async () => {
+  expect(await opencodeRuntime.forkSession!(provider(), "ses_a")).toBe("ses_a_fork");
 });

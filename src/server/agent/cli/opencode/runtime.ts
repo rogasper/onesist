@@ -9,7 +9,7 @@ import type { ModelOptionDescriptor, RuntimeStatus } from "~/lib/runtime-types";
 import type { ProviderRow } from "~/server/agent/config";
 import type { CliRuntime, CliTurnInput, RuntimeModel } from "~/server/agent/runtime/types";
 import type { PermissionMode, ThreadMode } from "~/server/agent/types";
-import { ocInfo, ocListModels, type OcModel, type OpenCodeConnection } from "./client";
+import { ocForkSession, ocInfo, ocListModels, type OcModel, type OpenCodeConnection } from "./client";
 import { getOpenCodeConnection } from "./server";
 import { openCodeTargetOf } from "./target";
 import { startOpenCodeTurn } from "./turn";
@@ -120,5 +120,9 @@ export const opencodeRuntime: CliRuntime = {
       onSessionCreated: input.onSessionCreated,
       mcp: input.mcp,
     });
+  },
+  async forkSession(provider: ProviderRow, sessionId: string): Promise<string> {
+    const conn = await getOpenCodeConnection(openCodeTargetOf(provider));
+    return ocForkSession(conn, sessionId);
   },
 };

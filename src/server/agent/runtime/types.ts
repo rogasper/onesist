@@ -48,4 +48,6 @@ export interface CliRuntime {
   probe(provider: ProviderRow): Promise<RuntimeStatus>;
   listModels(provider: ProviderRow, opts?: { force?: boolean }): Promise<RuntimeModel[]>;
   startTurn(input: CliTurnInput): Promise<CliTurn>;
+  /** A copy of a session with its whole history, when the runtime can fork natively (Fase 4B). */
+  forkSession?(provider: ProviderRow, sessionId: string): Promise<string>;
 }

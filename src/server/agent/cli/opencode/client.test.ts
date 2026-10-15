@@ -7,7 +7,7 @@
 import { afterAll, expect, test } from "bun:test";
 import {
   basicAuth, ocCreateSession, ocInfo, ocInterrupt, ocListModels, ocOpenEvents, ocPrompt,
-  ocReplyPermission, ocSetModel, ocUpdatePermissions, parseModelRef, type OpenCodeConnection,
+  ocReplyPermission, ocSetModel, ocUpdatePermissions, parseModelRef, type OpenCodeConnection, ocForkSession,
 } from "./client";
 
 type Call = { method: string; path: string; body: any; auth: string | null };
@@ -46,6 +46,8 @@ const server = Bun.serve({
         { headers: { "Content-Type": "text/event-stream" } },
       );
     }
+    if (url.pathname === "/api/session/ses_parent/fork" && req.method === "POST") return Response.json({ data: { id: "ses_child", fork: true } });
+    if (url.pathname === "/api/session/ses_nofork/fork") return Response.json({ data: {} });
     return new Response(null, { status: 204 });
   },
 });
@@ -129,4 +131,13 @@ test("the event stream yields events across chunk boundaries", async () => {
   const types: string[] = [];
   for await (const e of await ocOpenEvents(conn, new AbortController().signal)) types.push(e.type);
   expect(types).toEqual(["one", "two"]);
+});
+
+test("forking a session copies its whole history into a new one and returns its id", async () => {
+  expect(await ocForkSession(conn, "ses_parent")).toBe("ses_child");
+  expect(last()).toMatchObject({ method: "POST", path: "/api/session/ses_parent/fork", body: {} });
+});
+
+test("a fork without an id is an error", async () => {
+  await expect(ocForkSession(conn, "ses_nofork")).rejects.toThrow("id sesi cabang");
 });
