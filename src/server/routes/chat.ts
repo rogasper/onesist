@@ -102,6 +102,7 @@ import { normalizeMaxSteps } from "~/server/agent/types";
 import { nextModelOptionsJson, parseModelOptions } from "~/lib/model-options";
 import { findToolOutput } from "~/server/agent/tool-output";
 import { forkForChat } from "~/server/agent/fork";
+import { mergeBackIntoParent, threadLineage } from "~/server/agent/merge-back";
 import { viewMessages } from "~/server/agent/tool-output-view";
 import { terminalResumeCommand } from "~/server/agent/cli/opencode/resume";
 import { runtimeCapabilities } from "~/server/agent/runtime/registry";
@@ -262,6 +263,8 @@ router.get("chat/threads/:id", async (ctx) => {
   const root = projectRootOf(thread.projectId);
   return json({
     thread: publicThread(thread),
+    // Fase 4B: where a branch came from and how much of its work is not merged back yet.
+    lineage: threadLineage(thread),
     // A run may still be working after the client left (see the stream route).
     // The UI shows that state and waits for the `chat:run` event instead of
     // presenting the transcript as finished.
@@ -1056,6 +1059,13 @@ router.get("chat/threads/:id/terminal-command", async (ctx) => {
   const command = provider ? terminalResumeCommand(provider, thread.cliSessionId ?? null) : null;
   if (!command) return json({ error: "Thread ini belum punya sesi OpenCode untuk dilanjutkan di terminal." }, 409);
   return json({ command });
+});
+
+// Fase 4B: bring a branch's work back to its parent thread.
+router.post("chat/threads/:id/merge-back", async (ctx) => {
+  const result = mergeBackIntoParent(ctx.params.id);
+  if (!result.ok) return json({ error: result.error }, result.status);
+  return json({ parentThreadId: result.parentThreadId, included: result.included, omitted: result.omitted });
 });
 
 router.get("chat/threads/:id/stream", async (ctx) => {

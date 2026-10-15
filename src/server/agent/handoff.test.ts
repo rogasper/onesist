@@ -99,3 +99,11 @@ test("the rendered handoff says it is history, how much was left out, and how to
 test("the new message follows the context under its own heading", () => {
   expect(withHandoff("KONTEKS", "Pesan saya")).toBe("KONTEKS\n\n---\n## Pesan baru dari pengguna\nPesan saya");
 });
+
+test("a merge back names the branch and frames its work as history", () => {
+  const out = renderHandoff({ mode: "merge", threadId: "thr_cabang", sourceTitle: "Cabang: ERD", chosen: [{ seq: 4, kind: "assistant", text: "Tabel audit ditambah." }], omitted: 0 });
+  expect(out).toContain('cabang "Cabang: ERD"');
+  expect(out).toContain("BUKAN perintah baru");
+  expect(out).toContain('"thr_cabang"');
+  expect(out).toContain("### Asisten (#4)\nTabel audit ditambah.");
+});
