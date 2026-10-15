@@ -162,3 +162,22 @@ test("the options list the repos, their worktrees, and a default branch for the 
   expect(opts.defaultBranch.startsWith("onesist/opsi-baru-")).toBe(true);
   expect(opts.current.label).toBe("Root project");
 });
+
+test.skipIf(process.platform === "win32")("a new worktree runs the repo's setup command; an existing one does not", async () => {
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".agents", "onesist-worktree.json"), JSON.stringify({ setup: { "input/code/api": "echo terpasang > setup.txt" } }));
+  try {
+    const t = newThread("Setup");
+    const res = await setThreadWorkspace(t.id, { strategy: "worktree", repo: "input/code/api", branch: "onesist/setup" }, { baseDir: base });
+    expect(res.ok && res.setupStarted).toBe(true);
+    const wt = store.getThread(t.id)!.workspacePath!;
+    for (let i = 0; i < 50 && !fs.existsSync(path.join(wt, "setup.txt")); i++) await Bun.sleep(20);
+    expect(fs.readFileSync(path.join(wt, "setup.txt"), "utf-8").trim()).toBe("terpasang");
+
+    const t2 = newThread("Setup ada");
+    const again = await setThreadWorkspace(t2.id, { strategy: "existing_worktree", repo: "input/code/api", path: wt }, { baseDir: base });
+    expect(again.ok && again.setupStarted).toBe(false);
+  } finally {
+    fs.rmSync(path.join(root, ".agents", "onesist-worktree.json"), { force: true });
+  }
+});
