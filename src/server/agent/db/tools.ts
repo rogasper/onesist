@@ -10,7 +10,6 @@
 import { z } from "zod";
 import { tool } from "../ai";
 import { runReadOnlyQuery } from "~/server/db/client";
-import { handleApiRequest } from "~/server/api-router";
 import { DB_LIMITS, checkStatement, visibleColumns } from "./guard";
 
 export interface DbToolContext {
@@ -153,6 +152,9 @@ export function buildDbTools(ctx: DbToolContext) {
         );
       }
       const realPath = `/api/${resolved}`;
+      // Loaded lazily: a static import makes api-router → routes → mcp → registry → here a cycle,
+      // and the MCP route module cannot be loaded first without a TDZ error on `mcpRouter`.
+      const { handleApiRequest } = await import("~/server/api-router");
       const res = await handleApiRequest(
         new Request(`http://localhost${realPath}`, {
           method,

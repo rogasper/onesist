@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Dialog, DialogRoot } from "@cloudflare/kumo";
 import { ArrowLeft, Eye, EyeSlash, Plus, X } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
+import { providerLogo } from "~/lib/provider-logo";
 import {
   draftFingerprint,
   storedModelIds,
@@ -789,6 +790,9 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
                       <span className={`w-2 h-2 rounded-full shrink-0 ${tone}`} />
                       <span className="grid gap-0.5 min-w-0 flex-1">
                         <span className="flex items-center gap-2">
+                          {providerLogo(p) ? (
+                            <img src={providerLogo(p)!} alt="" aria-hidden="true" className="h-4 w-4 shrink-0 object-contain dark:invert" />
+                          ) : null}
                           <span className="text-sm font-medium text-kumo-default truncate">{p.name}</span>
                           {p.isDefault ? <span className="text-sm text-kumo-subtle">· default</span> : null}
                           {p.source === "env" ? <span className="text-sm text-kumo-subtle">· environment</span> : null}

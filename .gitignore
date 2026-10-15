@@ -21,6 +21,8 @@ plan
 # Secret HMAC untuk approval tool agent (dibuat saat runtime, per instalasi).
 # Jangan pernah masuk repo: siapa pun yang memegangnya bisa memalsukan approval.
 agent-approval.secret
+# Token MCP untuk agent CLI di luar Onesist (dibuat saat runtime, di sebelah data.db).
+mcp-token.secret
 # SIT confidential — jangan commit Excel
 docs/SIT - EHS FIF.xlsx
 .playwright-mcp/

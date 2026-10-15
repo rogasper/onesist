@@ -237,6 +237,7 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     // Fase 5.5: harga per juta token untuk perkiraan biaya (diisi user).
     "ALTER TABLE llm_providers ADD COLUMN input_price_per_mtok REAL",
     "ALTER TABLE llm_providers ADD COLUMN output_price_per_mtok REAL",
+    "ALTER TABLE chat_threads ADD COLUMN cli_session_id TEXT",
   ];
   for (const sql of statements) {
     try { runSql(sql); } catch {}

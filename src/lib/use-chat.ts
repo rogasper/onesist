@@ -101,6 +101,8 @@ export interface ChatProviderOption {
   source: string;
   isDefault: boolean;
   apiStyle: string;
+  cliAgent?: string | null;
+  preset?: string | null;
   /** The model reads pictures (set in provider settings). */
   supportsVision?: boolean;
   envFallback: boolean;

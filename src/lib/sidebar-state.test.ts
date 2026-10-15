@@ -5,7 +5,7 @@
  *   bun test src/lib/sidebar-state.test.ts
  */
 import { expect, test } from "bun:test";
-import { foldSidebarForChat, getSidebarChoice, getSidebarOpen, restoreSidebarAfterChat, setSidebarOpen } from "./sidebar-state";
+import { foldSidebarForChat, getSidebarChoice, getSidebarOpen, isSidebarToggleKey, restoreSidebarAfterChat, setSidebarOpen } from "./sidebar-state";
 
 test("the chat folds the sidebar on a narrow window and restores it when it closes", () => {
   setSidebarOpen(true);
@@ -39,4 +39,20 @@ test("a change by hand while the chat folds the sidebar ends the fold", () => {
   foldSidebarForChat(1280);
   setSidebarOpen(true);
   expect(getSidebarOpen()).toBe(true);
+});
+
+test("Ctrl+B and Cmd+B toggle the sidebar, and only those keys without Alt or Shift", () => {
+  const base = { key: "b", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, targetEditable: false };
+  expect(isSidebarToggleKey({ ...base, ctrlKey: true })).toBe(true);
+  expect(isSidebarToggleKey({ ...base, metaKey: true })).toBe(true);
+  expect(isSidebarToggleKey({ ...base })).toBe(false);
+  expect(isSidebarToggleKey({ ...base, ctrlKey: true, altKey: true })).toBe(false);
+  expect(isSidebarToggleKey({ ...base, ctrlKey: true, shiftKey: true })).toBe(false);
+  expect(isSidebarToggleKey({ ...base, ctrlKey: true, key: "p" })).toBe(false);
+});
+
+test("the shortcut stays out of editors, where Cmd+B is bold", () => {
+  const base = { key: "b", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false };
+  expect(isSidebarToggleKey({ ...base, targetEditable: true })).toBe(false);
+  expect(isSidebarToggleKey({ ...base, targetEditable: false })).toBe(true);
 });

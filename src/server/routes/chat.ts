@@ -17,6 +17,7 @@ import { db } from "~/server/db/client";
 import { apiEndpoints, apiSpecs, chatThreads, erds, fsdSessions, projects, tasks, testCases } from "~/server/db/schema";
 import { consumeStream, createUIMessageStreamResponse, toUIMessageStream, type UIMessage } from "~/server/agent/ai";
 import { makeRunId, startTurn } from "~/server/agent/agent";
+import { startCliTurn } from "~/server/agent/cli/start-cli-turn";
 import {
   ENV_PROVIDER_ID,
   envBootstrapProvider,
@@ -489,7 +490,8 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
   }
 
   // V6: a full thread is summarised before the run, so the first request is not over budget.
-  await compactBeforeTurn(getThread(thread.id)!, root, provider);
+  // A CLI agent keeps and compacts its own context; Onesist's compaction would call a model it cannot build.
+  if (provider.apiStyle !== "cli") await compactBeforeTurn(getThread(thread.id)!, root, provider);
 
   /**
    * The model's history is read from the database, not from the request body.
@@ -550,7 +552,9 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
 
   let result;
   try {
-    result = await startTurn({
+    if (provider.apiStyle === "cli") {
+      result = await startCliTurn({ runId, thread: current, root, provider, lastUser: lastUser as UIMessage | undefined });
+    } else result = await startTurn({
       runId,
       threadId: current.id,
       projectId: current.projectId,
@@ -1300,6 +1304,9 @@ router.get("chat/providers", async () => {
       source: p.source,
       isDefault: p.isDefault,
       apiStyle: p.apiStyle,
+      // Which logo the picker shows (src/lib/provider-logo.ts).
+      cliAgent: p.cliAgent ?? null,
+      preset: p.preset ?? null,
       envFallback: p.id === ENV_PROVIDER_ID,
     })),
   });
