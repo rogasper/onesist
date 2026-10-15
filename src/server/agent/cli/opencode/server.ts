@@ -22,6 +22,7 @@ interface ServerState {
   conn: OpenCodeConnection | null;
   starting: Promise<OpenCodeConnection> | null;
   exitHooked: boolean;
+  signalHooked: boolean;
 }
 
 const state: ServerState = ((globalThis as any).__onesistOpenCode ??= {
@@ -29,6 +30,7 @@ const state: ServerState = ((globalThis as any).__onesistOpenCode ??= {
   conn: null,
   starting: null,
   exitHooked: false,
+  signalHooked: false,
 });
 
 function freePort(): Promise<number> {
@@ -109,6 +111,17 @@ async function spawnServer(binary: string): Promise<OpenCodeConnection> {
   if (!state.exitHooked) {
     state.exitHooked = true;
     process.once("exit", () => stopOpenCodeServer());
+  }
+  if (!state.signalHooked) {
+    state.signalHooked = true;
+    // Bun does not run "exit" listeners when a signal ends the process, so the server
+    // would outlive Onesist and keep its port. Stop it, then end with the usual code.
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+      process.once(signal, () => {
+        stopOpenCodeServer();
+        process.exit(signal === "SIGINT" ? 130 : 143);
+      });
+    }
   }
   return conn;
 }
