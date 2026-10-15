@@ -38,6 +38,7 @@ import { MENTION_KINDS, type MentionKind } from "~/lib/mention-ref";
 import { parseReasoningLevel } from "~/server/agent/reasoning";
 import { imagePartProblem } from "~/lib/image-attachment";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
+import { loadMcpToolsForTurn } from "~/server/mcp/client";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
 import { activeRuns, finishRun, getRun, getRunForThread, listPendingApprovals, listPendingQuestions, queueUserMessage, resolveApproval, resolveQuestion, stopRun } from "~/server/agent/run-registry";
 import {
@@ -56,6 +57,7 @@ import {
   listThreads,
   listToolCalls,
   newId,
+  messageText,
   recordThreadRead,
   recordToolCall,
   searchChatMessages,
@@ -550,6 +552,9 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
 
   let result;
   try {
+    const lastUserText = lastUser ? messageText(lastUser) : "";
+    const { tools: externalTools } = await loadMcpToolsForTurn(lastUserText);
+
     result = await startTurn({
       runId,
       threadId: current.id,
@@ -564,6 +569,7 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
       messages: modelMessages,
       summary: current.summary,
       onFileChange,
+      externalTools,
       // FR-C12: remember what the agent has seen so a later external edit can be
       // reported against it.
       onFileRead: ({ path: readPath, hash }) => {
