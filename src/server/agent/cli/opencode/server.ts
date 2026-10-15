@@ -2,8 +2,9 @@
  * The `opencode serve` process behind Onesist's OpenCode chat. One 2.x server
  * serves every project folder, so there is one per Onesist server: spawned on
  * first use on 127.0.0.1 with a random password (OpenCode 2 always requires one),
- * reused afterwards, killed when Onesist exits. SA_OPENCODE_URL attaches to a
- * server the user runs instead (decision 11: spawn by default, attach optional).
+ * reused afterwards, killed when Onesist exits. A provider's Server URL (or
+ * SA_OPENCODE_URL) attaches to a server the user runs instead (decision 11: spawn by
+ * default, attach optional).
  *
  * State lives on globalThis: Vite's HMR re-evaluates modules, and a module-level
  * handle would orphan the running server on every reload.
@@ -112,7 +113,14 @@ async function spawnServer(binary: string): Promise<OpenCodeConnection> {
   return conn;
 }
 
-export async function getOpenCodeConnection(opts: { binary: string }): Promise<OpenCodeConnection> {
+export async function getOpenCodeConnection(opts: {
+  binary: string;
+  /** A server the user runs themselves; wins over SA_OPENCODE_URL. */
+  serverUrl?: string | null;
+  serverPassword?: string | null;
+}): Promise<OpenCodeConnection> {
+  const own = opts.serverUrl?.trim();
+  if (own) return { baseUrl: own.replace(/\/+$/, ""), authorization: basicAuth(opts.serverPassword ?? "") };
   const attach = process.env.SA_OPENCODE_URL?.trim();
   if (attach) {
     return { baseUrl: attach.replace(/\/+$/, ""), authorization: basicAuth(process.env.SA_OPENCODE_PASSWORD ?? "") };

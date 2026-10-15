@@ -6,6 +6,7 @@ import type { UIMessage } from "~/server/agent/ai";
 import type { ProviderRow } from "~/server/agent/config";
 import { updateThread, type ThreadRow } from "~/server/agent/store";
 import type { PermissionMode, ThreadMode } from "~/server/agent/types";
+import { openCodeTargetOf } from "./opencode/target";
 import { startOpenCodeTurn, type OpenCodeTurn } from "./opencode/turn";
 
 export function textOfMessage(message: { parts?: unknown[] } | undefined): string {
@@ -34,7 +35,7 @@ export async function startCliTurn(input: {
     threadId: thread.id,
     projectId: thread.projectId,
     root: input.root,
-    binary: provider.cliPath?.trim() || "opencode",
+    ...openCodeTargetOf(provider),
     permissionMode: thread.permissionMode as PermissionMode,
     threadMode: thread.mode as ThreadMode,
     model: thread.model ?? provider.model ?? null,

@@ -24,6 +24,9 @@ export interface OpenCodeTurnInput {
   projectId: string;
   root: string;
   binary: string;
+  /** A server the user runs themselves (provider setting); null = spawn. */
+  serverUrl?: string | null;
+  serverPassword?: string | null;
   permissionMode: PermissionMode;
   threadMode: ThreadMode;
   /** `provider/model`, or null for OpenCode's default model. */
@@ -43,7 +46,7 @@ type Part = TextStreamPart<ToolSet>;
 
 export async function startOpenCodeTurn(input: OpenCodeTurnInput): Promise<OpenCodeTurn> {
   const run = createRun({ runId: input.runId, threadId: input.threadId, projectId: input.projectId });
-  const conn = await getOpenCodeConnection({ binary: input.binary });
+  const conn = await getOpenCodeConnection({ binary: input.binary, serverUrl: input.serverUrl, serverPassword: input.serverPassword });
   const rules = permissionRules(input.permissionMode, input.threadMode);
   const model = parseModelRef(input.model);
 

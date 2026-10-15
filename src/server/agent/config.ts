@@ -460,7 +460,8 @@ export async function discoverModels(config: ProviderRow): Promise<DiscoverModel
     try {
       const { getOpenCodeConnection } = await import("./cli/opencode/server");
       const { ocListModels } = await import("./cli/opencode/client");
-      const conn = await getOpenCodeConnection({ binary: config.cliPath?.trim() || "opencode" });
+      const { openCodeTargetOf } = await import("./cli/opencode/target");
+      const conn = await getOpenCodeConnection(openCodeTargetOf(config));
       const listed = await ocListModels(conn);
       const discovered: ModelInfo[] = listed.map((m) => ({ id: `${m.providerID}/${m.id}`, displayName: m.name }));
       return {

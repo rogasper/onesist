@@ -78,3 +78,16 @@ test("SA_OPENCODE_URL attaches to a running server without spawning", async () =
   expect(conn).toEqual({ baseUrl: "http://127.0.0.1:9", authorization: basicAuth("rahasia") });
   expect(openCodeServerPid()).toBeNull();
 });
+
+test("a provider's own server URL attaches with its password, ahead of SA_OPENCODE_URL", async () => {
+  process.env.SA_OPENCODE_URL = "http://127.0.0.1:9";
+  process.env.SA_OPENCODE_PASSWORD = "env-pw";
+  const conn = await getOpenCodeConnection({ binary: path.join(dir, "tidak-ada"), serverUrl: "http://127.0.0.1:8/", serverPassword: "milik-user" });
+  expect(conn).toEqual({ baseUrl: "http://127.0.0.1:8", authorization: basicAuth("milik-user") });
+  expect(openCodeServerPid()).toBeNull();
+});
+
+test("a server URL without a password attaches with an empty password", async () => {
+  const conn = await getOpenCodeConnection({ binary: "opencode", serverUrl: "http://127.0.0.1:8", serverPassword: null });
+  expect(conn.authorization).toBe(basicAuth(""));
+});
