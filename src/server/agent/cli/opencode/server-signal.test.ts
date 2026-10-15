@@ -53,20 +53,26 @@ test("a SIGTERM to Onesist stops the OpenCode server it started", async () => {
   const decoder = new TextDecoder();
   let text = "";
   let childPid = 0;
-  while (!childPid) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    text += decoder.decode(value, { stream: true });
-    const match = text.match(/READY (\d+)/);
-    if (match) childPid = Number(match[1]);
+  try {
+    while (!childPid) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      const match = text.match(/READY (\d+)/);
+      if (match) childPid = Number(match[1]);
+    }
+    expect(childPid).toBeGreaterThan(0);
+    reader.releaseLock();
+
+    proc.kill("SIGTERM");
+    await proc.exited;
+
+    // The child is reaped asynchronously after the helper exits; allow a short grace period.
+    for (let i = 0; i < 30 && alive(childPid); i++) await Bun.sleep(100);
+    expect(alive(childPid)).toBe(false);
+  } finally {
+    // A failing run must not leave its fake server behind (it would hold the test's port forever).
+    if (childPid && alive(childPid)) process.kill(childPid, "SIGKILL");
+    if (!proc.killed) proc.kill("SIGKILL");
   }
-  expect(childPid).toBeGreaterThan(0);
-  reader.releaseLock();
-
-  proc.kill("SIGTERM");
-  await proc.exited;
-
-  // The child is reaped asynchronously after the helper exits; allow a short grace period.
-  for (let i = 0; i < 30 && alive(childPid); i++) await Bun.sleep(100);
-  expect(alive(childPid)).toBe(false);
 });
