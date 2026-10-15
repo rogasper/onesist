@@ -28,7 +28,9 @@ type EventName =
   | "chat:provider-retry"
   // Context compaction of a thread: start, then done or failed. Lets the transcript show a
   // divider while the summary is written, without waiting for the turn's stream.
-  | "chat:compaction";
+  | "chat:compaction"
+  // Fase 4C: a thread's workspace moved, or its worktree setup started or finished.
+  | "chat:workspace";
 
 interface EventPayload {
   type: EventName;
@@ -126,6 +128,10 @@ class AppEventBus extends EventEmitter {
 
   emitChatTurn(input: { threadId: string; runId: string }) {
     this.emitAppEvent({ type: "chat:turn", data: { ...input } });
+  }
+
+  emitChatWorkspace(input: { threadId: string }) {
+    this.emitAppEvent({ type: "chat:workspace", data: { ...input } });
   }
 
   emitChatProviderRetry(input: { threadId: string; status: number; attempt: number }) {
