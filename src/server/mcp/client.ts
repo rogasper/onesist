@@ -48,7 +48,12 @@ export async function getMcpClient(config: McpServerConfig): Promise<MCPClient> 
   let transportConfig: any;
   const headers: Record<string, string> = {};
   if (config.authKind === "header" && config.authHeader && config.authValue) {
-    headers[config.authHeader.trim()] = config.authValue.trim();
+    let val = config.authValue.trim();
+    const hdr = config.authHeader.trim();
+    if (hdr.toLowerCase() === "authorization" && !/^bearer\s+/i.test(val)) {
+      val = `Bearer ${val}`;
+    }
+    headers[hdr] = val;
   }
 
   if (config.transport === "stdio" && config.command) {
