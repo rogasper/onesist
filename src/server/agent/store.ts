@@ -8,6 +8,7 @@
 import crypto from "node:crypto";
 import { and, asc, desc, eq, inArray, lt, max, sql } from "drizzle-orm";
 import { db } from "~/server/db/client";
+import { capToolOutputsForStore } from "~/server/agent/tool-output";
 import { chatCheckpoints, chatMessages, chatQueue, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
 import { MAX_STEPS_DEFAULT, type FileOp, type PermissionMode, type ThreadMode } from "./types";
 
@@ -153,7 +154,7 @@ export function appendMessage(input: {
       threadId: input.threadId,
       seq: nextSeq(input.threadId),
       role: input.role,
-      contentJson: input.parts === undefined ? null : JSON.stringify(input.parts),
+      contentJson: input.parts === undefined ? null : JSON.stringify(capToolOutputsForStore(input.parts)),
       toolCallsJson: input.toolCalls === undefined ? null : JSON.stringify(input.toolCalls),
       toolCallId: input.toolCallId ?? null,
       kind: input.kind ?? null,
