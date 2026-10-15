@@ -3,6 +3,7 @@ import { Button, Dialog, DialogRoot } from "@cloudflare/kumo";
 import { ArrowLeft, Eye, EyeSlash, Plus, X } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { providerLogo } from "~/lib/provider-logo";
+import { cliSettingFields } from "~/lib/cli-settings";
 import { PresetSelect } from "~/components/providers/PresetSelect";
 import {
   draftFingerprint,
@@ -101,6 +102,7 @@ const emptyDraft = (): ProviderDraft => ({
   skipTlsVerify: false,
   enableThinking: false,
   supportsVision: false,
+  cliPath: "",
 });
 
 function draftFrom(p: ProviderSummary): ProviderDraft {
@@ -122,6 +124,7 @@ function draftFrom(p: ProviderSummary): ProviderDraft {
     skipTlsVerify: p.skipTlsVerify,
     enableThinking: p.enableThinking,
     supportsVision: p.supportsVision,
+    cliPath: p.cliPath ?? "",
     isDefault: p.isDefault,
   };
 }
@@ -281,6 +284,8 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
   const current = selected && selected !== "new" ? providers.find((p) => p.id === selected) ?? null : null;
   const isNew = selected === "new";
   const readOnly = current?.source === "env";
+  const isCli = draft.apiStyle === "cli";
+  const cliAgent = presets.find((p) => p.id === draft.preset)?.cliAgent ?? current?.cliAgent ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -460,41 +465,69 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
               <input className={inputCls} value={draft.name} disabled={readOnly} placeholder="Mis. DeepSeek — kerja" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
             </FieldRow>
 
-            <FieldRow label="API key" hint={current?.apiKeyMasked ? `Tersimpan: ${current.apiKeyMasked}. Biarkan kosong bila tidak ingin mengubahnya.` : "Disimpan lokal di data.db aplikasi dan tidak pernah dikirim ke tampilan."}>
-              <div className="relative">
-                <input
-                  className={`${inputCls} ${MONO} pr-10`}
-                  type={revealKey ? "text" : "password"}
-                  autoComplete="off"
-                  value={draft.apiKey}
-                  disabled={readOnly}
-                  placeholder={current?.hasApiKey ? "tidak diubah" : "tempel API key di sini"}
-                  onChange={(e) => setDraft((d) => ({ ...d, apiKey: e.target.value }))}
-                />
-                <button className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle" onClick={() => setRevealKey((v) => !v)} title={revealKey ? "Sembunyikan" : "Tampilkan"}>
-                  {revealKey ? <EyeSlash size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </FieldRow>
+            {isCli
+              ? cliSettingFields(cliAgent).map((f) => (
+                  <FieldRow
+                    key={f.column}
+                    label={f.label}
+                    hint={f.column === "apiKey" && current?.apiKeyMasked ? `Tersimpan: ${current.apiKeyMasked}. Biarkan kosong bila tidak ingin mengubahnya.` : f.hint}
+                  >
+                    <input
+                      className={`${inputCls} ${MONO}`}
+                      type={f.secret ? "password" : "text"}
+                      autoComplete="off"
+                      value={draft[f.column]}
+                      disabled={readOnly}
+                      placeholder={f.secret && current?.hasApiKey ? "tidak diubah" : f.placeholder}
+                      onChange={(e) => setDraft((d) => ({ ...d, [f.column]: e.target.value }))}
+                    />
+                  </FieldRow>
+                ))
+              : null}
 
-            {draft.apiStyle !== "cli" ? (
+            {!isCli ? (
+              <>
+              <FieldRow label="API key" hint={current?.apiKeyMasked ? `Tersimpan: ${current.apiKeyMasked}. Biarkan kosong bila tidak ingin mengubahnya.` : "Disimpan lokal di data.db aplikasi dan tidak pernah dikirim ke tampilan."}>
+                <div className="relative">
+                  <input
+                    className={`${inputCls} ${MONO} pr-10`}
+                    type={revealKey ? "text" : "password"}
+                    autoComplete="off"
+                    value={draft.apiKey}
+                    disabled={readOnly}
+                    placeholder={current?.hasApiKey ? "tidak diubah" : "tempel API key di sini"}
+                    onChange={(e) => setDraft((d) => ({ ...d, apiKey: e.target.value }))}
+                  />
+                  <button className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle" onClick={() => setRevealKey((v) => !v)} title={revealKey ? "Sembunyikan" : "Tampilkan"}>
+                    {revealKey ? <EyeSlash size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </FieldRow>
+              </>
+            ) : null}
+
+            {!isCli ? (
               <FieldRow label="Endpoint" hint="Sertakan versi API-nya. Aplikasi tidak menambahkan /v1 sendiri.">
                 <input className={`${inputCls} ${MONO}`} value={draft.endpoint} disabled={readOnly} placeholder="https://api.contoh.com/v1" onChange={(e) => setDraft((d) => ({ ...d, endpoint: e.target.value }))} />
               </FieldRow>
             ) : null}
 
-            <FieldRow label="API">
-              <Segmented
-                value={draft.apiStyle}
-                disabled={readOnly}
-                options={API_STYLES.filter((s) => s.value !== "cli" || draft.apiStyle === "cli").slice(0, 4)}
-                onChange={(v) => setDraft((d) => ({ ...d, apiStyle: v }))}
-              />
-            </FieldRow>
+            {!isCli ? (
+              <>
+              <FieldRow label="API">
+                <Segmented
+                  value={draft.apiStyle}
+                  disabled={readOnly}
+                  options={API_STYLES.filter((s) => s.value !== "cli" || draft.apiStyle === "cli").slice(0, 4)}
+                  onChange={(v) => setDraft((d) => ({ ...d, apiStyle: v }))}
+                />
+              </FieldRow>
 
-            <FieldRow label="Autentikasi">
-              <Segmented value={draft.authMethod} disabled={readOnly} options={AUTH_METHODS} onChange={(v) => setDraft((d) => ({ ...d, authMethod: v }))} />
-            </FieldRow>
+              <FieldRow label="Autentikasi">
+                <Segmented value={draft.authMethod} disabled={readOnly} options={AUTH_METHODS} onChange={(v) => setDraft((d) => ({ ...d, authMethod: v }))} />
+              </FieldRow>
+              </>
+            ) : null}
 
             <FieldRow
               label="Model"
@@ -506,10 +539,9 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
             >
               <div className="flex gap-2">
                 <input className={`${inputCls} flex-1`} value={draft.model} disabled={readOnly} placeholder="deepseek-flash" onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))} />
-                {draft.apiStyle !== "cli" ? (
-                  <Button
+                <Button
                     variant="secondary"
-                    disabled={!draft.endpoint?.trim()}
+                    disabled={!isCli && !draft.endpoint?.trim()}
                     onClick={async () => {
                       setModelsNote(null);
                       try {
@@ -528,7 +560,6 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
                   >
                     Ambil daftar
                   </Button>
-                ) : null}
               </div>
               {models.length ? (
                 <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto mt-1">

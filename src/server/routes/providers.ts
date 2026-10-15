@@ -401,6 +401,8 @@ router.post("providers/models", async (ctx) => {
     ...body,
     id: base?.id ?? "draft",
   } as ProviderRow;
+  // An empty secret in the form means "unchanged", as on save: keep the stored one.
+  if (base && !(typeof body.apiKey === "string" && body.apiKey.trim())) candidate.apiKey = base.apiKey;
 
   if (!candidate.endpoint?.trim() && candidate.apiStyle !== "cli") {
     return json({ models: [], supported: false, message: "Isi endpoint dulu supaya daftar model bisa diambil." });

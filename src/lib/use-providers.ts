@@ -94,6 +94,8 @@ export interface ProviderDraft {
   skipTlsVerify: boolean;
   enableThinking: boolean;
   supportsVision: boolean;
+  /** CLI provider: the binary (empty = the command on PATH). */
+  cliPath: string;
   isDefault?: boolean;
 }
 
@@ -259,6 +261,7 @@ export function draftFingerprint(draft: Partial<ProviderDraft>): string {
     draft.model,
     draft.proxyUrl,
     draft.skipTlsVerify,
+    draft.cliPath,
   ]);
 }
 
