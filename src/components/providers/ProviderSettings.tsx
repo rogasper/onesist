@@ -3,6 +3,7 @@ import { Button, Dialog, DialogRoot } from "@cloudflare/kumo";
 import { ArrowLeft, Eye, EyeSlash, Plus, X } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { providerLogo } from "~/lib/provider-logo";
+import { PresetSelect } from "~/components/providers/PresetSelect";
 import {
   draftFingerprint,
   storedModelIds,
@@ -436,19 +437,10 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
           <div className="mx-auto w-full max-w-4xl px-8 py-6 grid gap-6">
             {isNew ? (
               <FieldRow label="Provider" hint={presets.find((p) => p.id === draft.preset)?.hint}>
-                {/* A native <select> cannot show pictures inside its options, so the chosen provider's logo sits beside it. */}
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const chosen = presets.find((p) => p.id === draft.preset);
-                    const logo = chosen ? providerLogo({ apiStyle: chosen.apiStyle, cliAgent: chosen.cliAgent, preset: chosen.id }) : null;
-                    return logo ? <img src={logo} alt="" aria-hidden="true" className="h-5 w-5 shrink-0 object-contain dark:invert" /> : null;
-                  })()}
-                <select
-                  className={`${inputCls} flex-1 min-w-0`}
+                <PresetSelect
+                  presets={presets}
                   value={draft.preset}
-                  onChange={(e) => {
-                    const p = presets.find((x) => x.id === e.target.value);
-                    if (!p) return;
+                  onChange={(p) => {
                     setDraft((d) => ({
                       ...d,
                       preset: p.id,
@@ -460,14 +452,7 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
                       name: d.name.trim() ? d.name : p.label,
                     }));
                   }}
-                >
-                  {presets.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-                </div>
+                />
               </FieldRow>
             ) : null}
 

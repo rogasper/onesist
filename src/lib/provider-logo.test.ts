@@ -1,25 +1,38 @@
 /**
- * Which logo a provider shows: OpenCode for the OpenCode CLI, the OpenAI mark for every
- * OpenAI-compatible endpoint (completions or responses style). Other providers have none.
+ * Which logo a provider shows: its own brand mark for each preset; a custom endpoint
+ * falls back to the mark of the protocol it speaks; unknown providers have none.
  *
  *   bun test src/lib/provider-logo.test.ts
  */
 import { expect, test } from "bun:test";
-import { OPENAI_LOGO, OPENCODE_LOGO, providerLogo } from "./provider-logo";
+import { ANTHROPIC_LOGO, OPENAI_LOGO, OPENCODE_LOGO, providerLogo } from "./provider-logo";
 
 test("the OpenCode CLI provider shows the OpenCode logo", () => {
   expect(providerLogo({ apiStyle: "cli", cliAgent: "opencode", preset: "cli-opencode" })).toBe(OPENCODE_LOGO);
   expect(providerLogo({ apiStyle: "cli", cliAgent: "opencode", preset: null })).toBe(OPENCODE_LOGO);
 });
 
-test("every OpenAI-compatible provider, custom or preset, shows the OpenAI logo", () => {
-  expect(providerLogo({ apiStyle: "completions", preset: "custom-openai" })).toBe(OPENAI_LOGO);
+test("each preset shows its own brand, not OpenAI's", () => {
   expect(providerLogo({ apiStyle: "completions", preset: "openai" })).toBe(OPENAI_LOGO);
-  expect(providerLogo({ apiStyle: "responses", preset: "custom-openai" })).toBe(OPENAI_LOGO);
+  expect(providerLogo({ apiStyle: "anthropic-messages", preset: "anthropic" })).toBe(ANTHROPIC_LOGO);
+  expect(providerLogo({ apiStyle: "completions", preset: "deepseek" })).toBe("/icons/brand/deepseek.svg");
+  expect(providerLogo({ apiStyle: "completions", preset: "gemini" })).toBe("/icons/brand/googlegemini.svg");
+  expect(providerLogo({ apiStyle: "cli", cliAgent: "claude", preset: "cli-claude" })).toBe("/images/claude.png");
+  expect(providerLogo({ apiStyle: "cli", cliAgent: "codex", preset: "cli-codex" })).toBe("/images/codex.png");
 });
 
-test("other providers have no logo, and other CLI agents do not get OpenCode's", () => {
-  expect(providerLogo({ apiStyle: "anthropic-messages", preset: "anthropic" })).toBeNull();
-  expect(providerLogo({ apiStyle: "cli", cliAgent: "claude", preset: "cli-claude" })).toBeNull();
+test("a custom OpenAI-compatible or Responses endpoint shows the OpenAI mark, an Anthropic-compatible one Anthropic's", () => {
+  expect(providerLogo({ apiStyle: "completions", preset: "custom-openai" })).toBe(OPENAI_LOGO);
+  expect(providerLogo({ apiStyle: "responses", preset: "custom-responses" })).toBe(OPENAI_LOGO);
+  expect(providerLogo({ apiStyle: "anthropic-messages", preset: "custom-anthropic" })).toBe(ANTHROPIC_LOGO);
+});
+
+test("a preset without its own mark shows none, not its protocol's (Groq is OpenAI-compatible but has its own brand)", () => {
+  expect(providerLogo({ apiStyle: "completions", preset: "groq" })).toBeNull();
+  expect(providerLogo({ apiStyle: "completions", preset: "zhipu" })).toBeNull();
+});
+
+test("a provider with no preset id falls back to its protocol, and none without one", () => {
+  expect(providerLogo({ apiStyle: "completions", preset: null })).toBe(OPENAI_LOGO);
   expect(providerLogo({ apiStyle: null, preset: null })).toBeNull();
 });
