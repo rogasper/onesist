@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
@@ -382,6 +382,26 @@ export const chatThreads = sqliteTable(
  * or `unknown` (not captured: large file, or a shell command changed it without a
  * readable snapshot). An `unknown` side cannot be verified, so it cannot be undone.
  */
+/**
+ * The CLI session each provider holds for a thread (Fase 4A). A thread can move between
+ * providers; each CLI provider keeps its own session and has seen the conversation up to
+ * `knownUptoSeq` — its own turns, or what a handoff told it. Native providers have no row:
+ * they read the whole stored history on every turn.
+ */
+export const chatProviderSessions = sqliteTable(
+  "chat_provider_sessions",
+  {
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    providerId: text("provider_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    knownUptoSeq: integer("known_upto_seq").notNull().default(0),
+    updatedAt: text("updated_at").default("datetime('now')"),
+  },
+  (t) => [primaryKey({ columns: [t.threadId, t.providerId] })],
+);
+
 export const chatCheckpoints = sqliteTable(
   "chat_checkpoints",
   {

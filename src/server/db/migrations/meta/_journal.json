@@ -148,6 +148,13 @@
       "when": 1792029472519,
       "tag": "0020_spicy_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1792048525884,
+      "tag": "0021_fuzzy_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

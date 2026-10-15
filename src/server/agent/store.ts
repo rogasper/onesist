@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import { and, asc, desc, eq, inArray, lt, max, sql } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { capToolOutputsForStore } from "~/server/agent/tool-output";
-import { chatCheckpoints, chatMessages, chatQueue, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
+import { chatCheckpoints, chatMessages, chatProviderSessions, chatQueue, chatRuns, chatThreadFiles, chatThreadReads, chatThreads, chatToolCalls, subagents, appSettings } from "~/server/db/schema";
 import { MAX_STEPS_DEFAULT, type FileOp, type PermissionMode, type ThreadMode } from "./types";
 
 export type ThreadRow = typeof chatThreads.$inferSelect;
@@ -93,6 +93,7 @@ export function deleteThread(id: string): void {
   db.delete(chatThreadReads).where(eq(chatThreadReads.threadId, id)).run();
   db.delete(chatMessages).where(eq(chatMessages.threadId, id)).run();
   db.delete(chatRuns).where(eq(chatRuns.threadId, id)).run();
+  db.delete(chatProviderSessions).where(eq(chatProviderSessions.threadId, id)).run();
   db.delete(chatThreads).where(eq(chatThreads.id, id)).run();
   // FTS5 has no foreign keys, so its rows are dropped by hand — otherwise a
   // deleted thread would keep showing up in search results.
@@ -627,4 +628,45 @@ export function deleteAppSubagent(id: string): boolean {
   if (!existing) return false;
   db.delete(subagents).where(eq(subagents.id, id)).run();
   return true;
+}
+
+// ── Provider sessions (Fase 4A) ──────────────────────────────────────────────
+
+export interface ProviderSession {
+  sessionId: string;
+  knownUptoSeq: number;
+}
+
+export function getProviderSession(threadId: string, providerId: string): ProviderSession | null {
+  const row = db
+    .select({ sessionId: chatProviderSessions.sessionId, knownUptoSeq: chatProviderSessions.knownUptoSeq })
+    .from(chatProviderSessions)
+    .where(and(eq(chatProviderSessions.threadId, threadId), eq(chatProviderSessions.providerId, providerId)))
+    .get() as ProviderSession | undefined;
+  return row ?? null;
+}
+
+/** Records (or replaces) the provider's session for the thread and how far it has seen. */
+export function saveProviderSession(threadId: string, providerId: string, sessionId: string, knownUptoSeq: number): void {
+  const updatedAt = new Date().toISOString();
+  db.insert(chatProviderSessions)
+    .values({ threadId, providerId, sessionId, knownUptoSeq, updatedAt })
+    .onConflictDoUpdate({
+      target: [chatProviderSessions.threadId, chatProviderSessions.providerId],
+      set: { sessionId, knownUptoSeq, updatedAt },
+    })
+    .run();
+}
+
+/** The session has seen the thread up to `seq` (never moves backwards). No row: nothing to mark. */
+export function markProviderSessionSeen(threadId: string, providerId: string, seq: number): void {
+  db.update(chatProviderSessions)
+    .set({ knownUptoSeq: sql`max(${chatProviderSessions.knownUptoSeq}, ${seq})`, updatedAt: new Date().toISOString() })
+    .where(and(eq(chatProviderSessions.threadId, threadId), eq(chatProviderSessions.providerId, providerId)))
+    .run();
+}
+
+/** The newest message's seq in the thread; 0 when it has none. */
+export function latestSeq(threadId: string): number {
+  return nextSeq(threadId) - 1;
 }
