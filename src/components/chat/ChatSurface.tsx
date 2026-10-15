@@ -2167,12 +2167,10 @@ function toolState(part: any, turnEnded = false): { tone: "run" | "ok" | "err" |
   return turnEnded ? { tone: "warn", label: "tidak selesai" } : { tone: "run", label: "menunggu" };
 }
 
-type ToolKind = "terminal" | "tulis" | "baca" | "cari" | "web" | "data" | "rencana" | "lain";
+type ToolKind = "terminal" | "tulis" | "baca" | "cari" | "web" | "data" | "rencana" | "mcp" | "lain";
 
-/** What kind of job a tool does. Used to TITLE the group — "Edit 2 files"
- *  is far more informative than a list of tool names, and it is the same
- *  language as the design reference (Codex/ZCode): "Terminal · 2 commands". */
 function toolKind(name: string): ToolKind {
+  if (name.includes("__")) return "mcp";
   switch (name) {
     case "bash":
       return "terminal";
@@ -2205,6 +2203,7 @@ const KIND_META: Record<ToolKind, { icon: Icon; label: string; satuan: string }>
   web: { icon: Globe, label: "Ambil", satuan: "halaman" },
   data: { icon: Database, label: "Data", satuan: "kueri" },
   rencana: { icon: ListChecks, label: "Rencana", satuan: "langkah" },
+  mcp: { icon: Globe, label: "MCP", satuan: "panggilan" },
   lain: { icon: Wrench, label: "Tool", satuan: "langkah" },
 };
 
