@@ -78,3 +78,15 @@ test.skipIf(process.platform === "win32")("the output kept is only the tail", as
   expect(done.tail).toContain("baris-1999");
   expect(done.tail).not.toContain("baris-0\n");
 });
+
+test("after a restart, the last setup result is read back from the transcript", () => {
+  const t = store.createThread({ projectId: "p-setup", title: "Restart" } as any);
+  store.appendMessage({
+    threadId: t.id,
+    role: "system",
+    kind: "workspaceSetupNotice",
+    parts: [{ type: "data-notice", data: { kind: "workspaceSetup", ok: false, exitCode: 2, command: "bun install", tail: "gagal" } }],
+  });
+  expect(setupState(t.id)).toEqual({ state: "failed", command: "bun install", exitCode: 2, tail: "gagal" });
+  expect(setupState("thr_tanpa_setup")).toBeNull();
+});

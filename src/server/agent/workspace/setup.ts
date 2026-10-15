@@ -12,7 +12,10 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { WorkspaceSetupView } from "~/lib/workspace-view";
+import { and, desc, eq } from "drizzle-orm";
 import { appendMessage } from "~/server/agent/store";
+import { db } from "~/server/db/client";
+import { chatMessages } from "~/server/db/schema";
 import { eventBus } from "~/server/realtime/events";
 
 export const SETUP_CONFIG = path.join(".agents", "onesist-worktree.json");
@@ -32,8 +35,34 @@ export function setupCommandFor(projectRoot: string, repoId: string): string | n
   }
 }
 
+/**
+ * The thread's last setup result: this process's record while it runs, otherwise the last
+ * setup notice in the transcript (so the strip still shows it after a restart).
+ */
 export function setupState(threadId: string): WorkspaceSetupView | null {
-  return states.get(threadId) ?? null;
+  const live = states.get(threadId);
+  if (live) return live;
+  // One row, newest first: a thread's whole history is not loaded for each detail view.
+  const row = db
+    .select({ contentJson: chatMessages.contentJson })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.threadId, threadId), eq(chatMessages.kind, "workspaceSetupNotice")))
+    .orderBy(desc(chatMessages.seq))
+    .limit(1)
+    .get() as { contentJson: string | null } | undefined;
+  if (!row?.contentJson) return null;
+  try {
+    const data = JSON.parse(row.contentJson)?.[0]?.data;
+    if (!data) return null;
+    return {
+      state: data.ok ? "ok" : "failed",
+      command: String(data.command ?? ""),
+      exitCode: typeof data.exitCode === "number" ? data.exitCode : null,
+      tail: String(data.tail ?? ""),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function shellFor(command: string, platform: NodeJS.Platform = process.platform): [string, string[]] {
