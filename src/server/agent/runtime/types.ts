@@ -17,6 +17,8 @@ export interface RuntimeModel {
   id: string;
   name: string;
   options: ModelOptionDescriptor[];
+  /** Context window in tokens; null when the runtime does not say. Sizes a handoff (Fase 4A). */
+  contextWindow: number | null;
 }
 
 export interface CliTurnInput {

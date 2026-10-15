@@ -22,6 +22,8 @@ export interface OcModel {
   name: string;
   /** Variant ids the model offers; empty when it has none. */
   variants: string[];
+  /** Context window in tokens (`limit.context`); null when OpenCode does not say. */
+  contextWindow: number | null;
 }
 
 export function basicAuth(password: string): string {
@@ -115,6 +117,7 @@ export async function ocListModels(conn: OpenCodeConnection, signal?: AbortSigna
       providerID: m.providerID,
       name: typeof m.name === "string" ? m.name : m.id,
       variants: variantIds(m.variants),
+      contextWindow: typeof m.limit?.context === "number" && m.limit.context > 0 ? m.limit.context : null,
     }));
 }
 

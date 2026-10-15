@@ -28,7 +28,7 @@ const server = Bun.serve({
         location: { directory: "/x" },
         data: [
           { id: "m1", providerID: "p1", name: "Model Satu", variants: [{ id: "low", settings: {} }, { id: "high", settings: {} }] },
-          { id: "m2", providerID: "p1", name: "Model Dua" },
+          { id: "m2", providerID: "p1", name: "Model Dua", limit: { context: 200000, output: 8000 } },
           { id: "m3", providerID: "p1", name: "Model Tiga", variants: { fast: {}, slow: {} } },
         ],
       });
@@ -118,10 +118,10 @@ test("a failed call throws with the status and the server's text", async () => {
 
 test("models come back with id, provider, name and their variant ids", async () => {
   expect(await ocListModels(conn)).toEqual([
-    { id: "m1", providerID: "p1", name: "Model Satu", variants: ["low", "high"] },
-    { id: "m2", providerID: "p1", name: "Model Dua", variants: [] },
+    { id: "m1", providerID: "p1", name: "Model Satu", variants: ["low", "high"], contextWindow: null },
+    { id: "m2", providerID: "p1", name: "Model Dua", variants: [], contextWindow: 200000 },
     // An object of variants (older shape) still yields its ids.
-    { id: "m3", providerID: "p1", name: "Model Tiga", variants: ["fast", "slow"] },
+    { id: "m3", providerID: "p1", name: "Model Tiga", variants: ["fast", "slow"], contextWindow: null },
   ]);
 });
 

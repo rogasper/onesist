@@ -46,7 +46,7 @@ beforeEach(() => {
   modelCalls = 0;
   models = [
     { id: "flash", providerID: "go", name: "Flash", variants: [{ id: "low" }, { id: "high" }, { id: "turbo" }] },
-    { id: "plain", providerID: "go", name: "Plain" },
+    { id: "plain", providerID: "go", name: "Plain", limit: { context: 64000 } },
   ];
 });
 
@@ -60,8 +60,8 @@ test("variants become one select option, labelled in Indonesian, unknown ids kep
 
 test("models are listed as provider/model with their options", async () => {
   expect(await opencodeRuntime.listModels(provider())).toEqual([
-    { id: "go/flash", name: "Flash", options: [variantDescriptor(["low", "high", "turbo"])!] },
-    { id: "go/plain", name: "Plain", options: [] },
+    { id: "go/flash", name: "Flash", options: [variantDescriptor(["low", "high", "turbo"])!], contextWindow: null },
+    { id: "go/plain", name: "Plain", options: [], contextWindow: 64000 },
   ]);
 });
 

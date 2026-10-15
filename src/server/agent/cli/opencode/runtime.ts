@@ -43,7 +43,7 @@ export function variantDescriptor(variants: string[]): ModelOptionDescriptor | n
 
 function toRuntimeModel(m: OcModel): RuntimeModel {
   const variant = variantDescriptor(m.variants);
-  return { id: `${m.providerID}/${m.id}`, name: m.name, options: variant ? [variant] : [] };
+  return { id: `${m.providerID}/${m.id}`, name: m.name, options: variant ? [variant] : [], contextWindow: m.contextWindow };
 }
 
 /** For tests: start from an empty model cache. */
