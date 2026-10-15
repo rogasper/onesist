@@ -55,3 +55,15 @@ test("deleting a thread deletes its provider sessions too", () => {
   expect(store.getThread(t)).toBeUndefined();
   expect(store.getProviderSession(t, "prov-a")).toBeNull();
 });
+
+test("after a CLI reply is stored and marked, the next turn of that provider sees nothing new", async () => {
+  const { prepareCliTurn } = await import("~/server/agent/cli/prepare-turn");
+  const t = store.createThread({ projectId: "p-provider-sessions", title: "Urutan" } as any);
+  const u1 = store.appendMessage({ threadId: t.id, role: "user", id: "ps-order-1", parts: [{ type: "text", text: "tanya" }] });
+  store.saveProviderSession(t.id, "oc", "ses_order", store.messageSeq(t.id, u1.id)!); // prompt taken
+  const reply = store.appendMessage({ threadId: t.id, role: "assistant", id: "ps-order-2", parts: [{ type: "text", text: "jawab" }], providerId: "oc" });
+  store.markProviderSessionSeen(t.id, "oc", store.messageSeq(t.id, reply.id)!); // what the route does after storing
+  const u2 = store.appendMessage({ threadId: t.id, role: "user", id: "ps-order-3", parts: [{ type: "text", text: "lagi" }] });
+  const next = prepareCliTurn({ thread: store.getThread(t.id)!, providerId: "oc", userText: "lagi", userMessageId: u2.id, contextWindow: null });
+  expect(next.transition).toEqual({ kind: "reuse" });
+});

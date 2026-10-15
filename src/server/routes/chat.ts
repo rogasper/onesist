@@ -52,6 +52,7 @@ import {
   listMessages,
   listMessagePage,
   messageSeq,
+  markProviderSessionSeen,
   listThreadFiles,
   listThreadReads,
   listThreads,
@@ -694,6 +695,12 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
             error: errorText,
           }).id;
           if (inputTokens || outputTokens) addTokens(current.id, inputTokens ?? 0, outputTokens ?? 0);
+          // A CLI session wrote this reply itself, so it has seen the thread up to here (Fase 4A):
+          // a later delta must not hand its own answer back to it.
+          if (provider.apiStyle === "cli") {
+            const seq = messageSeq(current.id, messageId);
+            if (seq != null) markProviderSessionSeen(current.id, provider.id, seq);
+          }
 
           // The files this turn wrote belong to the answer it just produced, so
           // the transcript can show its own file section (UJI-MANUAL C9b). The
