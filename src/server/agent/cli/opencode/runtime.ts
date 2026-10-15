@@ -8,7 +8,6 @@ import { resolveExecutable } from "~/lib/agent-cli";
 import type { ModelOptionDescriptor, RuntimeStatus } from "~/lib/runtime-types";
 import type { ProviderRow } from "~/server/agent/config";
 import type { CliRuntime, CliTurnInput, RuntimeModel } from "~/server/agent/runtime/types";
-import { updateThread } from "~/server/agent/store";
 import type { PermissionMode, ThreadMode } from "~/server/agent/types";
 import { ocInfo, ocListModels, type OcModel, type OpenCodeConnection } from "./client";
 import { getOpenCodeConnection } from "./server";
@@ -117,8 +116,8 @@ export const opencodeRuntime: CliRuntime = {
       variant: input.modelOptions.variant ?? null,
       text: input.text,
       title: thread.title,
-      cliSessionId: thread.cliSessionId ?? null,
-      onSessionCreated: (sessionId) => updateThread(thread.id, { cliSessionId: sessionId }),
+      cliSessionId: input.sessionId,
+      onSessionCreated: input.onSessionCreated,
       mcp: input.mcp,
     });
   },

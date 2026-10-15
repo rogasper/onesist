@@ -28,6 +28,10 @@ export interface CliTurnInput {
   provider: ProviderRow;
   /** The new user message; the CLI keeps the earlier conversation in its own session. */
   text: string;
+  /** The provider's session for this thread (chat_provider_sessions); null = start a new one. */
+  sessionId: string | null;
+  /** Called once when the runtime creates a new session. */
+  onSessionCreated: (sessionId: string) => void;
   modelOptions: ModelOptions;
   /** Onesist's MCP endpoint for this project, or null when it cannot be offered safely. */
   mcp: { url: string; token: string } | null;
