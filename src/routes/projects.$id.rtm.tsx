@@ -6,8 +6,8 @@ import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { Toast, type ToastMessage } from "~/components/ui/Toast";
-import { AgentStream } from "~/components/agent/AgentStream";
-import { ModelPickerDialog } from "~/components/agent/ModelPickerDialog";
+import { AgentTaskNotice } from "~/components/agent/AgentTaskNotice";
+import { useAgentTask } from "~/lib/use-agent-task";
 import { RtmMatrix } from "~/components/rtm/RtmMatrix";
 import { EntityDialog, RTM_PREFIX } from "~/components/rtm/EntityDialog";
 import { ImportPreviewDialog, type ImportPreview } from "~/components/rtm/ImportPreviewDialog";
@@ -26,11 +26,8 @@ function RtmPage() {
   const [dialog, setDialog] = useState<{ kind: EntityKind; initial: RtmEntity | null; frId: string | null } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ kind: EntityKind; entity: RtmEntity } | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [genSessionId, setGenSessionId] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [applying, setApplying] = useState(false);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [toast, setToast] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [scopes, setScopes] = useState<string[]>([]);
   const [fsdFiles, setFsdFiles] = useState<string[]>([]);
@@ -42,11 +39,7 @@ function RtmPage() {
     try { return JSON.parse(sessionStorage.getItem(`onesist:rtm-fds:${id}`) ?? "[]") as string[]; } catch { return []; }
   });
 
-  const agentStorageKey = `onesist:rtm-agent:${id}`;
 
-  const clearStoredAgent = useCallback(() => {
-    try { sessionStorage.removeItem(agentStorageKey); } catch {}
-  }, [agentStorageKey]);
 
   const showToast = useCallback((kind: "success" | "error", text: string) => {
     setToast({ kind, text });
@@ -214,55 +207,7 @@ function RtmPage() {
     setApplying(false);
   }, [id, load, showToast]);
 
-  const startAgent = useCallback(async (feedback?: string, model?: string) => {
-    // If a run is active (or a finished session is parked), stop it first so
-    // the new run always starts clean. For feedback, `prev` lets the server
-    // resume the SAME agent session with the correction.
-    const prev = genSessionId;
-    if (prev) {
-      await fetch("/api/agent/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: prev }),
-      }).catch(() => {});
-    }
-    clearStoredAgent();
-    setGenSessionId(null);
-    setGenerating(true);
-    try {
-      const detectRes = await fetch("/api/agent/detect", { cache: "no-store" });
-      const agents = await detectRes.json();
-      const found = (agents ?? []).find((a: any) => a.found);
-      const command = found?.command ?? "opencode";
-      const sid = crypto.randomUUID();
-      const res = await fetch("/api/agent/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: sid,
-          command,
-          agentName: found?.name ?? "opencode",
-          mode: "rtm",
-          projectId: id,
-          fsd: activeFsd,
-          fds: selectedFds.length > 0 ? selectedFds : undefined,
-          ...(feedback ? { feedback, previousSessionId: prev } : {}),
-          ...(model ? { model } : {}),
-        }),
-      });
-      if (res.ok) {
-        setGenSessionId(sid);
-        try { sessionStorage.setItem(agentStorageKey, sid); } catch {}
-      } else {
-        setGenerating(false);
-      }
-    } catch {
-      setGenerating(false);
-    }
-  }, [genSessionId, id, agentStorageKey, clearStoredAgent, activeFsd, selectedFds]);
 
-  const handleGenerate = useCallback(() => setModelPickerOpen(true), []);
-  const handleFeedback = useCallback((text: string) => { void startAgent(text); }, [startAgent]);
 
   const copyPrompt = useCallback(async () => {
     try {
@@ -294,56 +239,20 @@ function RtmPage() {
     }
   }, [id, showToast, activeFsd]);
 
-  const handleAgentDone = useCallback(() => {
-    setGenerating(false);
-    // Keep genSessionId so the completed panel + feedback box stay visible.
+
+
+
+
+
+  // "Agent bantu" runs as a chat thread over the chosen scope; when it ends, the import preview opens.
+  const task = useAgentTask(id, "rtm", () => {
     void previewImport(true);
-  }, [previewImport]);
-
-  const handleAgentError = useCallback(() => {
-    setGenerating(false);
-    // Keep genSessionId so the failed panel + feedback box stay visible.
-  }, []);
-
-  const handleAgentStopped = useCallback(() => {
-    setGenerating(false);
-    setGenSessionId(null);
-    clearStoredAgent();
-  }, [clearStoredAgent]);
-
-  const handleClose = useCallback(() => {
-    setGenerating(false);
-    setGenSessionId(null);
-    clearStoredAgent();
-  }, [clearStoredAgent]);
-
-  // Restore a running (or already-finished) agent session after a page refresh:
-  // the stored sessionId survives, so AgentStream replays the buffered events.
-  useEffect(() => {
-    let cancelled = false;
-    const stored = (() => { try { return sessionStorage.getItem(agentStorageKey); } catch { return null; } })();
-    if (!stored) return;
-    (async () => {
-      try {
-        const [statusRes, logsRes] = await Promise.all([
-          fetch("/api/agent/status", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ running: [] })),
-          fetch(`/api/agent/logs?sessionId=${encodeURIComponent(stored)}`, { cache: "no-store" })
-            .then((r) => r.json())
-            .catch(() => ({ events: [] })),
-        ]);
-        if (cancelled) return;
-        const running = (statusRes?.running ?? []).some((a: any) => a.sessionId === stored);
-        const hasEvents = Array.isArray(logsRes?.events) && logsRes.events.length > 0;
-        if (running || hasEvents) {
-          setGenSessionId(stored);
-          setGenerating(running);
-        } else {
-          clearStoredAgent();
-        }
-      } catch {}
-    })();
-    return () => { cancelled = true; };
-  }, [agentStorageKey, clearStoredAgent]);
+  });
+  const generating = task.running;
+  const handleGenerate = useCallback(
+    () => void task.start({ fsd: activeFsd || undefined, fds: selectedFds.length > 0 ? selectedFds : undefined }),
+    [task, activeFsd, selectedFds],
+  );
 
   const summary = data ? summarizeTrace(data.frs, data.links) : null;
   const brNoFr = data ? data.brs.filter((br) => !data.frs.some((f) => f.brId === br.id)).length : 0;
@@ -366,11 +275,12 @@ function RtmPage() {
           <>
             <AppButton
               onClick={handleGenerate}
+              disabled={generating}
               variant="primary"
               size="sm"
               icon={<Robot size={12} className={generating ? "animate-pulse" : ""} />}
               className="rounded-full px-3"
-              title={generating ? "Agent sedang berjalan — klik untuk stop & mulai ulang" : "Jalankan agent untuk menyusun RTM dari artifacts (output/rtm/RTM.md)"}
+              title={generating ? "Sedang berjalan di chat" : "Susun RTM dari artifacts lewat chat (output/rtm/RTM.md)"}
             >
               {generating ? "Agent berjalan…" : "Agent bantu"}
             </AppButton>
@@ -442,11 +352,9 @@ function RtmPage() {
 
       <Toast toast={toast} onClose={() => setToast(null)} />
 
-      {genSessionId && (
-        <div className="shrink-0 mb-3">
-          <AgentStream sessionId={genSessionId} onDone={handleAgentDone} onError={handleAgentError} onStopped={handleAgentStopped} onFeedback={handleFeedback} onClose={handleClose} />
-        </div>
-      )}
+      <div className="shrink-0 mb-3 empty:hidden">
+        <AgentTaskNotice task={task} />
+      </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
         {!loaded ? (
@@ -484,11 +392,6 @@ function RtmPage() {
         applying={applying}
       />
 
-      <ModelPickerDialog
-        open={modelPickerOpen}
-        onClose={() => setModelPickerOpen(false)}
-        onRun={(model) => { setModelPickerOpen(false); void startAgent(undefined, model); }}
-      />
 
       <ConfirmDialog
         open={deleteTarget !== null}
