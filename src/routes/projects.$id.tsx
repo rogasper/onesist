@@ -32,6 +32,7 @@ import {
 } from "~/lib/split-layout";
 import { subscribeQuotes } from "~/lib/chat-quote";
 import { subscribeChatTasks } from "~/lib/chat-task";
+import { subscribeTerminalLaunch } from "~/lib/terminal-launch";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
@@ -86,6 +87,23 @@ function ProjectLayout() {
   }, [chatOpen]);
   const [termRetryKey, setTermRetryKey] = useState(0);
   const [terminalRunning, setTerminalRunning] = useState(false);
+  // "Lanjutkan di terminal" from the chat: a running terminal session is ended only after the user agrees.
+  const [terminalLaunch, setTerminalLaunch] = useState<{ command: string; nonce: number } | null>(null);
+  const [launchToConfirm, setLaunchToConfirm] = useState<string | null>(null);
+  const terminalRunningRef = useRef(false);
+  terminalRunningRef.current = terminalRunning;
+  const startTerminalLaunch = useCallback((command: string) => {
+    setTerminalOpen(true);
+    setTerminalLaunch({ command, nonce: Date.now() });
+  }, []);
+  useEffect(
+    () =>
+      subscribeTerminalLaunch((command) => {
+        if (terminalRunningRef.current) setLaunchToConfirm(command);
+        else startTerminalLaunch(command);
+      }),
+    [startTerminalLaunch],
+  );
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
   const skill = useSkillInstall();
@@ -400,7 +418,7 @@ function ProjectLayout() {
         <ChatPanel visible={chatOpen} onClose={() => setChatOpen(false)} projectId={project.id} />
 
         <TerminalErrorBoundary onRetry={() => setTermRetryKey((k) => k + 1)}>
-          <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} projectId={project.id} defaultAgent={agent} />
+          <AgentTermPanel key={termRetryKey} visible={terminalOpen} onClose={() => setTerminalOpen(false)} onRunningChange={setTerminalRunning} launch={terminalLaunch} projectId={project.id} defaultAgent={agent} />
         </TerminalErrorBoundary>
       </RightDock>
 
@@ -435,6 +453,19 @@ function ProjectLayout() {
           ]}
         />
       )}
+      <ConfirmDialog
+        open={launchToConfirm !== null}
+        title="Hentikan sesi terminal?"
+        onOpenChange={(open) => { if (!open) setLaunchToConfirm(null); }}
+        onConfirm={() => {
+          if (launchToConfirm) startTerminalLaunch(launchToConfirm);
+          setLaunchToConfirm(null);
+        }}
+        confirmLabel="Hentikan & lanjutkan"
+        destructive
+      >
+        Terminal sedang menjalankan sesi lain. Sesi itu akan dihentikan, lalu thread ini dibuka di OpenCode.
+      </ConfirmDialog>
       <ConfirmDialog
         open={closeTarget !== null}
         title="Tutup pane?"

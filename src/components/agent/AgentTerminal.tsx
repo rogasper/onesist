@@ -18,13 +18,15 @@ interface AgentTermPanelProps {
   projectId?: string;
   /** Reports whether a terminal session is currently running (for UI indicators). */
   onRunningChange?: (running: boolean) => void;
+  /** A command to run instead of the default agent ("Lanjutkan di terminal"); a new nonce runs it again. */
+  launch?: { command: string; nonce: number } | null;
 }
 
 const MIN_WIDTH = 280;
 const DEFAULT_WIDTH = 420;
 const MAX_WIDTH = 1200;
 
-export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", projectId, onRunningChange }: AgentTermPanelProps) {
+export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", projectId, onRunningChange, launch }: AgentTermPanelProps) {
   const [connected, setConnected] = useState(false);
   // xterm must be created in React's own lifecycle (layout effect), NOT inside
   // a WebSocket message handler — xterm's term.open() mutates the React-managed
@@ -64,6 +66,8 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const connectingRef = useRef(false);
   const manualEndRef = useRef(false);
   const lastSpawnTimeRef = useRef(0);
+  /** Spawned by the next session start instead of the default agent, then cleared. */
+  const pendingCommandRef = useRef<string | null>(null);
   const wheelBoundRef = useRef(false);
   const pasteBoundRef = useRef(false);
   const shiftEnterBoundRef = useRef(false);
@@ -214,7 +218,8 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
             // measure the real panel size — otherwise every first spawn falls
             // back to 120x40 and the PTY starts at the wrong grid.
             if (!termRef.current && visibleRef.current) setTerminalNeeded(true);
-            const cmd = buildAgentCommand(agentName as AgentCli, { mode: "new" });
+            const cmd = pendingCommandRef.current ?? buildAgentCommand(agentName as AgentCli, { mode: "new" });
+            pendingCommandRef.current = null;
             lastSpawnTimeRef.current = Date.now();
             // Pass current dims so the PTY starts at the right size instead of
             // the server default (120x40) until the first resize lands. Retry
@@ -608,6 +613,19 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
     setConnected(false);
     connectingRef.current = false;
   };
+
+  // "Lanjutkan di terminal": end what runs here, then start the given command instead of the
+  // default agent. The command waits in a ref, so it is the one spawned even when the old
+  // session is still dying and the panel restarts after its exit.
+  useEffect(() => {
+    if (!launch) return;
+    pendingCommandRef.current = launch.command;
+    if (connectedRef.current) handleEndSession();
+    manualEndRef.current = false;
+    setRestartTick((t) => t + 1);
+    // Runs once per launch request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launch?.nonce]);
 
   return (
     // SINGLE root element (not a <> fragment) — React 19 + Suspense/lazy can

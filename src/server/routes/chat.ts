@@ -101,6 +101,7 @@ import { normalizeMaxSteps } from "~/server/agent/types";
 import { nextModelOptionsJson, parseModelOptions } from "~/lib/model-options";
 import { findToolOutput } from "~/server/agent/tool-output";
 import { viewMessages } from "~/server/agent/tool-output-view";
+import { terminalResumeCommand } from "~/server/agent/cli/opencode/resume";
 import { runtimeCapabilities } from "~/server/agent/runtime/registry";
 
 export const router = new Router();
@@ -120,6 +121,7 @@ function publicThread(row: NonNullable<ReturnType<typeof getThread>>) {
     hasSummary: !!row.summary?.trim(),
     reasoningEffort: row.reasoningEffort ?? null,
     modelOptions: parseModelOptions(row.modelOptionsJson),
+    cliSessionId: row.cliSessionId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -1036,6 +1038,16 @@ router.get("chat/threads/:id/tool-output/:toolCallId", async (ctx) => {
   const { found, output } = findToolOutput(toUIMessages(listMessages(thread.id)), ctx.params.toolCallId);
   if (!found) return json({ error: "Output tool tidak ditemukan." }, 404);
   return json({ output });
+});
+
+// "Lanjutkan di terminal": the command that opens this thread's OpenCode session in the TUI.
+router.get("chat/threads/:id/terminal-command", async (ctx) => {
+  const thread = getThread(ctx.params.id);
+  if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
+  const provider = resolveProvider(thread.providerId);
+  const command = provider ? terminalResumeCommand(provider, thread.cliSessionId ?? null) : null;
+  if (!command) return json({ error: "Thread ini belum punya sesi OpenCode untuk dilanjutkan di terminal." }, 409);
+  return json({ command });
 });
 
 router.get("chat/threads/:id/stream", async (ctx) => {

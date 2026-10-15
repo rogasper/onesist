@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Popover } from "@cloudflare/kumo";
-import { ArrowsInSimple, ArrowsOutSimple, Brain, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, X, type Icon } from "@phosphor-icons/react";
+import { ArrowsInSimple, ArrowsOutSimple, Brain, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, TerminalWindow, X, type Icon } from "@phosphor-icons/react";
 import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePanel";
 import { ChatSurface } from "~/components/chat/ChatSurface";
 import { ThreadIdProvider } from "~/components/chat/thread-context";
 import { subscribeChatTasks, takePendingChatTasks } from "~/lib/chat-task";
+import { launchInTerminal } from "~/lib/terminal-launch";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { InlineAlert } from "~/components/ui/InlineAlert";
-import { useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
+import { fetchTerminalCommand, useChatActivityEvents, useChatProviders, useChatSearch, useChatThread, useChatThreads, type ThreadSummary } from "~/lib/use-chat";
 import { isDetailFor, threadBadges } from "~/components/chat/chat-state";
 import { relTime } from "~/lib/rel-time";
 import { usePanelResize } from "~/lib/use-panel-resize";
@@ -82,6 +83,21 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   }, [threads, activeId, loading]);
 
   const active = useMemo(() => threads.find((t) => t.id === activeId) ?? null, [threads, activeId]);
+
+  // "Lanjutkan di terminal": only for a thread that runs in an OpenCode session, and not mid-run.
+  const threadProvider = detail ? (providers.find((p) => p.id === detail.thread.providerId) ?? providers.find((p) => p.isDefault) ?? null) : null;
+  const canContinueInTerminal = !!detail?.thread.cliSessionId && threadProvider?.apiStyle === "cli" && threadProvider.cliAgent === "opencode";
+  const threadBusy = !!detail?.activeRun || !!active?.activity?.running;
+  const [terminalNote, setTerminalNote] = useState<string | null>(null);
+  async function continueInTerminal() {
+    if (!detail) return;
+    setTerminalNote(null);
+    try {
+      launchInTerminal(await fetchTerminalCommand(detail.thread.id));
+    } catch (err) {
+      setTerminalNote(err instanceof Error ? err.message : "Gagal membuka terminal");
+    }
+  }
 
   // A task from another page opens its thread here; a task with a prompt sends it once.
   // The list is re-read first: the new thread is not in it yet, and the effect above would
@@ -200,6 +216,17 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
               <SideToggle view="memory" current={side} onToggle={setSide} icon={Brain} label="Memori" />
             </>
           ) : null}
+          {canContinueInTerminal ? (
+            <Button
+              variant="ghost"
+              onClick={() => void continueInTerminal()}
+              disabled={threadBusy}
+              title={threadBusy ? "Tunggu sampai agent selesai" : "Lanjutkan di terminal"}
+              aria-label="Lanjutkan di terminal"
+            >
+              <TerminalWindow size={14} />
+            </Button>
+          ) : null}
           {active ? (
             <Button variant="ghost" onClick={() => setPendingDelete(active)} title="Hapus percakapan">
               <X size={13} />
@@ -215,6 +242,12 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
             <X size={14} />
           </Button>
         </header>
+
+        {terminalNote ? (
+          <div className="px-3 py-2 border-b border-kumo-line">
+            <InlineAlert>{terminalNote}</InlineAlert>
+          </div>
+        ) : null}
 
         {error ? (
           <div className="px-3 py-2">

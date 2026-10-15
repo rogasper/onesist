@@ -31,6 +31,8 @@ export interface ThreadSummary {
   reasoningEffort?: "low" | "medium" | "high" | null;
   /** Per-model options picked for this thread (OpenCode variant); empty = the model's defaults. */
   modelOptions?: Record<string, string>;
+  /** The OpenCode session this thread runs in; null = native or not started. */
+  cliSessionId?: string | null;
   /** What the thread is doing now: a run, and the answers it waits for (M5). */
   activity?: { running: boolean; pendingApprovals: number; pendingQuestions: number };
   createdAt: string | null;
@@ -927,6 +929,14 @@ export async function fetchToolOutput(threadId: string, toolCallId: string): Pro
   const body = (await res.json().catch(() => ({}))) as { output?: unknown; error?: string };
   if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body.output;
+}
+
+/** The terminal command that continues this thread's OpenCode session. */
+export async function fetchTerminalCommand(threadId: string): Promise<string> {
+  const res = await fetch(`/api/chat/threads/${encodeURIComponent(threadId)}/terminal-command`, { cache: "no-store" });
+  const body = (await res.json().catch(() => ({}))) as { command?: string; error?: string };
+  if (!res.ok || !body.command) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return body.command;
 }
 
 export function useChatProviders() {
