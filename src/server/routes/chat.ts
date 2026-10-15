@@ -80,7 +80,7 @@ import { getApprovalDecision } from "~/server/agent/run-registry";
 import { closeRunStream, openRunStream, pushRunChunk, subscribeRunStream } from "~/server/agent/run-stream";
 import { enqueue, listQueue, registerQueueStarter, removeQueued, runQueuedNow, setPaused } from "~/server/agent/queue";
 import { applyTurnAction, attributeCheckpoints, recordCheckpoint, turnChanges } from "~/server/agent/checkpoints";
-import { forkThread, truncateFromMessage } from "~/server/agent/thread-edit";
+import { truncateFromMessage } from "~/server/agent/thread-edit";
 import { resolveChatActions } from "~/server/agent/actions";
 import { resolveSkills, skillSummaries } from "~/server/agent/skills";
 import { SUBAGENT_LIMITS, SUBAGENT_TOOLS, parseSubagent, resolveSubagents, subagentSummaries } from "~/server/agent/subagents";
@@ -101,6 +101,7 @@ import type { FileChange } from "~/server/agent/tools";
 import { normalizeMaxSteps } from "~/server/agent/types";
 import { nextModelOptionsJson, parseModelOptions } from "~/lib/model-options";
 import { findToolOutput } from "~/server/agent/tool-output";
+import { forkForChat } from "~/server/agent/fork";
 import { viewMessages } from "~/server/agent/tool-output-view";
 import { terminalResumeCommand } from "~/server/agent/cli/opencode/resume";
 import { runtimeCapabilities } from "~/server/agent/runtime/registry";
@@ -1022,9 +1023,9 @@ router.post("chat/threads/:id/fork", async (ctx) => {
   const body = await ctx.body();
   const messageId = String(body?.messageId ?? "");
   if (!messageId) return json({ error: "messageId wajib." }, 400);
-  const newId = forkThread({ threadId: thread.id, messageId });
-  if (!newId) return json({ error: "Pesan tidak ditemukan." }, 404);
-  return json({ threadId: newId });
+  const result = await forkForChat({ threadId: thread.id, messageId });
+  if (!result) return json({ error: "Pesan tidak ditemukan." }, 404);
+  return json({ threadId: result.threadId, mode: result.mode });
 });
 
 /** An older page of messages, before the message given in `before`. */
