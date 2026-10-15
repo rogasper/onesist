@@ -3,6 +3,7 @@ import { Button, Popover } from "@cloudflare/kumo";
 import { ArrowsInSimple, ArrowsOutSimple, Brain, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, X, type Icon } from "@phosphor-icons/react";
 import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePanel";
 import { ChatSurface } from "~/components/chat/ChatSurface";
+import { ThreadIdProvider } from "~/components/chat/thread-context";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
 import { ProviderSettings } from "~/components/providers/ProviderSettings";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -210,21 +211,23 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
             <p className="text-sm text-kumo-subtle px-4 py-3">Memuat percakapan…</p>
           ) : isDetailFor(detail, activeId) && detail ? (
             <ProjectIdProvider projectId={projectId}>
-              <ChatSurface
-                key={detail.thread.id}
-                threadId={detail.thread.id}
-                detail={detail}
-                providers={providers}
-                onRefresh={() => {
-                  void refreshDetail();
-                  void refresh();
-                }}
-                onOpenProviders={() => setProvidersOpen(true)}
-                onOpenThread={(id) => {
-                  setActiveId(id);
-                  void refresh();
-                }}
-              />
+              <ThreadIdProvider value={detail.thread.id}>
+                <ChatSurface
+                  key={detail.thread.id}
+                  threadId={detail.thread.id}
+                  detail={detail}
+                  providers={providers}
+                  onRefresh={() => {
+                    void refreshDetail();
+                    void refresh();
+                  }}
+                  onOpenProviders={() => setProvidersOpen(true)}
+                  onOpenThread={(id) => {
+                    setActiveId(id);
+                    void refresh();
+                  }}
+                />
+              </ThreadIdProvider>
               {side ? <ChatSidePanel view={side} detail={detail} projectId={projectId} onClose={() => setSide(null)} /> : null}
             </ProjectIdProvider>
           ) : null}

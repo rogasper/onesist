@@ -64,7 +64,9 @@ import {
   type ThreadDetail,
   type ThreadFile,
   fetchModelOptions,
+  fetchToolOutput,
 } from "~/lib/use-chat";
+import { useThreadId } from "~/components/chat/thread-context";
 import { parseModelOptions, withModelOption } from "~/lib/model-options";
 import type { ModelOptionDescriptor } from "~/lib/runtime-types";
 
@@ -2560,7 +2562,26 @@ function ToolRow({
   const name = getToolName(part) || "tool";
   const meta = KIND_META[toolKind(name)];
   const target = toolTarget(name, part.input);
-  const output = typeof part.output === "string" ? part.output : part.output ? JSON.stringify(part.output, null, 1) : "";
+  // A big output arrives shortened (`outputOmitted`); the card loads the whole one on request.
+  const threadId = useThreadId();
+  const [fullOutput, setFullOutput] = useState<unknown>(undefined);
+  const [loadingFull, setLoadingFull] = useState(false);
+  const [fullError, setFullError] = useState<string | null>(null);
+  const shownOutput = fullOutput !== undefined ? fullOutput : part.output;
+  const output = typeof shownOutput === "string" ? shownOutput : shownOutput ? JSON.stringify(shownOutput, null, 1) : "";
+  const omitted: { chars: number } | null = fullOutput === undefined && part.outputOmitted ? part.outputOmitted : null;
+  async function loadFull() {
+    if (!threadId || !part.toolCallId) return;
+    setLoadingFull(true);
+    setFullError(null);
+    try {
+      setFullOutput(await fetchToolOutput(threadId, part.toolCallId));
+    } catch (err) {
+      setFullError(err instanceof Error ? err.message : "Gagal memuat output");
+    } finally {
+      setLoadingFull(false);
+    }
+  }
   const hasDetail = !!part.input || !!output || !!part.errorText;
   const ms = state.tone === "run" ? null : duration(part.toolCallId);
   const izin = approvalLabel(approval);
@@ -2607,6 +2628,16 @@ function ToolRow({
       {open && hasDetail ? (
         <div className="border-t border-kumo-line/60 px-2.5 py-2 grid grid-cols-1 gap-2">
           <ToolBody name={name} input={part.input} output={output} />
+          {omitted ? (
+            <button
+              onClick={() => void loadFull()}
+              disabled={loadingFull || !threadId}
+              className="justify-self-start text-xs text-kumo-brand hover:underline disabled:opacity-50"
+            >
+              {loadingFull ? "Memuat…" : `Output dipendekkan · muat lengkap (${omitted.chars.toLocaleString("id-ID")} karakter)`}
+            </button>
+          ) : null}
+          {fullError ? <InlineAlert>{fullError}</InlineAlert> : null}
           {part.errorText ? <InlineAlert>{part.errorText}</InlineAlert> : null}
         </div>
       ) : null}

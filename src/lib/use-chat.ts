@@ -921,6 +921,14 @@ export async function fetchModelOptions(providerId: string, model: string): Prom
   }
 }
 
+/** The whole stored output of one tool call (the transcript carries big ones shortened). */
+export async function fetchToolOutput(threadId: string, toolCallId: string): Promise<unknown> {
+  const res = await fetch(`/api/chat/threads/${encodeURIComponent(threadId)}/tool-output/${encodeURIComponent(toolCallId)}`, { cache: "no-store" });
+  const body = (await res.json().catch(() => ({}))) as { output?: unknown; error?: string };
+  if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return body.output;
+}
+
 export function useChatProviders() {
   const [providers, setProviders] = useState<ChatProviderOption[]>([]);
   const [loading, setLoading] = useState(false);
