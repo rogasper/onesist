@@ -352,7 +352,7 @@ export async function testConnection(config: ProviderRow): Promise<TestConnectio
   if (config.apiStyle === "cli") {
     const { cliRuntimeFor } = await import("./runtime/registry");
     const runtime = cliRuntimeFor(config);
-    if (!runtime) return { success: false, message: "Provider CLI ini belum didukung di chat. Saat ini baru OpenCode.", errorCategory: "cli" };
+    if (!runtime) return { success: false, message: "Provider CLI ini belum didukung di chat.", errorCategory: "cli" };
     const started = Date.now();
     const status = await runtime.probe(config);
     if (status.state === "ready") return { success: true, message: status.message, latencyMs: Date.now() - started };

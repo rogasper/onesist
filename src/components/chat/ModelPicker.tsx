@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CaretDown, Check, MagnifyingGlass, Sliders } from "@phosphor-icons/react";
-import { visibleModels } from "~/components/chat/model-list";
+import { shouldFetchModelList, visibleModels } from "~/components/chat/model-list";
 import { refreshProviderModels, type ChatProviderOption } from "~/lib/use-chat";
 import { providerLogo } from "~/lib/provider-logo";
 import { RUNTIME_STATE_LABEL, runtimeStateClass, useRuntimeStatus } from "~/lib/runtime-status";
@@ -129,7 +129,7 @@ export function ModelPicker({
   useEffect(() => {
     if (!open) return;
     for (const p of providers) {
-      if (p.apiStyle === "cli" || (p.models?.length ?? 0) > 1) continue;
+      if (!shouldFetchModelList(p)) continue;
       load(p, false);
     }
     // Runs on open and when the provider list changes, not on every render.

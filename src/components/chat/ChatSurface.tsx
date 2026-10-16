@@ -11,7 +11,7 @@ import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
 import { FileCard } from "~/components/chat/FileCard";
 import { Composer, type Attachment, type PendingImage } from "~/components/chat/Composer";
-import { chatActivity, markTaken, providerRetryLabel, settleSteers } from "~/components/chat/chat-state";
+import { chatActivity, chatErrorReport, markTaken, providerRetryLabel, settleSteers } from "~/components/chat/chat-state";
 import { loadDraft, promptText, quoteBlock, saveDraft } from "~/components/chat/chat-draft";
 import { refSlug, refTokens, type MentionRef } from "~/lib/mention-ref";
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from "~/lib/image-attachment";
@@ -429,10 +429,11 @@ export function ChatSurface({
   // file with timestamps — which is the only way to tell who dropped it.
   useEffect(() => {
     if (!error) return;
+    const report = chatErrorReport(error, { threadId, runId: detail.activeRun ?? null, streaming });
     void fetch("/api/system/client-error", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ where: "chat-stream", message: error.message }),
+      body: JSON.stringify(report),
       cache: "no-store",
     }).catch(() => {
       /* the server may be what is gone */

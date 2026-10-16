@@ -12,6 +12,8 @@ const SESSION_ID = /^ses_[A-Za-z0-9]+$/;
 const AGY_CONVERSATION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Codex thread ids are UUIDs (shape from the v2 schema; re-checked in Task 6).
 const CODEX_THREAD = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Claude Code session ids are UUIDs (`--session-id` must be a valid UUID).
+const CLAUDE_SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function quoteArg(arg: string): string {
   return /[\s"$`\\'&|;<>()]/.test(arg) ? JSON.stringify(arg) : arg;
@@ -39,6 +41,9 @@ export function terminalResumeCommand(
   } else if (provider.cliAgent === "codex" && CODEX_THREAD.test(sessionId)) {
     // Fase 5C: `codex resume <id>` opens the thread interactively.
     resume = `${quoteArg(provider.cliPath?.trim() || "codex")} resume ${sessionId}`;
+  } else if (provider.cliAgent === "claude" && CLAUDE_SESSION.test(sessionId)) {
+    // Fase 5B: `claude --resume <id>` opens the session interactively.
+    resume = `${quoteArg(provider.cliPath?.trim() || "claude")} --resume ${sessionId}`;
   } else {
     return null;
   }
