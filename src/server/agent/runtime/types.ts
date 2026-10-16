@@ -10,7 +10,7 @@ import type { ProviderRow } from "~/server/agent/config";
 import type { ThreadRow } from "~/server/agent/store";
 import type { ModelOptionDescriptor, ModelOptions, RuntimeCapabilities, RuntimeStatus } from "~/lib/runtime-types";
 
-export type RuntimeId = "native" | "opencode" | "antigravity";
+export type RuntimeId = "native" | "opencode" | "antigravity" | "codex";
 
 export interface RuntimeModel {
   /** As stored on a thread: `provider/model` for OpenCode. */

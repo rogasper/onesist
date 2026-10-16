@@ -53,17 +53,19 @@ export function PresetSelect({
       {open ? (
         <ul role="listbox" className="absolute left-0 right-0 top-full mt-1 z-30 max-h-80 overflow-y-auto rounded-xl bg-kumo-base ring ring-kumo-line shadow-lg p-1">
           {presets.map((p) => (
-            <li key={p.id} role="option" aria-selected={p.id === value}>
+            <li key={p.id} role="option" aria-selected={p.id === value} aria-disabled={p.comingSoon || undefined}>
               <button
                 type="button"
+                disabled={p.comingSoon}
                 onClick={() => {
                   setOpen(false);
                   onChange(p);
                 }}
-                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-left hover:bg-kumo-elevated"
+                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-left hover:bg-kumo-elevated disabled:opacity-50 disabled:hover:bg-transparent disabled:cursor-not-allowed"
               >
                 <Logo p={p} />
                 <span className="flex-1 min-w-0 truncate">{p.label}</span>
+                {p.comingSoon ? <span className="shrink-0 text-xs text-kumo-subtle">segera hadir</span> : null}
                 {p.id === value ? <Check size={14} className="shrink-0" /> : null}
               </button>
             </li>

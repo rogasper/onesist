@@ -227,6 +227,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     endpoint: "",
     cliAgent: "codex",
     requiresApiKey: false,
+    comingSoon: true,
   },
   {
     id: "cli-antigravity",
@@ -245,10 +246,16 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     endpoint: "",
     cliAgent: "pi",
     requiresApiKey: false,
+    comingSoon: true,
   },
 ];
 
 const BY_ID = new Map(PROVIDER_PRESETS.map((p) => [p.id, p]));
+
+/** True for a preset the app lists but does not offer yet. */
+export function isPresetComingSoon(id: string | null | undefined): boolean {
+  return getPreset(id)?.comingSoon === true;
+}
 
 export function getPreset(id: string | null | undefined): ProviderPreset | undefined {
   return id ? BY_ID.get(id) : undefined;

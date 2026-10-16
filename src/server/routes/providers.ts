@@ -24,7 +24,7 @@ import {
   testConnection,
   type ProviderRow,
 } from "~/server/agent/config";
-import { PROVIDER_PRESETS, getPreset, presetRequiresApiKey } from "~/server/agent/presets";
+import { PROVIDER_PRESETS, getPreset, isPresetComingSoon, presetRequiresApiKey } from "~/server/agent/presets";
 import { cliRuntimeFor } from "~/server/agent/runtime/registry";
 import { newId } from "~/server/agent/store";
 
@@ -123,6 +123,7 @@ router.get("providers/presets", async () =>
       defaultMaxOutputTokens: p.defaultMaxOutputTokens,
       requiresApiKey: p.requiresApiKey,
       hint: p.hint,
+      comingSoon: p.comingSoon === true,
     })),
   }),
 );
@@ -154,6 +155,7 @@ router.post("providers", async (ctx) => {
   }
 
   const presetId = String(body.preset ?? "custom-openai");
+  if (isPresetComingSoon(presetId)) return json({ error: "Provider ini belum tersedia." }, 400);
   const preset = getPreset(presetId);
   const apiStyle = String(body.apiStyle ?? preset?.apiStyle ?? "completions");
   const apiKey = body.apiKey === undefined || body.apiKey === null ? null : String(body.apiKey);

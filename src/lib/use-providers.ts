@@ -55,6 +55,8 @@ export interface ProviderPresetInfo {
   defaultModel?: string;
   defaultMaxOutputTokens?: number;
   requiresApiKey: boolean;
+  /** Listed in the picker, but cannot be chosen yet. */
+  comingSoon?: boolean;
   hint?: string;
 }
 
