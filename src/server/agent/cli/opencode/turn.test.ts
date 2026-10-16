@@ -234,6 +234,40 @@ test("a shell refusal by the mode is stored once as a notice that says why", asy
   expect(String(notices[0].contentJson)).toContain("shell-readonly");
 });
 
+test("an OpenCode form (the question tool) is asked on the run's card, and the answer goes back to the form", async () => {
+  const runId = `run_oc_form_${++runCounter}`;
+  let reply: any = null;
+  onPrompt = () => {
+    send("session.execution.started");
+    send("form.created", {
+      form: {
+        id: "frm_t1",
+        sessionID: SID,
+        title: "Cakupan",
+        fields: [{ key: "scope", type: "string", title: "Seberapa luas garapan?", options: [{ value: "gap", label: "Tambal gap" }, { value: "full", label: "Tulis ulang" }] }],
+      },
+    });
+  };
+  onReply = (body) => {
+    reply = body;
+    finishText("selesai");
+  };
+  const turn = await startOpenCodeTurn(input({ runId }));
+  const pending = await (async () => {
+    for (let i = 0; i < 200; i++) {
+      const q = registry.listPendingQuestions(runId)[0];
+      if (q) return q;
+      await Bun.sleep(10);
+    }
+    throw new Error("the form question never reached the run");
+  })();
+  expect(pending.questions[0].question).toBe("Seberapa luas garapan?");
+  expect(pending.questions[0].options).toEqual(["Tambal gap", "Tulis ulang"]);
+  registry.resolveQuestion(runId, pending.questionId, ["Tambal gap"]);
+  await collect(turn.stream);
+  expect(reply).toEqual({ answer: { scope: "gap" } });
+});
+
 test("Stop interrupts OpenCode and the stream ends with an abort", async () => {
   const runId = `run_oc_stop_${++runCounter}`;
   onPrompt = () => send("session.execution.started");
