@@ -58,3 +58,13 @@ test("a Codex thread continues with codex resume, in its workspace", () => {
   expect(terminalResumeCommand(codex(), "thr_bukan_uuid")).toBeNull();
   expect(terminalResumeCommand(codex(), `${CODEX_THREAD}; rm -rf ~`)).toBeNull();
 });
+
+const claude = (cliPath: string | null = null) => ({ apiStyle: "cli", cliAgent: "claude", cliPath });
+const CLAUDE_SESSION = "6f1c2c1e-1b7a-4f1e-9a49-2f8f1d1a0b11";
+
+test("a Claude Code thread continues with claude --resume, in its workspace", () => {
+  expect(terminalResumeCommand(claude(), CLAUDE_SESSION)).toBe(`claude --resume ${CLAUDE_SESSION}`);
+  expect(terminalResumeCommand(claude("/opt/claude"), CLAUDE_SESSION, "/wt/api", "darwin")).toBe(`cd '/wt/api' && /opt/claude --resume ${CLAUDE_SESSION}`);
+  expect(terminalResumeCommand(claude(), "bukan-uuid")).toBeNull();
+  expect(terminalResumeCommand(claude(), `${CLAUDE_SESSION}; rm -rf ~`)).toBeNull();
+});
