@@ -61,8 +61,12 @@ export class RpcClient {
   onServerRequest(handler: (r: RpcServerRequest) => void): void {
     this.requestHandlers.push(handler);
   }
-  onClosed(handler: (reason: string) => void): void {
+  /** Returns the way to stop listening, so a turn can leave when it ends. */
+  onClosed(handler: (reason: string) => void): () => void {
     this.closedHandlers.push(handler);
+    return () => {
+      this.closedHandlers = this.closedHandlers.filter((h) => h !== handler);
+    };
   }
 
   close(reason: string): void {

@@ -16,6 +16,8 @@ export interface CodexConnection {
   subscribe(threadId: string, handler: (n: RpcNotification) => void): () => void;
   /** Server requests (approvals, user-input asks) of one thread. Returns the unsubscribe function. */
   subscribeRequests(threadId: string, handler: (r: RpcServerRequest) => void): () => void;
+  /** The server process ended or its connection broke. Returns the unsubscribe function. */
+  onClosed(handler: (reason: string) => void): () => void;
 }
 
 interface Entry {
@@ -114,6 +116,7 @@ export async function getCodexConnection(binary: string): Promise<CodexConnectio
     baseKey: binary,
     subscribe: (threadId, handler) => notifications.add(threadId, handler),
     subscribeRequests: (threadId, handler) => requests.add(threadId, handler),
+    onClosed: (handler) => rpc.onClosed(handler),
   };
   const ready = (async () => {
     await rpc.request("initialize", { clientInfo: { name: "onesist", version: "0.0.0" }, capabilities: { experimentalApi: false, requestAttestation: false } }, 10_000);
