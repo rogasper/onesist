@@ -102,11 +102,24 @@ test("fetchServerTools connects to mock MCP server and loads tools", async () =>
 });
 
 /**
- * Regression: the client cache used to be keyed on the row id alone. A draft
- * test always carries `id: "draft"`, so a second draft — or the same row after
- * its token was replaced — reused the first connection and reported a result
- * for credentials that were never sent.
+ * Acquiring a credential and saving it are separate steps: Batal or a preset
+ * change must leave no trace, so the value waits under a reference until a row
+ * is written.
  */
+test("an acquired credential is held by reference and consumed on save", async () => {
+  const { putCredential, peekCredential, takeCredential } = await import("./credentials");
+
+  const ref = putCredential({ authKind: "header", authHeader: "Authorization", authValue: "Bearer held" });
+  expect(peekCredential(ref)?.authValue).toBe("Bearer held");
+  // Peeking must not consume: a test may resolve the same reference again.
+  expect(peekCredential(ref)?.authValue).toBe("Bearer held");
+  expect(takeCredential(ref)?.authValue).toBe("Bearer held");
+  expect(peekCredential(ref)).toBeNull();
+
+  expect(peekCredential("unknown-ref")).toBeNull();
+  expect(peekCredential("")).toBeNull();
+});
+
 test("a changed credential is not served from the previous connection", async () => {
   let authSeen: string[] = [];
   const observing = createServer(async (req, res) => {

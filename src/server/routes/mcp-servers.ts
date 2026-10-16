@@ -7,7 +7,8 @@ import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { mcpServers } from "~/server/db/schema";
 import { fetchServerTools, getMcpClient, closeServerClient } from "~/server/mcp/client";
-import { beginOAuth, completeOAuth, hasPendingOAuth, isRegistrationUnsupported } from "~/server/mcp/oauth";
+import { beginOAuth, completeOAuth, hasPendingOAuth, isRegistrationUnsupported, peekOAuthTokens, takeOAuthTokens } from "~/server/mcp/oauth";
+import { peekCredential, putCredential, takeCredential } from "~/server/mcp/credentials";
 import { ghStatus, readGhToken } from "~/server/mcp/gh";
 import { MCP_PRESETS, getMcpPreset } from "~/server/agent/mcp-presets";
 import { newId } from "~/server/agent/store";
@@ -55,6 +56,27 @@ function readBoolean(v: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+/**
+ * Turns the reference the UI holds into the credential it stands for.
+ *
+ * The browser never sees an acquired token, so a save sends a reference and the
+ * value is looked up here. A reference that has expired resolves to nothing, and
+ * the caller must then leave the stored credential alone rather than blank it.
+ */
+function credentialFrom(body: Record<string, unknown>): { authKind?: "header" | "oauth"; authHeader?: string | null; authValue?: string } {
+  const ref = body.credentialRef ? String(body.credentialRef) : null;
+  if (ref) {
+    const fromOAuth = peekOAuthTokens(ref);
+    if (fromOAuth) return { authKind: "oauth", authHeader: null, authValue: fromOAuth };
+    const pending = peekCredential(ref);
+    if (pending) return { authKind: pending.authKind, authHeader: pending.authHeader, authValue: pending.authValue };
+  }
+  if (typeof body.authValue === "string" && body.authValue !== "") {
+    return { authValue: body.authValue };
+  }
+  return {};
+}
+
 // GET /api/mcp-servers/presets
 router.get("mcp-servers/presets", async () => json({ presets: MCP_PRESETS }));
 
@@ -78,6 +100,7 @@ router.post("mcp-servers", async (ctx) => {
   const presetId = String(body.preset ?? "custom");
   const preset = getMcpPreset(presetId);
   const id = newId("mcp");
+  const credential = credentialFrom(body);
 
   try {
     db.insert(mcpServers)
@@ -90,9 +113,9 @@ router.post("mcp-servers", async (ctx) => {
         command: body.command ? String(body.command).trim() : null,
         argsJson: parseJson(body, "argsJson"),
         envJson: parseJson(body, "envJson"),
-        authKind: (body.authKind as any) ?? preset?.authKind ?? "none",
-        authHeader: body.authHeader ? String(body.authHeader).trim() : preset?.authHeader || null,
-        authValue: body.authValue !== undefined && body.authValue !== null ? String(body.authValue) : null,
+        authKind: credential.authKind ?? (body.authKind as any) ?? preset?.authKind ?? "none",
+        authHeader: credential.authHeader !== undefined ? credential.authHeader : body.authHeader ? String(body.authHeader).trim() : preset?.authHeader || null,
+        authValue: credential.authValue ?? null,
         readOnly: readBoolean(body.readOnly, false),
         enabled: readBoolean(body.enabled, true),
         instructions: body.instructions ? String(body.instructions) : null,
@@ -101,6 +124,9 @@ router.post("mcp-servers", async (ctx) => {
   } catch (err) {
     return json({ error: redactSecrets(err) }, 500);
   }
+
+  takeCredential(body.credentialRef ? String(body.credentialRef) : null);
+  takeOAuthTokens(body.credentialRef ? String(body.credentialRef) : null);
 
   const row = db.select().from(mcpServers).where(eq(mcpServers.id, id)).get()!;
   return json({ server: toPublicServer(row) }, 201);
@@ -131,14 +157,22 @@ router.put("mcp-servers/:id", async (ctx) => {
   if (body.envJson !== undefined) patch.envJson = parseJson(body, "envJson");
   if (typeof body.authKind === "string") patch.authKind = body.authKind as any;
   if (body.authHeader !== undefined) patch.authHeader = body.authHeader ? String(body.authHeader).trim() : null;
-  if (body.authValue !== undefined && body.authValue !== null && String(body.authValue) !== "") {
-    patch.authValue = String(body.authValue);
-  }
+
+  // A credential is written only when the form actually acquired a new one. An
+  // empty field means "leave what is stored", so a save after editing an
+  // unrelated field cannot wipe the token.
+  const credential = credentialFrom(body);
+  if (credential.authKind) patch.authKind = credential.authKind;
+  if (credential.authHeader !== undefined) patch.authHeader = credential.authHeader;
+  if (credential.authValue !== undefined) patch.authValue = credential.authValue;
+
   if (body.readOnly !== undefined) patch.readOnly = readBoolean(body.readOnly, row.readOnly);
   if (body.enabled !== undefined) patch.enabled = readBoolean(body.enabled, row.enabled);
   if (body.instructions !== undefined) patch.instructions = body.instructions ? String(body.instructions) : null;
 
   db.update(mcpServers).set(patch).where(eq(mcpServers.id, row.id)).run();
+  takeCredential(body.credentialRef ? String(body.credentialRef) : null);
+  takeOAuthTokens(body.credentialRef ? String(body.credentialRef) : null);
   await closeServerClient(row.id);
 
   const updated = db.select().from(mcpServers).where(eq(mcpServers.id, row.id)).get()!;
@@ -160,12 +194,14 @@ router.post("mcp-servers/:id/test", async (ctx) => {
   if (!row) return json({ error: "Server MCP tidak ditemukan." }, 404);
 
   const body = (await ctx.body()) as Record<string, unknown>;
+  const credential = credentialFrom(body);
   const candidate = {
     ...row,
     ...(body.url !== undefined ? { url: body.url ? String(body.url) : null } : {}),
     ...(body.authKind !== undefined ? { authKind: body.authKind as any } : {}),
     ...(body.authHeader !== undefined ? { authHeader: body.authHeader ? String(body.authHeader) : null } : {}),
-    ...(body.authValue !== undefined && body.authValue !== null && String(body.authValue) !== "" ? { authValue: String(body.authValue) } : {}),
+    ...(credential.authKind ? { authKind: credential.authKind } : {}),
+    ...(credential.authValue !== undefined ? { authValue: credential.authValue } : {}),
   };
 
   const started = Date.now();
@@ -219,11 +255,12 @@ router.post("mcp-servers/:id/test", async (ctx) => {
 // state and refreshes it on demand.
 router.get("mcp-servers/gh/status", async () => json(await ghStatus()));
 
-// POST /api/mcp-servers/:id/gh/connect — adopt the gh CLI token for this server.
-router.post("mcp-servers/:id/gh/connect", async (ctx) => {
-  const row = db.select().from(mcpServers).where(eq(mcpServers.id, ctx.params.id)).get();
-  if (!row) return json({ error: "Server MCP tidak ditemukan." }, 404);
-
+// POST /api/mcp-servers/gh/token — hand the gh CLI token to the form.
+//
+// Nothing is written: the token goes back to the UI as an unsaved credential and
+// only becomes a row when the user presses Simpan. A token acquired and then
+// discarded (Batal, or a preset change) must leave no trace.
+router.post("mcp-servers/gh/token", async () => {
   const status = await ghStatus();
   if (!status.installed) {
     return json({ error: "gh CLI tidak ditemukan. Pasang dulu: https://cli.github.com" }, 400);
@@ -239,35 +276,28 @@ router.post("mcp-servers/:id/gh/connect", async (ctx) => {
     return json({ error: redactSecrets(err?.message ?? String(err)) }, 400);
   }
 
-  db.update(mcpServers)
-    .set({
-      authKind: "header",
-      authHeader: "Authorization",
-      authValue: token,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(mcpServers.id, row.id))
-    .run();
-  await closeServerClient(row.id);
-
-  return json({ ok: true, account: status.account, tokenPrefix: status.tokenPrefix });
+  const credentialRef = putCredential({ authKind: "header", authHeader: "Authorization", authValue: token });
+  return json({ ok: true, account: status.account, credentialRef });
 });
 
-// POST /api/mcp-servers/:id/oauth/start — begin the MCP OAuth flow (FR: external MCP)
+// POST /api/mcp-servers/oauth/start — begin the MCP OAuth flow (FR: external MCP)
 //
 // The authorization URL comes from the server's own metadata (dynamic client
 // registration + PKCE), so it is not something we can build by hand: a
 // hardcoded provider URL is what produced the earlier 404.
-router.post("mcp-servers/:id/oauth/start", async (ctx) => {
-  const row = db.select().from(mcpServers).where(eq(mcpServers.id, ctx.params.id)).get();
-  if (!row) return json({ error: "Server MCP tidak ditemukan." }, 404);
-  const url = row.url?.trim();
+//
+// This takes a URL, not a row id: connecting must work on an unsaved draft, and
+// nothing is written here. The credential is handed back by reference and only
+// becomes a row when the user saves.
+router.post("mcp-servers/oauth/start", async (ctx) => {
+  const body = (await ctx.body()) as Record<string, unknown>;
+  const url = body.url ? String(body.url).trim() : "";
   if (!url) return json({ error: "Endpoint server MCP belum diisi." }, 400);
 
   try {
-    const authorizationUrl = await beginOAuth(row.id, url);
-    if (!authorizationUrl) return json({ authorized: true, message: "Token yang tersimpan masih berlaku." });
-    return json({ authorized: false, authorizationUrl });
+    const { authorizationUrl, state } = await beginOAuth(url);
+    if (!authorizationUrl) return json({ authorized: true, state });
+    return json({ authorized: false, authorizationUrl, state });
   } catch (err: any) {
     // A provider that refuses to register us cannot be fixed by retrying, so the
     // UI gets a distinct answer and points at a personal access token instead.
@@ -275,15 +305,28 @@ router.post("mcp-servers/:id/oauth/start", async (ctx) => {
       return json(
         {
           error:
-            `Server ini tidak menerima pendaftaran klien otomatis (OAuth dinamis ditolak ${row.name}). ` +
+            "Server ini tidak menerima pendaftaran klien otomatis (OAuth dinamis ditolak). " +
             "Pakai Manual Configuration dengan Personal Access Token dari akun Anda.",
           registrationUnsupported: true,
         },
         409,
       );
     }
-    return json({ error: redactSecrets(err?.message ?? String(err), row.authValue) }, 502);
+    return json({ error: redactSecrets(err?.message ?? String(err)) }, 502);
   }
+});
+
+// POST /api/mcp-servers/oauth/result — the credential a finished flow produced.
+//
+// The UI polls this with the flow's state while the browser window is open, so
+// it can fill the form the moment the user approves. `pending` is the normal
+// answer until then.
+router.post("mcp-servers/oauth/result", async (ctx) => {
+  const body = (await ctx.body()) as Record<string, unknown>;
+  const state = body.state ? String(body.state) : "";
+  const authValue = peekOAuthTokens(state);
+  if (!authValue) return json({ pending: true });
+  return json({ pending: false, credentialRef: state, authKind: "oauth" as const, authHeader: null, authValue });
 });
 
 // GET /api/mcp-servers/oauth/callback — the browser lands here after approval.
@@ -317,6 +360,7 @@ router.get("mcp-servers/oauth/callback", async (ctx) => {
 // POST /api/mcp-servers/test-draft — test unsaved draft
 router.post("mcp-servers/test-draft", async (ctx) => {
   const body = (await ctx.body()) as Record<string, unknown>;
+  const credential = credentialFrom(body);
   const candidate = {
     id: "draft",
     name: String(body.name ?? "Draft"),
@@ -325,9 +369,9 @@ router.post("mcp-servers/test-draft", async (ctx) => {
     command: body.command ? String(body.command) : null,
     argsJson: parseJson(body, "argsJson"),
     envJson: parseJson(body, "envJson"),
-    authKind: (body.authKind as any) ?? "none",
+    authKind: credential.authKind ?? ((body.authKind as any) ?? "none"),
     authHeader: body.authHeader ? String(body.authHeader) : null,
-    authValue: body.authValue ? String(body.authValue) : null,
+    authValue: credential.authValue ?? null,
   };
 
   const started = Date.now();

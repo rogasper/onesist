@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Eye, EyeSlash, Plus, Trash, Wrench, ArrowLeft, Key, ShieldCheck, ArrowsClockwise, TerminalWindow } from "@phosphor-icons/react";
-import { useMcpServers, api, emptyDraft, draftFrom, type GhStatus, type McpServerSummary, type McpServerDraft, type McpTestResult } from "~/lib/use-mcp-servers";
+import { useMcpServers, api, emptyDraft, draftFrom, type GhStatus, type McpPresetInfo, type McpServerSummary, type McpServerDraft, type McpTestResult } from "~/lib/use-mcp-servers";
 import { AppButton } from "~/components/ui/AppButton";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -9,7 +9,7 @@ const MONO = "font-mono text-xs";
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
 export function McpServersPanel() {
-  const { servers, presets, loading, error, refresh, createServer, updateServer, deleteServer, testServer, testDraft, startOAuth, ghStatus, connectGh } = useMcpServers();
+  const { servers, presets, loading, error, refresh, createServer, updateServer, deleteServer, testServer, testDraft, startOAuth, oauthResult, ghStatus, ghToken } = useMcpServers();
 
   const [view, setView] = useState<"list" | "form">("list");
   const [selected, setSelected] = useState<string | "new" | null>(null);
@@ -31,6 +31,10 @@ export function McpServersPanel() {
   /** GitHub connects through the `gh` CLI instead of a browser OAuth flow. */
   const [gh, setGh] = useState<GhStatus | null>(null);
   const [ghChecking, setGhChecking] = useState(false);
+  /** A credential was acquired but not saved yet; shown as a pending badge. */
+  const [credentialReady, setCredentialReady] = useState(false);
+  /** Which discard is waiting for confirmation: a preset change, or Batal. */
+  const [pendingDiscard, setPendingDiscard] = useState<{ kind: "preset"; next: McpPresetInfo } | { kind: "cancel" } | null>(null);
 
   const current = selected && selected !== "new" ? servers.find((s) => s.id === selected) ?? null : null;
   const isNew = selected === "new";
@@ -38,6 +42,16 @@ export function McpServersPanel() {
   const isCustom = draft.preset === "custom";
   /** How this preset can connect automatically; null means manual only. */
   const connectKind = selectedPreset?.connect ?? null;
+
+  /**
+   * Has the user changed anything worth protecting? Compared against the stored
+   * row, or against an empty draft for a new server, so an untouched form never
+   * asks for confirmation.
+   */
+  const baseline = current ? draftFrom(current) : emptyDraft();
+  const dirty =
+    credentialReady ||
+    (Object.keys(baseline) as (keyof McpServerDraft)[]).some((k) => baseline[k] !== draft[k]);
 
   useEffect(() => {
     setView("list");
@@ -105,17 +119,58 @@ export function McpServersPanel() {
     void refresh();
   }
 
+  /**
+   * Leaves the form, asking first when something would be lost. Batal and the
+   * preset switch both land here, so the two cannot drift apart.
+   */
+  function requestDiscard(action: { kind: "preset"; next: McpPresetInfo } | { kind: "cancel" }) {
+    if (!dirty) {
+      if (action.kind === "cancel") backToList();
+      else applyPreset(action.next);
+      return;
+    }
+    setPendingDiscard(action);
+  }
+
+  function applyPreset(next: McpPresetInfo) {
+    setDraft((d) => ({
+      ...d,
+      preset: next.id,
+      name: d.name || (next.id === "custom" ? "" : next.label),
+      transport: next.transport,
+      url: next.url,
+      authKind: next.authKind,
+      authHeader: next.authHeader ?? "Authorization",
+      // The credential belonged to the previous preset.
+      credentialRef: "",
+      authValue: "",
+    }));
+    setConfigMode(next.connect ? "auto" : "manual");
+    setCredentialReady(false);
+    setTestResult(null);
+  }
+
+  function confirmDiscard() {
+    if (!pendingDiscard) return;
+    if (pendingDiscard.kind === "cancel") backToList();
+    else applyPreset(pendingDiscard.next);
+    setPendingDiscard(null);
+  }
+
   async function handleApply() {
     setSaving(true);
     setSaveError(null);
     try {
-      if (isNew) {
-        await createServer(draft);
-      } else if (current) {
-        await updateServer(current.id, draft);
+      const saved = isNew ? await createServer(draft) : current ? await updateServer(current.id, draft) : null;
+      // A credential was verified against the draft before saving, so the stored
+      // row has never been tested: run it now so the list does not read
+      // "belum diuji" for a server the user just confirmed.
+      if (saved && credentialReady) {
+        await testServer(saved.id, {});
       }
       setView("list");
       setSelected(null);
+      void refresh();
     } catch (err: any) {
       setSaveError(err?.message ?? "Gagal menyimpan konfigurasi server MCP.");
     } finally {
@@ -151,50 +206,28 @@ export function McpServersPanel() {
     }
   }
 
-  /**
-   * The row this form edits, creating it when the form is still a draft.
-   *
-   * Both connect flows write their credential onto a stored row, so a draft has
-   * to be saved first. Adopting the created id matters: without it the form
-   * stayed in "new" mode, so the next Test ran against the empty draft (401)
-   * and the next Connect tried to create a second row with the same name (409).
-   */
-  async function ensureRow(): Promise<McpServerSummary> {
-    if (current) return current;
-    // A draft whose name is already taken is the same server being connected
-    // again; adopt that row instead of failing on the unique name.
-    const taken = servers.find((s) => s.name.trim().toLowerCase() === draft.name.trim().toLowerCase());
-    if (taken) {
-      setSelected(taken.id);
-      return taken;
-    }
-    const created = await createServer(draft);
-    setSelected(created.id);
-    return created;
-  }
-
-  /** Replaces the draft with what the server now holds, so the form shows reality. */
-  async function adoptServer(id: string): Promise<void> {
-    await refresh();
-    const row = (await api<{ servers: McpServerSummary[] }>("/api/mcp-servers")).servers.find((s) => s.id === id);
-    if (row) setDraft(draftFrom(row));
+  /** Confirms an acquired credential against the endpoint, without saving it. */
+  async function verifyCredential(credentialRef: string) {
+    const res = await testDraft({ ...draft, credentialRef });
+    setTestResult(res);
   }
 
   /**
    * Auto configuration for GitHub runs through the `gh` CLI: GitHub publishes no
    * dynamic client registration, so there is no browser OAuth to start. The CLI
    * has already been authorized, and its token works against the MCP endpoint.
+   *
+   * The token is held as an unsaved credential: it becomes part of the row only
+   * when the user presses Simpan.
    */
   async function handleGhConnect() {
     setOauthRunning(true);
     setSaveError(null);
     try {
-      const row = await ensureRow();
-      await connectGh(row.id);
-      await adoptServer(row.id);
-
-      const tested = await testServer(row.id, {});
-      setTestResult(tested);
+      const { credentialRef } = await ghToken();
+      setDraft((d) => ({ ...d, credentialRef, authKind: "header", authHeader: "Authorization" }));
+      setCredentialReady(true);
+      await verifyCredential(credentialRef);
     } catch (err: any) {
       setTestResult({ success: false, message: err?.message ?? "Gagal memakai token gh CLI." });
     } finally {
@@ -225,33 +258,39 @@ export function McpServersPanel() {
     setOauthRunning(true);
     setSaveError(null);
     try {
-      const row = await ensureRow();
+      const started = await startOAuth(draft.url);
 
-      const started = await startOAuth(row.id);
-      if (started.authorized) {
-        await adoptServer(row.id);
-        setTestResult({ success: true, message: "Token OAuth yang tersimpan masih berlaku." });
-        return;
+      // Either the provider returned a token straight away, or the user has to
+      // approve in a browser. Both end with an unsaved credential in the draft.
+      let credentialRef = started.state;
+      if (!started.authorized) {
+        if (!started.authorizationUrl) throw new Error("Server MCP tidak mengembalikan URL otorisasi.");
+
+        const popup = window.open(started.authorizationUrl, "onesist_mcp_oauth", "width=620,height=760");
+        if (!popup) throw new Error("Jendela otorisasi diblokir browser. Izinkan popup lalu coba lagi.");
+
+        // The callback lands in a separate document, so its result is read back
+        // by polling until the credential appears or the user closes the window.
+        const approved = await new Promise<boolean>((resolve) => {
+          const timer = setInterval(async () => {
+            const res = await oauthResult(started.state).catch(() => null);
+            if (res && !res.pending) {
+              clearInterval(timer);
+              resolve(true);
+              return;
+            }
+            if (popup.closed) {
+              clearInterval(timer);
+              resolve(false);
+            }
+          }, 1000);
+        });
+        if (!approved) throw new Error("Otorisasi belum selesai. Jendela ditutup sebelum akses diberikan.");
       }
-      if (!started.authorizationUrl) throw new Error("Server MCP tidak mengembalikan URL otorisasi.");
 
-      const popup = window.open(started.authorizationUrl, "onesist_mcp_oauth", "width=620,height=760");
-      if (!popup) throw new Error("Jendela otorisasi diblokir browser. Izinkan popup lalu coba lagi.");
-
-      // The callback page closes itself; polling is what tells us the token
-      // landed, since the callback is a separate document.
-      await new Promise<void>((resolve) => {
-        const timer = setInterval(() => {
-          if (popup.closed) {
-            clearInterval(timer);
-            resolve();
-          }
-        }, 500);
-      });
-
-      await adoptServer(row.id);
-      const tested = await testServer(row.id, {});
-      setTestResult(tested);
+      setDraft((d) => ({ ...d, credentialRef, authKind: "oauth" }));
+      setCredentialReady(true);
+      await verifyCredential(credentialRef);
     } catch (err: any) {
       const message = err?.message ?? "Gagal menjalankan otorisasi.";
       // A provider that will not register us needs a token from the user's own
@@ -270,10 +309,14 @@ export function McpServersPanel() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3 border-b border-kumo-line pb-3">
-          <button onClick={backToList} className="flex items-center gap-1.5 text-xs text-kumo-subtle hover:text-kumo-default">
+          <button
+            onClick={() => requestDiscard({ kind: "cancel" })}
+            className="flex items-center gap-1.5 text-xs text-kumo-subtle hover:text-kumo-default"
+          >
             <ArrowLeft size={14} /> Kembali ke daftar
           </button>
           <span className="text-sm font-medium text-kumo-default ml-2">{isNew ? "Tambah Server MCP" : `Edit: ${current?.name}`}</span>
+          {dirty && <span className="text-[10px] px-1.5 py-0.5 rounded border border-amber-400/40 text-amber-300 bg-amber-400/10">belum disimpan</span>}
         </div>
 
         {saveError && <InlineAlert>{saveError}</InlineAlert>}
@@ -289,16 +332,10 @@ export function McpServersPanel() {
                     key={p.id}
                     type="button"
                     onClick={() => {
-                      setDraft((d) => ({
-                        ...d,
-                        preset: p.id,
-                        name: d.name || (p.id === "custom" ? "" : p.label),
-                        transport: p.transport,
-                        url: p.url,
-                        authKind: p.authKind,
-                        authHeader: p.authHeader ?? "Authorization",
-                      }));
-                      setConfigMode(p.connect ? "auto" : "manual");
+                      // Switching preset replaces everything the form holds, so an
+                      // edited or connected form asks before dropping it.
+                      if (p.id === draft.preset) return;
+                      requestDiscard({ kind: "preset", next: p });
                     }}
                     className={`text-left rounded-xl p-3.5 border transition-all flex flex-col justify-between ${
                       selected
@@ -395,9 +432,11 @@ export function McpServersPanel() {
                   <AppButton variant="primary" size="sm" disabled={oauthRunning} onClick={handleAutoConnect} className="rounded gap-1.5">
                     <ShieldCheck size={14} /> {oauthRunning ? "Menghubungkan ke OAuth..." : `Hubungkan ke ${selectedPreset?.label}`}
                   </AppButton>
-                  {current?.hasAuthValue && current.preset === draft.preset && (
-                    <p className="text-[11px] text-green-400 font-mono">✓ Kredensial tersimpan</p>
-                  )}
+                  {credentialReady ? (
+                    <p className="text-[11px] text-green-400 font-mono">✓ Kredensial diperoleh — tekan Simpan untuk menyimpan</p>
+                  ) : current?.hasAuthValue && current.preset === draft.preset ? (
+                    <p className="text-[11px] text-kumo-subtle font-mono">Kredensial tersimpan (belum diubah)</p>
+                  ) : null}
                 </div>
               )}
             </FieldRow>
@@ -523,7 +562,7 @@ export function McpServersPanel() {
             </AppButton>
           )}
           <div className={isNew ? "ml-auto flex gap-2" : "flex gap-2"}>
-            <AppButton variant="secondary" size="base" onClick={backToList} className="rounded">
+            <AppButton variant="secondary" size="base" onClick={() => requestDiscard({ kind: "cancel" })} className="rounded">
               Batal
             </AppButton>
             <AppButton variant="primary" size="base" disabled={saving || !draft.name.trim()} onClick={handleApply} className="rounded">
@@ -541,6 +580,22 @@ export function McpServersPanel() {
           destructive
         >
           Yakin ingin menghapus server MCP "{current?.name}"? Tindakan ini tidak dapat dibatalkan.
+        </ConfirmDialog>
+
+        <ConfirmDialog
+          open={pendingDiscard !== null}
+          title={pendingDiscard?.kind === "preset" ? "Ganti preset server MCP?" : "Batalkan perubahan?"}
+          onOpenChange={(open) => {
+            if (!open) setPendingDiscard(null);
+          }}
+          onConfirm={confirmDiscard}
+          confirmLabel={pendingDiscard?.kind === "preset" ? "Ya, ganti" : "Ya, batalkan"}
+          cancelLabel="Lanjut mengedit"
+          destructive
+        >
+          {pendingDiscard?.kind === "preset"
+            ? `Mengganti ke preset "${pendingDiscard.next.label}" akan membuang perubahan dan kredensial yang belum disimpan pada form ini.`
+            : "Perubahan dan kredensial yang belum disimpan akan hilang. Lanjutkan?"}
         </ConfirmDialog>
       </div>
     );

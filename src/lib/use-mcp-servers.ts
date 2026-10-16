@@ -59,6 +59,18 @@ export interface McpTestResult {
   tools?: string[];
 }
 
+/**
+ * What a connect step produces. The credential itself stays on the server: the
+ * form carries only the reference, and the value is resolved when it is saved.
+ */
+export interface CredentialResult {
+  pending: boolean;
+  credentialRef?: string;
+  authKind?: "header" | "oauth";
+  authHeader?: string | null;
+  authValue?: string;
+}
+
 export interface McpServerDraft {
   name: string;
   preset: string;
@@ -70,6 +82,11 @@ export interface McpServerDraft {
   authKind: "none" | "header" | "oauth";
   authHeader: string;
   authValue: string;
+  /**
+   * Reference to a credential acquired but not yet saved (the gh token, or an
+   * OAuth bundle). The value never reaches the browser, so saving sends this.
+   */
+  credentialRef: string;
   readOnly: boolean;
   enabled: boolean;
   instructions: string;
@@ -158,19 +175,28 @@ export function useMcpServers() {
     });
   };
 
-  const startOAuth = async (id: string): Promise<{ authorized: boolean; authorizationUrl?: string }> => {
-    return api<{ authorized: boolean; authorizationUrl?: string }>(`/api/mcp-servers/${id}/oauth/start`, { method: "POST" });
+  const startOAuth = async (url: string): Promise<{ authorized: boolean; authorizationUrl?: string; state: string }> => {
+    return api<{ authorized: boolean; authorizationUrl?: string; state: string }>("/api/mcp-servers/oauth/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+  };
+
+  /** The credential a finished flow produced, or `pending` while unapproved. */
+  const oauthResult = async (state: string): Promise<CredentialResult> => {
+    return api<CredentialResult>("/api/mcp-servers/oauth/result", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ state }),
+    });
   };
 
   const ghStatus = async (): Promise<GhStatus> => api<GhStatus>("/api/mcp-servers/gh/status");
 
-  const connectGh = async (id: string): Promise<{ ok: boolean; account: string | null; tokenPrefix: string | null }> => {
-    const res = await api<{ ok: boolean; account: string | null; tokenPrefix: string | null }>(
-      `/api/mcp-servers/${id}/gh/connect`,
-      { method: "POST" },
-    );
-    await refresh();
-    return res;
+  /** Fetches the CLI token as an unsaved credential; nothing is written. */
+  const ghToken = async (): Promise<{ ok: boolean; account: string | null; credentialRef: string }> => {
+    return api<{ ok: boolean; account: string | null; credentialRef: string }>("/api/mcp-servers/gh/token", { method: "POST" });
   };
 
   return {
@@ -185,8 +211,9 @@ export function useMcpServers() {
     testServer,
     testDraft,
     startOAuth,
+    oauthResult,
     ghStatus,
-    connectGh,
+    ghToken,
   };
 }
 
@@ -202,6 +229,7 @@ export function emptyDraft(): McpServerDraft {
     authKind: "none",
     authHeader: "Authorization",
     authValue: "",
+    credentialRef: "",
     readOnly: false,
     enabled: true,
     instructions: "",
@@ -219,7 +247,10 @@ export function draftFrom(s: McpServerSummary): McpServerDraft {
     envJson: s.envJson ?? "{}",
     authKind: s.authKind,
     authHeader: s.authHeader ?? "Authorization",
+    // Empty on purpose: the stored credential is never sent to the page, so the
+    // field stays blank and an empty value means "keep what is stored".
     authValue: "",
+    credentialRef: "",
     readOnly: s.readOnly,
     enabled: s.enabled,
     instructions: s.instructions ?? "",

@@ -1,20 +1,21 @@
 /**
  * OAuth for external MCP servers, per the MCP authorization spec.
  *
- * Figma and GitHub MCP both publish protected-resource metadata and support
- * dynamic client registration + PKCE, so nothing has to be pre-registered:
- * `auth()` discovers the authorization server, registers a client, and returns
- * the URL the user must approve. The code comes back on the loopback callback.
+ * Figma and GitHub MCP both publish protected-resource metadata, and Miro and
+ * Monday additionally support dynamic client registration, so nothing has to be
+ * pre-registered: `auth()` discovers the authorization server, registers a
+ * client, and returns the URL the user must approve. The code comes back on the
+ * loopback callback.
  *
- * Pending flows live in memory — the browser round trip happens within one
- * process lifetime — while the tokens are written to the server row, so a
- * restart keeps the connection.
+ * Acquiring a credential and saving it are SEPARATE steps. A completed flow
+ * leaves its token bundle in `pending`, reachable only through the opaque
+ * reference handed to the UI; nothing is written to a row until the user saves.
+ * That is what makes Batal and switching preset safe.
+ *
+ * In memory on purpose: an unsaved credential should not outlive the process.
  */
 import crypto from "node:crypto";
 import { auth, type OAuthClientProvider, type OAuthTokens } from "@ai-sdk/mcp";
-import { eq } from "drizzle-orm";
-import { db } from "~/server/db/client";
-import { mcpServers } from "~/server/db/schema";
 
 export class McpOAuthError extends Error {}
 
@@ -37,23 +38,28 @@ export function isRegistrationUnsupported(err: unknown): boolean {
   );
 }
 
-export interface PendingOAuth {
-  serverId: string;
+interface Flow {
   serverUrl: string;
   authorizationUrl: string;
   codeVerifier: string;
   state: string;
   clientInformation: any;
+  tokens?: OAuthTokens;
   createdAt: number;
 }
 
-const pending = new Map<string, PendingOAuth>();
-const TTL_MS = 10 * 60_000;
+/** Authorization in progress, keyed by the OAuth state. */
+const flows = new Map<string, Flow>();
+/** Completed flows whose credential has not been saved yet, keyed by reference. */
+const completed = new Map<string, Flow>();
+const TTL_MS = 30 * 60_000;
 
 function sweep(): void {
   const now = Date.now();
-  for (const [state, flow] of pending.entries()) {
-    if (now - flow.createdAt > TTL_MS) pending.delete(state);
+  for (const map of [flows, completed]) {
+    for (const [key, flow] of map.entries()) {
+      if (now - flow.createdAt > TTL_MS) map.delete(key);
+    }
   }
 }
 
@@ -63,7 +69,7 @@ export function oauthRedirectUrl(): string {
   return `http://localhost:${port}/api/mcp-servers/oauth/callback`;
 }
 
-interface StoredTokens {
+export interface StoredTokens {
   access_token: string;
   refresh_token?: string;
   token_type?: string;
@@ -81,7 +87,8 @@ export function readStoredTokens(row: { authKind: string; authValue: string | nu
   }
 }
 
-function saveTokens(serverId: string, tokens: OAuthTokens): void {
+/** The token bundle as it is written to a row: what a completed flow produced. */
+export function serializeTokens(tokens: OAuthTokens): string {
   const stored: StoredTokens = {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
@@ -89,18 +96,15 @@ function saveTokens(serverId: string, tokens: OAuthTokens): void {
     expires_in: tokens.expires_in,
     savedAt: new Date().toISOString(),
   };
-  db.update(mcpServers)
-    .set({ authKind: "oauth", authValue: JSON.stringify(stored), updatedAt: new Date().toISOString() })
-    .where(eq(mcpServers.id, serverId))
-    .run();
+  return JSON.stringify(stored);
 }
 
 /**
- * Provider bound to one pending flow. The SDK drives it: it stores the PKCE
- * verifier, hands back the authorization URL through `redirectToAuthorization`,
- * and writes the tokens once the code is exchanged.
+ * Provider bound to one flow. The SDK drives it: it stores the PKCE verifier,
+ * hands back the authorization URL through `redirectToAuthorization`, and
+ * reports the tokens once the code is exchanged.
  */
-function providerFor(serverId: string, flow: PendingOAuth): OAuthClientProvider {
+function providerFor(flow: Flow): OAuthClientProvider {
   return {
     get redirectUrl() {
       return oauthRedirectUrl();
@@ -116,11 +120,10 @@ function providerFor(serverId: string, flow: PendingOAuth): OAuthClientProvider 
       };
     },
     tokens() {
-      const row = db.select().from(mcpServers).where(eq(mcpServers.id, serverId)).get();
-      return row ? (readStoredTokens(row as any) as OAuthTokens | null) ?? undefined : undefined;
+      return flow.tokens;
     },
     saveTokens(tokens) {
-      saveTokens(serverId, tokens);
+      flow.tokens = tokens;
     },
     redirectToAuthorization(url) {
       flow.authorizationUrl = url.toString();
@@ -149,11 +152,20 @@ function providerFor(serverId: string, flow: PendingOAuth): OAuthClientProvider 
   };
 }
 
-/** Starts a flow and returns the URL the user has to approve in a browser. */
-export async function beginOAuth(serverId: string, serverUrl: string): Promise<string> {
+export interface BeginResult {
+  /** Empty when the provider returned a token without a browser round trip. */
+  authorizationUrl: string;
+  /**
+   * Identifies this flow. The UI polls `oauth/result` with it and saves with it,
+   * so one key covers the whole round trip: start, callback, save.
+   */
+  state: string;
+}
+
+/** Starts a flow. Either a URL to approve, or a credential that is already ready. */
+export async function beginOAuth(serverUrl: string): Promise<BeginResult> {
   sweep();
-  const flow: PendingOAuth = {
-    serverId,
+  const flow: Flow = {
     serverUrl,
     authorizationUrl: "",
     codeVerifier: "",
@@ -162,29 +174,51 @@ export async function beginOAuth(serverId: string, serverUrl: string): Promise<s
     createdAt: Date.now(),
   };
 
-  const result = await auth(providerFor(serverId, flow), { serverUrl });
+  const result = await auth(providerFor(flow), { serverUrl });
   if (result === "AUTHORIZED") {
-    // A refresh token was still valid; no browser needed.
-    return "";
+    // The provider handed back a token without a browser round trip.
+    if (!flow.tokens) throw new McpOAuthError("Server MCP tidak mengembalikan token.");
+    completed.set(flow.state, flow);
+    return { authorizationUrl: "", state: flow.state };
   }
   if (!flow.authorizationUrl) throw new McpOAuthError("Server MCP tidak mengembalikan URL otorisasi.");
-  pending.set(flow.state, flow);
-  return flow.authorizationUrl;
+  flows.set(flow.state, flow);
+  return { authorizationUrl: flow.authorizationUrl, state: flow.state };
 }
 
-/** Completes a flow with the code from the callback. */
+/**
+ * Completes a flow with the code from the callback. The credential stays
+ * unsaved, reachable under the flow's own state.
+ */
 export async function completeOAuth(state: string, code: string): Promise<void> {
   sweep();
-  const flow = pending.get(state);
+  const flow = flows.get(state);
   if (!flow) throw new McpOAuthError("Sesi OAuth tidak ditemukan atau sudah kedaluwarsa.");
-  await auth(providerFor(flow.serverId, flow), {
+  await auth(providerFor(flow), {
     serverUrl: flow.serverUrl,
     authorizationCode: code,
     callbackState: state,
   });
-  pending.delete(state);
+  flows.delete(state);
+  if (!flow.tokens) throw new McpOAuthError("Server MCP tidak mengembalikan token.");
+  completed.set(state, flow);
 }
 
 export function hasPendingOAuth(state: string): boolean {
-  return pending.has(state);
+  return flows.has(state);
+}
+
+/** The token bundle waiting to be saved, or null once saved or expired. */
+export function peekOAuthTokens(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  sweep();
+  const flow = completed.get(ref);
+  return flow?.tokens ? serializeTokens(flow.tokens) : null;
+}
+
+/** Consumes the bundle once it has been written to a row. */
+export function takeOAuthTokens(ref: string | null | undefined): string | null {
+  const value = peekOAuthTokens(ref);
+  if (value && ref) completed.delete(ref);
+  return value;
 }
