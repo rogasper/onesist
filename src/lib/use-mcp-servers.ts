@@ -61,7 +61,7 @@ export interface McpServerDraft {
   instructions: string;
 }
 
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
+export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { cache: "no-store", ...init });
   const text = await res.text();
   let body: any = null;
@@ -144,6 +144,10 @@ export function useMcpServers() {
     });
   };
 
+  const startOAuth = async (id: string): Promise<{ authorized: boolean; authorizationUrl?: string }> => {
+    return api<{ authorized: boolean; authorizationUrl?: string }>(`/api/mcp-servers/${id}/oauth/start`, { method: "POST" });
+  };
+
   return {
     servers,
     presets,
@@ -155,6 +159,7 @@ export function useMcpServers() {
     deleteServer,
     testServer,
     testDraft,
+    startOAuth,
   };
 }
 

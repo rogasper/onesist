@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, Eye, EyeSlash, Plus, Trash, Wrench, ArrowLeft, Key, ShieldCheck } from "@phosphor-icons/react";
-import { useMcpServers, emptyDraft, draftFrom, type McpServerSummary, type McpServerDraft, type McpTestResult } from "~/lib/use-mcp-servers";
+import { useMcpServers, api, emptyDraft, draftFrom, type McpServerSummary, type McpServerDraft, type McpTestResult } from "~/lib/use-mcp-servers";
 import { AppButton } from "~/components/ui/AppButton";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -9,7 +9,7 @@ const MONO = "font-mono text-xs";
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
 export function McpServersPanel() {
-  const { servers, presets, loading, error, refresh, createServer, updateServer, deleteServer, testServer, testDraft } = useMcpServers();
+  const { servers, presets, loading, error, refresh, createServer, updateServer, deleteServer, testServer, testDraft, startOAuth } = useMcpServers();
 
   const [view, setView] = useState<"list" | "form">("list");
   const [selected, setSelected] = useState<string | "new" | null>(null);
@@ -107,24 +107,60 @@ export function McpServersPanel() {
     }
   }
 
-  function handleAutoConnect() {
+  /**
+   * Auto configuration: the server must exist before OAuth can start (the
+   * callback writes the token onto its row), so an unsaved draft is saved
+   * first. The authorization URL comes from the server's own metadata —
+   * dynamic client registration + PKCE — never a hand-built provider URL.
+   */
+  async function handleAutoConnect() {
     setOauthRunning(true);
-    setTimeout(() => {
-      setOauthRunning(false);
-      setDraft((d) => ({
-        ...d,
-        url: selectedPreset?.url || d.url,
-        authKind: selectedPreset?.authKind === "oauth" ? "oauth" : "header",
-        authHeader: selectedPreset?.authHeader || "Authorization",
-        authValue: "ghp_simulated_access_token_authorized_ok",
-      }));
-      setTestResult({
-        success: true,
-        message: `Autentikasi berhasil! Server ${selectedPreset?.label} siap diuji dan disimpan.`,
-        toolCount: 18,
-        tools: ["github__get_issue", "github__list_repos", "github__create_pull_request"],
+    setSaveError(null);
+    try {
+      const row = isNew ? await createServer({ ...draft, authKind: "oauth" }) : current;
+      if (!row) throw new Error("Server MCP belum tersimpan.");
+
+      const started = await startOAuth(row.id);
+      if (started.authorized) {
+        setDraft(draftFrom({ ...row, authKind: "oauth" }));
+        setTestResult({ success: true, message: "Token OAuth yang tersimpan masih berlaku." });
+        return;
+      }
+      if (!started.authorizationUrl) throw new Error("Server MCP tidak mengembalikan URL otorisasi.");
+
+      const popup = window.open(started.authorizationUrl, "onesist_mcp_oauth", "width=620,height=760");
+      if (!popup) throw new Error("Jendela otorisasi diblokir browser. Izinkan popup lalu coba lagi.");
+
+      // The callback page closes itself; polling is what tells us the token
+      // landed, since the callback is a separate document.
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 500);
       });
-    }, 900);
+
+      await refresh();
+      const updated = (await api<{ servers: McpServerSummary[] }>("/api/mcp-servers")).servers.find((s) => s.id === row.id);
+      if (updated) setDraft(draftFrom(updated));
+
+      const tested = await testServer(row.id, {});
+      setTestResult(tested);
+      if (tested.success) setDraft((d) => ({ ...d, authKind: "oauth" }));
+    } catch (err: any) {
+      const message = err?.message ?? "Gagal menjalankan otorisasi.";
+      // A provider that will not register us needs a token from the user's own
+      // account; switching the form there is more useful than repeating the error.
+      if (String(message).includes("pendaftaran klien otomatis")) {
+        setConfigMode("manual");
+        setDraft((d) => ({ ...d, authKind: "header", authHeader: d.authHeader || "Authorization" }));
+      }
+      setTestResult({ success: false, message });
+    } finally {
+      setOauthRunning(false);
+    }
   }
 
   if (view === "form") {

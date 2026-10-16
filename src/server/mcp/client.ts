@@ -9,6 +9,7 @@ import { mcpServers } from "~/server/db/schema";
 import { eq } from "drizzle-orm";
 import { type Tool } from "ai";
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
+import { readStoredTokens } from "./oauth";
 
 export class McpClientError extends Error {}
 
@@ -47,7 +48,12 @@ export async function getMcpClient(config: McpServerConfig): Promise<MCPClient> 
 
   let transportConfig: any;
   const headers: Record<string, string> = {};
-  if (config.authKind === "header" && config.authHeader && config.authValue) {
+  if (config.authKind === "oauth") {
+    // The row holds the token bundle from the OAuth callback; the client only
+    // ever sends the access token.
+    const stored = readStoredTokens(config as any);
+    if (stored?.access_token) headers["Authorization"] = `Bearer ${stored.access_token}`;
+  } else if (config.authKind === "header" && config.authHeader && config.authValue) {
     let val = config.authValue.trim();
     const hdr = config.authHeader.trim();
     if (hdr.toLowerCase() === "authorization" && !/^bearer\s+/i.test(val)) {

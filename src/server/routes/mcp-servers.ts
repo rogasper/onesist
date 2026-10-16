@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { mcpServers } from "~/server/db/schema";
 import { fetchServerTools, getMcpClient, closeServerClient } from "~/server/mcp/client";
+import { beginOAuth, completeOAuth, hasPendingOAuth, isRegistrationUnsupported } from "~/server/mcp/oauth";
 import { MCP_PRESETS, getMcpPreset } from "~/server/agent/mcp-presets";
 import { newId } from "~/server/agent/store";
 import { maskApiKey, redactSecrets } from "~/server/agent/config";
@@ -207,6 +208,67 @@ router.post("mcp-servers/:id/test", async (ctx) => {
       message: `Gagal terhubung: ${msg}`,
       latencyMs: Date.now() - started,
     });
+  }
+});
+
+// POST /api/mcp-servers/:id/oauth/start — begin the MCP OAuth flow (FR: external MCP)
+//
+// The authorization URL comes from the server's own metadata (dynamic client
+// registration + PKCE), so it is not something we can build by hand: a
+// hardcoded provider URL is what produced the earlier 404.
+router.post("mcp-servers/:id/oauth/start", async (ctx) => {
+  const row = db.select().from(mcpServers).where(eq(mcpServers.id, ctx.params.id)).get();
+  if (!row) return json({ error: "Server MCP tidak ditemukan." }, 404);
+  const url = row.url?.trim();
+  if (!url) return json({ error: "Endpoint server MCP belum diisi." }, 400);
+
+  try {
+    const authorizationUrl = await beginOAuth(row.id, url);
+    if (!authorizationUrl) return json({ authorized: true, message: "Token yang tersimpan masih berlaku." });
+    return json({ authorized: false, authorizationUrl });
+  } catch (err: any) {
+    // A provider that refuses to register us cannot be fixed by retrying, so the
+    // UI gets a distinct answer and points at a personal access token instead.
+    if (isRegistrationUnsupported(err)) {
+      return json(
+        {
+          error:
+            `Server ini tidak menerima pendaftaran klien otomatis (OAuth dinamis ditolak ${row.name}). ` +
+            "Pakai Manual Configuration dengan Personal Access Token dari akun Anda.",
+          registrationUnsupported: true,
+        },
+        409,
+      );
+    }
+    return json({ error: redactSecrets(err?.message ?? String(err), row.authValue) }, 502);
+  }
+});
+
+// GET /api/mcp-servers/oauth/callback — the browser lands here after approval.
+router.get("mcp-servers/oauth/callback", async (ctx) => {
+  const code = ctx.query.get("code");
+  const state = ctx.query.get("state");
+  const failed = ctx.query.get("error");
+
+  const page = (title: string, body: string) =>
+    new Response(
+      `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
+        `<body style="font-family:system-ui;padding:2rem;background:#111;color:#eee">` +
+        `<h2>${title}</h2><p>${body}</p>` +
+        `<script>setTimeout(function(){window.close()},1500)</script></body></html>`,
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
+    );
+
+  if (failed) return page("Otorisasi ditolak", `Server MCP menolak permintaan: ${failed}.`);
+  if (!code || !state || !hasPendingOAuth(state)) {
+    return page("Otorisasi gagal", "Parameter OAuth tidak lengkap atau sesi sudah kedaluwarsa.");
+  }
+
+  try {
+    await completeOAuth(state, code);
+    return page("Otorisasi berhasil", "Token sudah disimpan. Jendela ini akan tertutup.");
+  } catch (err: any) {
+    return page("Otorisasi gagal", String(err?.message ?? err));
   }
 });
 

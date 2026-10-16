@@ -32,7 +32,7 @@ export const MCP_PRESETS: McpPreset[] = [
     url: "https://api.githubcopilot.com/mcp/",
     authKind: "header",
     authHeader: "Authorization",
-    hint: "Gunakan Personal Access Token (PAT) dengan prefix Bearer atau klik Hubungkan.",
+    hint: "GitHub tidak menyediakan pendaftaran klien OAuth otomatis — pakai Personal Access Token.",
   },
   {
     id: "figma",
@@ -43,7 +43,7 @@ export const MCP_PRESETS: McpPreset[] = [
     url: "https://mcp.figma.com/mcp",
     authKind: "header",
     authHeader: "Authorization",
-    hint: "Gunakan Figma Personal Access Token via Manual Configuration atau klik Hubungkan.",
+    hint: "Figma hanya menerima klien katalog resminya — pakai Personal Access Token.",
   },
   {
     id: "miro",
@@ -52,8 +52,8 @@ export const MCP_PRESETS: McpPreset[] = [
     logo: "📋",
     transport: "http",
     url: "https://mcp.miro.com/mcp",
-    authKind: "header",
-    authHeader: "Authorization",
+    authKind: "oauth",
+    hint: "Mendukung Hubungkan otomatis (OAuth) atau Access Token manual.",
   },
   {
     id: "monday",
@@ -62,8 +62,8 @@ export const MCP_PRESETS: McpPreset[] = [
     logo: "📊",
     transport: "http",
     url: "https://mcp.monday.com/mcp",
-    authKind: "header",
-    authHeader: "Authorization",
+    authKind: "oauth",
+    hint: "Mendukung Hubungkan otomatis (OAuth) atau API Token manual.",
   },
 ];
 
