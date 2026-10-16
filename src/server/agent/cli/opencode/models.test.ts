@@ -35,6 +35,6 @@ test("OpenCode models are listed as provider/model with their names", async () =
 });
 
 test("other CLI agents still have no model list", async () => {
-  const result = await discoverModels({ apiStyle: "cli", cliAgent: "claude", cliPath: null, model: null, modelsJson: null, endpoint: "" } as any);
+  const result = await discoverModels({ apiStyle: "cli", cliAgent: "pi", cliPath: null, model: null, modelsJson: null, endpoint: "" } as any);
   expect(result.supported).toBe(false);
 });
