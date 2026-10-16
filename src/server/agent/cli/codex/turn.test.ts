@@ -133,6 +133,14 @@ test("a new thread starts in the workspace with the policy, and its text streams
   expect(await usage).toEqual({ inputTokens: null, outputTokens: null });
 });
 
+test("startCodexTurn resolves only once the thread is known, so the caller can save it before the turn runs", async () => {
+  unflag("ask");
+  const t = turn({ permissionMode: "auto" });
+  const { stream } = await t.started;
+  expect(t.sessions).toEqual(["thr_new"]);
+  await collect(stream);
+});
+
 test("a known thread is resumed, not started again", async () => {
   unflag("unknown");
   const t = turn({ sessionId: "thr_old" });

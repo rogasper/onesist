@@ -55,6 +55,12 @@ export async function startCodexTurn(input: CodexTurnInput): Promise<{ stream: R
   const usage = new Promise<Usage>((resolve) => {
     resolveUsage = resolve;
   });
+  // Resolves once the thread is known (or the turn ended), so the caller saves the session after the
+  // runtime took the prompt — the same point the chat route and the Claude runtime rely on.
+  let markReady: () => void = () => {};
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
 
   const stream = new ReadableStream<Part>({
     async start(controller) {
@@ -75,6 +81,7 @@ export async function startCodexTurn(input: CodexTurnInput): Promise<{ stream: R
       };
       // Ends the stream once. `parts` are what the mapper still owes (none when it already finished).
       const close = (parts: Part[]) => {
+        markReady();
         if (finished) return;
         finished = true;
         cleanup();
@@ -101,6 +108,7 @@ export async function startCodexTurn(input: CodexTurnInput): Promise<{ stream: R
       try {
         conn = await getCodexConnection(input.binary);
         threadId = await openThread(conn, input);
+        markReady();
         mapper = createCodexMapper(threadId, input.model ?? "codex");
         unsubscribeNotifications = conn.subscribe(threadId, (n) => {
           if (n.method === "turn/started" && typeof n.params?.turn?.id === "string") turnId = n.params.turn.id;
@@ -120,5 +128,6 @@ export async function startCodexTurn(input: CodexTurnInput): Promise<{ stream: R
       }
     },
   });
+  await ready;
   return { stream, usage };
 }
