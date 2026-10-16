@@ -21,6 +21,7 @@ import { workspaceImageSrc } from "~/lib/workspace-image";
 import {
   bashExitCode,
   handoffNoticeText,
+  refusalNoticeText,
   mergeNoticeText,
   workspaceNoticeText,
   workspaceSetupText,
@@ -2138,6 +2139,16 @@ function NoticeBlock({ data, nextLimit, onContinue }: { data: any; nextLimit?: n
       <div className="flex items-center gap-2 py-1 text-xs text-kumo-subtle">
         <span className="h-px flex-1 bg-kumo-line" />
         <span>{handoffNoticeText(data)}</span>
+        <span className="h-px flex-1 bg-kumo-line" />
+      </div>
+    );
+  }
+  if (data?.kind === "refusal") {
+    // A shell command the thread's mode refused on Onesist's side, not the user's.
+    return (
+      <div className="flex items-center gap-2 py-1 text-xs text-kumo-subtle">
+        <span className="h-px flex-1 bg-kumo-line" />
+        <span>{refusalNoticeText(data)}</span>
         <span className="h-px flex-1 bg-kumo-line" />
       </div>
     );

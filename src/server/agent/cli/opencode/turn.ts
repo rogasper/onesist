@@ -18,6 +18,7 @@ import { PERMISSION_OPTIONS, autoDecision, decisionFromAnswer, permissionQuestio
 import { ensureOnesistMcp, type OnesistMcp } from "./mcp";
 import { getOpenCodeConnection } from "./server";
 import { createOpenCodeMapper } from "./stream-mapper";
+import { appendMessage } from "~/server/agent/store";
 
 export interface OpenCodeTurnInput {
   runId: string;
@@ -78,12 +79,24 @@ export async function startOpenCodeTurn(input: OpenCodeTurnInput): Promise<OpenC
   const iterator = await ocOpenEvents(conn, events.signal);
   await ocPrompt(conn, session, input.text);
 
+  let refusalNoticed = false;
   const handlePermission = async (d: any) => {
     const requestId = typeof d.id === "string" ? d.id : "";
     if (!requestId) return;
     const action = String(d.action ?? "");
     const toolCallId = typeof d.source?.id === "string" ? d.source.id : requestId;
     let decision = autoDecision(input.permissionMode, input.threadMode, action);
+    if (decision === "reject" && action === "shell" && !refusalNoticed) {
+      // The mode refused this without asking. OpenCode words that as "the user declined", so the
+      // transcript says what happened, once per turn.
+      refusalNoticed = true;
+      appendMessage({
+        threadId: input.threadId,
+        role: "system",
+        kind: "permissionRefused",
+        parts: [{ type: "data-notice", data: { kind: "refusal", tool: "shell", reason: input.permissionMode === "no-shell" ? "shell-disabled" : "shell-readonly" } }],
+      });
+    }
     if (!decision) {
       const resources = Array.isArray(d.resources) ? d.resources.map(String) : [];
       const answers = await awaitQuestion(input.runId, [{ question: permissionQuestion(action, resources), options: [...PERMISSION_OPTIONS] }]);
