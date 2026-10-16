@@ -10,6 +10,18 @@ export interface McpPreset {
   url: string;
   authKind: "none" | "header" | "oauth";
   authHeader?: string;
+  /**
+   * How "auto configuration" connects, when the provider supports it.
+   *  - `gh`    — borrow the token the gh CLI already holds. GitHub publishes no
+   *              dynamic client registration, so there is no browser flow for it.
+   *  - `oauth` — the MCP authorization flow (dynamic client registration + PKCE).
+   * A preset without this connects through manual configuration only.
+   *
+   * This is separate from `authKind`, which records what the *stored row* looks
+   * like: a gh-connected row is a plain `header` + Bearer token, while a
+   * browser-authorized one is `oauth` + a token bundle.
+   */
+  connect?: "gh" | "oauth";
   hint?: string;
 }
 
@@ -30,7 +42,9 @@ export const MCP_PRESETS: McpPreset[] = [
     logo: "🐙",
     transport: "http",
     url: "https://api.githubcopilot.com/mcp/",
-    authKind: "oauth",
+    authKind: "header",
+    authHeader: "Authorization",
+    connect: "gh",
     hint: "Hubungkan otomatis lewat gh CLI, atau pakai Personal Access Token manual.",
   },
   {
@@ -52,6 +66,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     url: "https://mcp.miro.com/mcp",
     authKind: "oauth",
+    connect: "oauth",
     hint: "Mendukung Hubungkan otomatis (OAuth) atau Access Token manual.",
   },
   {
@@ -62,6 +77,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     url: "https://mcp.monday.com/mcp",
     authKind: "oauth",
+    connect: "oauth",
     hint: "Mendukung Hubungkan otomatis (OAuth) atau API Token manual.",
   },
 ];

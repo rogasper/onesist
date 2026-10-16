@@ -7,6 +7,7 @@
 import { db } from "~/server/db/client";
 import { mcpServers } from "~/server/db/schema";
 import { eq } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { type Tool } from "ai";
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import { readStoredTokens } from "./oauth";
@@ -39,8 +40,35 @@ setInterval(() => {
   }
 }, 60_000).unref?.();
 
+/**
+ * Cache key for a connection.
+ *
+ * Not the row id alone: a draft test always carries `id: "draft"`, so two
+ * different drafts (or the same row after its token changed) would reuse the
+ * first connection and report a result for credentials that were never used.
+ * Everything that decides where we connect and how we authenticate is in here.
+ */
+function connectionKey(config: McpServerConfig): string {
+  const stored = config.authKind === "oauth" ? readStoredTokens(config as any)?.access_token ?? "" : "";
+  return JSON.stringify([
+    config.id,
+    config.transport,
+    config.url,
+    config.command,
+    config.argsJson,
+    config.envJson,
+    config.authKind,
+    config.authHeader,
+    // The value itself never goes in a key that might be logged; a digest is
+    // enough to tell two credentials apart.
+    config.authValue ? createHash("sha256").update(config.authValue).digest("hex").slice(0, 16) : null,
+    stored ? createHash("sha256").update(stored).digest("hex").slice(0, 16) : null,
+  ]);
+}
+
 export async function getMcpClient(config: McpServerConfig): Promise<MCPClient> {
-  const existing = activeClients.get(config.id);
+  const key = connectionKey(config);
+  const existing = activeClients.get(key);
   if (existing) {
     existing.lastUsed = Date.now();
     return existing.client;
@@ -90,7 +118,7 @@ export async function getMcpClient(config: McpServerConfig): Promise<MCPClient> 
 
   try {
     const client = await createMCPClient({ transport: transportConfig });
-    activeClients.set(config.id, { client, lastUsed: Date.now() });
+    activeClients.set(key, { client, lastUsed: Date.now() });
     return client;
   } catch (err: any) {
     throw new McpClientError(err?.message ?? "Gagal terhubung ke server MCP.");
@@ -105,11 +133,18 @@ export async function fetchServerTools(config: McpServerConfig): Promise<{ tools
   return { tools: rawTools, count, instructions: client.instructions };
 }
 
+/**
+ * Drops every cached connection belonging to one stored row.
+ *
+ * The cache is keyed by configuration, not by id, so a row whose token changed
+ * can have more than one entry; all of them are stale once the row is updated.
+ */
 export async function closeServerClient(id: string): Promise<void> {
-  const entry = activeClients.get(id);
-  if (entry) {
+  const prefix = JSON.stringify(id).slice(0, -1);
+  for (const [key, entry] of activeClients.entries()) {
+    if (!key.startsWith(prefix)) continue;
     await entry.client.close().catch(() => {});
-    activeClients.delete(id);
+    activeClients.delete(key);
   }
 }
 

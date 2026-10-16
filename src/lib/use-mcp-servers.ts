@@ -34,6 +34,9 @@ export interface McpPresetInfo {
   url: string;
   authKind: "none" | "header" | "oauth";
   authHeader?: string;
+  /** How auto configuration connects: `gh` borrows the CLI token, `oauth` runs
+   *  the MCP authorization flow. Absent = manual configuration only. */
+  connect?: "gh" | "oauth";
   hint?: string;
 }
 

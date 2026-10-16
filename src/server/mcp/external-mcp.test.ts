@@ -100,3 +100,50 @@ test("fetchServerTools connects to mock MCP server and loads tools", async () =>
   expect(tools["get_repo"]).toBeDefined();
   expect(instructions).toBe("Mock server instructions");
 });
+
+/**
+ * Regression: the client cache used to be keyed on the row id alone. A draft
+ * test always carries `id: "draft"`, so a second draft — or the same row after
+ * its token was replaced — reused the first connection and reported a result
+ * for credentials that were never sent.
+ */
+test("a changed credential is not served from the previous connection", async () => {
+  let authSeen: string[] = [];
+  const observing = createServer(async (req, res) => {
+    let body = "";
+    for await (const c of req) body += c;
+    authSeen.push(String(req.headers.authorization ?? ""));
+    const msg = body ? JSON.parse(body) : null;
+    const reply = (result: unknown) => {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: msg?.id ?? null, result }));
+    };
+    if (!msg) {
+      res.statusCode = 202;
+      return res.end();
+    }
+    if (msg.method === "initialize") {
+      return reply({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "auth-probe", version: "1" } });
+    }
+    if (msg.method === "notifications/initialized") {
+      res.statusCode = 202;
+      return res.end();
+    }
+    if (msg.method === "tools/list") return reply({ tools: [] });
+    return reply({});
+  });
+  await new Promise<void>((r) => observing.listen(0, "127.0.0.1", () => r()));
+  const port = (observing.address() as any).port;
+
+  const base = { id: "draft", name: "d", transport: "http" as const, url: `http://127.0.0.1:${port}`, command: null, argsJson: null, envJson: null, authKind: "header" as const, authHeader: "Authorization" };
+
+  await fetchServerTools({ ...base, authValue: "token-one" } as any);
+  await fetchServerTools({ ...base, authValue: "token-two" } as any);
+
+  // Both credentials must reach the server: the second call is a new connection,
+  // not a reuse of the first.
+  expect(authSeen).toContain("Bearer token-one");
+  expect(authSeen).toContain("Bearer token-two");
+
+  observing.close();
+});

@@ -13,6 +13,12 @@ export function McpServersPanel() {
 
   const [view, setView] = useState<"list" | "form">("list");
   const [selected, setSelected] = useState<string | "new" | null>(null);
+  /**
+   * Bumped only when a form is opened. The form must NOT reset on `selected` or
+   * `current`: connecting saves the row and adopts its id, and a refresh hands
+   * back a new object — both used to wipe the draft and the test result.
+   */
+  const [formKey, setFormKey] = useState(0);
   const [draft, setDraft] = useState<McpServerDraft>(emptyDraft());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -30,6 +36,8 @@ export function McpServersPanel() {
   const isNew = selected === "new";
   const selectedPreset = presets.find((p) => p.id === draft.preset) ?? presets[0];
   const isCustom = draft.preset === "custom";
+  /** How this preset can connect automatically; null means manual only. */
+  const connectKind = selectedPreset?.connect ?? null;
 
   useEffect(() => {
     setView("list");
@@ -37,6 +45,8 @@ export function McpServersPanel() {
     void refresh();
   }, [refresh]);
 
+  // Keyed on `formKey` only: `current` is a fresh object after every refresh, so
+  // depending on it wiped a test result the moment the test refreshed the list.
   useEffect(() => {
     setSaveError(null);
     setTestResult(null);
@@ -44,12 +54,17 @@ export function McpServersPanel() {
     setOauthRunning(false);
     if (isNew) {
       setDraft(emptyDraft());
-      setConfigMode("auto");
+      setConfigMode("manual");
     } else if (current) {
       setDraft(draftFrom(current));
-      setConfigMode(current.authKind === "oauth" ? "auto" : "manual");
+      // Auto configuration belongs to the preset, not to the stored `authKind`:
+      // a gh-adopted row keeps `header` as its transport detail while still
+      // being connected through the CLI panel.
+      const preset = presets.find((p) => p.id === current.preset);
+      setConfigMode(preset?.connect ? "auto" : "manual");
     }
-  }, [selected, current]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formKey]);
 
   // GitHub's auto configuration needs the CLI state, so it is read whenever the
   // form shows that preset — including after the user picks it.
@@ -75,11 +90,13 @@ export function McpServersPanel() {
   function openNew() {
     setSelected("new");
     setView("form");
+    setFormKey((k) => k + 1);
   }
 
   function openEdit(id: string) {
     setSelected(id);
     setView("form");
+    setFormKey((k) => k + 1);
   }
 
   function backToList() {
@@ -110,7 +127,10 @@ export function McpServersPanel() {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = isNew || !current ? await testDraft(draft) : await testServer(current.id, draft);
+      // Testing a stored row sends only the changed fields, so a credential the
+      // server already holds (a gh token, an OAuth bundle) is not overwritten by
+      // the empty field the form deliberately shows.
+      const res = current ? await testServer(current.id, draft) : await testDraft(draft);
       setTestResult(res);
     } catch (err: any) {
       setTestResult({ success: false, message: err?.message ?? "Gagal menguji koneksi." });
@@ -132,6 +152,35 @@ export function McpServersPanel() {
   }
 
   /**
+   * The row this form edits, creating it when the form is still a draft.
+   *
+   * Both connect flows write their credential onto a stored row, so a draft has
+   * to be saved first. Adopting the created id matters: without it the form
+   * stayed in "new" mode, so the next Test ran against the empty draft (401)
+   * and the next Connect tried to create a second row with the same name (409).
+   */
+  async function ensureRow(): Promise<McpServerSummary> {
+    if (current) return current;
+    // A draft whose name is already taken is the same server being connected
+    // again; adopt that row instead of failing on the unique name.
+    const taken = servers.find((s) => s.name.trim().toLowerCase() === draft.name.trim().toLowerCase());
+    if (taken) {
+      setSelected(taken.id);
+      return taken;
+    }
+    const created = await createServer(draft);
+    setSelected(created.id);
+    return created;
+  }
+
+  /** Replaces the draft with what the server now holds, so the form shows reality. */
+  async function adoptServer(id: string): Promise<void> {
+    await refresh();
+    const row = (await api<{ servers: McpServerSummary[] }>("/api/mcp-servers")).servers.find((s) => s.id === id);
+    if (row) setDraft(draftFrom(row));
+  }
+
+  /**
    * Auto configuration for GitHub runs through the `gh` CLI: GitHub publishes no
    * dynamic client registration, so there is no browser OAuth to start. The CLI
    * has already been authorized, and its token works against the MCP endpoint.
@@ -140,17 +189,12 @@ export function McpServersPanel() {
     setOauthRunning(true);
     setSaveError(null);
     try {
-      const row = isNew ? await createServer({ ...draft, authKind: "header", authHeader: "Authorization" }) : current;
-      if (!row) throw new Error("Server MCP belum tersimpan.");
+      const row = await ensureRow();
+      await connectGh(row.id);
+      await adoptServer(row.id);
 
-      const res = await connectGh(row.id);
-      setDraft((d) => ({ ...d, authKind: "header", authHeader: "Authorization", authValue: "" }));
       const tested = await testServer(row.id, {});
       setTestResult(tested);
-      if (tested.success) {
-        setDraft((d) => ({ ...d, authValue: "" }));
-        void res;
-      }
     } catch (err: any) {
       setTestResult({ success: false, message: err?.message ?? "Gagal memakai token gh CLI." });
     } finally {
@@ -181,12 +225,11 @@ export function McpServersPanel() {
     setOauthRunning(true);
     setSaveError(null);
     try {
-      const row = isNew ? await createServer({ ...draft, authKind: "oauth" }) : current;
-      if (!row) throw new Error("Server MCP belum tersimpan.");
+      const row = await ensureRow();
 
       const started = await startOAuth(row.id);
       if (started.authorized) {
-        setDraft(draftFrom({ ...row, authKind: "oauth" }));
+        await adoptServer(row.id);
         setTestResult({ success: true, message: "Token OAuth yang tersimpan masih berlaku." });
         return;
       }
@@ -206,13 +249,9 @@ export function McpServersPanel() {
         }, 500);
       });
 
-      await refresh();
-      const updated = (await api<{ servers: McpServerSummary[] }>("/api/mcp-servers")).servers.find((s) => s.id === row.id);
-      if (updated) setDraft(draftFrom(updated));
-
+      await adoptServer(row.id);
       const tested = await testServer(row.id, {});
       setTestResult(tested);
-      if (tested.success) setDraft((d) => ({ ...d, authKind: "oauth" }));
     } catch (err: any) {
       const message = err?.message ?? "Gagal menjalankan otorisasi.";
       // A provider that will not register us needs a token from the user's own
@@ -259,7 +298,7 @@ export function McpServersPanel() {
                         authKind: p.authKind,
                         authHeader: p.authHeader ?? "Authorization",
                       }));
-                      setConfigMode(p.authKind === "oauth" ? "auto" : "manual");
+                      setConfigMode(p.connect ? "auto" : "manual");
                     }}
                     className={`text-left rounded-xl p-3.5 border transition-all flex flex-col justify-between ${
                       selected
@@ -285,18 +324,21 @@ export function McpServersPanel() {
             <input className={inputCls} value={draft.name} placeholder="cth. GitHub MCP" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
           </FieldRow>
 
-          {!isCustom && (
+          {/* The auto/manual choice only exists for presets that have an
+              automatic way in. Figma and Custom connect manually, so they show
+              the fields directly instead of a toggle with one real option. */}
+          {connectKind && (
             <FieldRow label="Konfigurasi">
               <div className="flex gap-2 mb-3">
                 <AppButton variant="chip" size="sm" active={configMode === "auto"} onClick={() => setConfigMode("auto")} className="px-3">
-                  Auto Configuration (OAuth)
+                  Auto Configuration
                 </AppButton>
                 <AppButton variant="chip" size="sm" active={configMode === "manual"} onClick={() => setConfigMode("manual")} className="px-3">
                   Manual Configuration
                 </AppButton>
               </div>
 
-              {configMode === "auto" && draft.preset === "github" && (
+              {configMode === "auto" && connectKind === "gh" && (
                 <div className="rounded-xl ring ring-kumo-line p-4 bg-kumo-elevated/20 space-y-3">
                   <div className="flex items-center gap-2">
                     <TerminalWindow size={14} className="text-kumo-subtle" />
@@ -345,7 +387,7 @@ export function McpServersPanel() {
                 </div>
               )}
 
-              {configMode === "auto" && draft.preset !== "github" && (
+              {configMode === "auto" && connectKind === "oauth" && (
                 <div className="rounded-xl ring ring-kumo-line p-4 bg-kumo-elevated/20 space-y-3">
                   <p className="text-xs text-kumo-subtle">
                     Hubungkan akun Anda secara otomatis melalui alur OAuth resmi {selectedPreset?.label}.
@@ -353,13 +395,15 @@ export function McpServersPanel() {
                   <AppButton variant="primary" size="sm" disabled={oauthRunning} onClick={handleAutoConnect} className="rounded gap-1.5">
                     <ShieldCheck size={14} /> {oauthRunning ? "Menghubungkan ke OAuth..." : `Hubungkan ke ${selectedPreset?.label}`}
                   </AppButton>
-                  {draft.authValue && <p className="text-[11px] text-green-400 font-mono">✓ Token akses tersimpan otomatis</p>}
+                  {current?.hasAuthValue && current.preset === draft.preset && (
+                    <p className="text-[11px] text-green-400 font-mono">✓ Kredensial tersimpan</p>
+                  )}
                 </div>
               )}
             </FieldRow>
           )}
 
-          {(isCustom || configMode === "manual") && (
+          {(!connectKind || configMode === "manual") && (
             <>
               <FieldRow label="Transport">
                 <div className="flex gap-2">
@@ -398,7 +442,9 @@ export function McpServersPanel() {
 
               <FieldRow label="Autentikasi">
                 <div className="flex gap-2 mb-2">
-                  {(isCustom ? (["none", "header"] as const) : (["none", "header", "oauth"] as const)).map((ak) => (
+                  {/* OAuth is not offered here: it is what Auto Configuration
+                      performs, and a token typed by hand is a header credential. */}
+                  {(["none", "header"] as const).map((ak) => (
                     <AppButton
                       key={ak}
                       variant="chip"
@@ -407,7 +453,7 @@ export function McpServersPanel() {
                       onClick={() => setDraft((d) => ({ ...d, authKind: ak }))}
                       className="capitalize px-3"
                     >
-                      {ak === "none" ? "Tanpa Auth" : ak === "header" ? "Header Token" : "OAuth"}
+                      {ak === "none" ? "Tanpa Auth" : "Header Token"}
                     </AppButton>
                   ))}
                 </div>
