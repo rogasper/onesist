@@ -8,6 +8,7 @@ import { db } from "~/server/db/client";
 import { mcpServers } from "~/server/db/schema";
 import { fetchServerTools, getMcpClient, closeServerClient } from "~/server/mcp/client";
 import { beginOAuth, completeOAuth, hasPendingOAuth, isRegistrationUnsupported } from "~/server/mcp/oauth";
+import { ghStatus, readGhToken } from "~/server/mcp/gh";
 import { MCP_PRESETS, getMcpPreset } from "~/server/agent/mcp-presets";
 import { newId } from "~/server/agent/store";
 import { maskApiKey, redactSecrets } from "~/server/agent/config";
@@ -209,6 +210,47 @@ router.post("mcp-servers/:id/test", async (ctx) => {
       latencyMs: Date.now() - started,
     });
   }
+});
+
+// GET /api/mcp-servers/gh/status — is the `gh` CLI installed and logged in?
+//
+// GitHub MCP has no dynamic client registration, so its "auto connect" is the
+// gh CLI's existing authorization rather than a browser flow. The UI shows this
+// state and refreshes it on demand.
+router.get("mcp-servers/gh/status", async () => json(await ghStatus()));
+
+// POST /api/mcp-servers/:id/gh/connect — adopt the gh CLI token for this server.
+router.post("mcp-servers/:id/gh/connect", async (ctx) => {
+  const row = db.select().from(mcpServers).where(eq(mcpServers.id, ctx.params.id)).get();
+  if (!row) return json({ error: "Server MCP tidak ditemukan." }, 404);
+
+  const status = await ghStatus();
+  if (!status.installed) {
+    return json({ error: "gh CLI tidak ditemukan. Pasang dulu: https://cli.github.com" }, 400);
+  }
+  if (!status.authenticated) {
+    return json({ error: "gh CLI belum login. Jalankan `gh auth login` di terminal, lalu muat ulang status." }, 400);
+  }
+
+  let token: string;
+  try {
+    token = await readGhToken();
+  } catch (err: any) {
+    return json({ error: redactSecrets(err?.message ?? String(err)) }, 400);
+  }
+
+  db.update(mcpServers)
+    .set({
+      authKind: "header",
+      authHeader: "Authorization",
+      authValue: token,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(mcpServers.id, row.id))
+    .run();
+  await closeServerClient(row.id);
+
+  return json({ ok: true, account: status.account, tokenPrefix: status.tokenPrefix });
 });
 
 // POST /api/mcp-servers/:id/oauth/start — begin the MCP OAuth flow (FR: external MCP)

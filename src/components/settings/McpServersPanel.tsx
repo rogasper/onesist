@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Eye, EyeSlash, Plus, Trash, Wrench, ArrowLeft, Key, ShieldCheck } from "@phosphor-icons/react";
-import { useMcpServers, api, emptyDraft, draftFrom, type McpServerSummary, type McpServerDraft, type McpTestResult } from "~/lib/use-mcp-servers";
+import { Check, Copy, Eye, EyeSlash, Plus, Trash, Wrench, ArrowLeft, Key, ShieldCheck, ArrowsClockwise, TerminalWindow } from "@phosphor-icons/react";
+import { useMcpServers, api, emptyDraft, draftFrom, type GhStatus, type McpServerSummary, type McpServerDraft, type McpTestResult } from "~/lib/use-mcp-servers";
 import { AppButton } from "~/components/ui/AppButton";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
@@ -9,7 +9,7 @@ const MONO = "font-mono text-xs";
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
 export function McpServersPanel() {
-  const { servers, presets, loading, error, refresh, createServer, updateServer, deleteServer, testServer, testDraft, startOAuth } = useMcpServers();
+  const { servers, presets, loading, error, refresh, createServer, updateServer, deleteServer, testServer, testDraft, startOAuth, ghStatus, connectGh } = useMcpServers();
 
   const [view, setView] = useState<"list" | "form">("list");
   const [selected, setSelected] = useState<string | "new" | null>(null);
@@ -22,6 +22,9 @@ export function McpServersPanel() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [configMode, setConfigMode] = useState<"auto" | "manual">("auto");
   const [oauthRunning, setOauthRunning] = useState(false);
+  /** GitHub connects through the `gh` CLI instead of a browser OAuth flow. */
+  const [gh, setGh] = useState<GhStatus | null>(null);
+  const [ghChecking, setGhChecking] = useState(false);
 
   const current = selected && selected !== "new" ? servers.find((s) => s.id === selected) ?? null : null;
   const isNew = selected === "new";
@@ -47,6 +50,27 @@ export function McpServersPanel() {
       setConfigMode(current.authKind === "oauth" ? "auto" : "manual");
     }
   }, [selected, current]);
+
+  // GitHub's auto configuration needs the CLI state, so it is read whenever the
+  // form shows that preset — including after the user picks it.
+  useEffect(() => {
+    if (view !== "form" || draft.preset !== "github") return;
+    let cancelled = false;
+    setGhChecking(true);
+    ghStatus()
+      .then((s) => {
+        if (!cancelled) setGh(s);
+      })
+      .catch(() => {
+        if (!cancelled) setGh(null);
+      })
+      .finally(() => {
+        if (!cancelled) setGhChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view, draft.preset, ghStatus]);
 
   function openNew() {
     setSelected("new");
@@ -104,6 +128,46 @@ export function McpServersPanel() {
     } catch (err: any) {
       setSaveError(err?.message ?? "Gagal menghapus server MCP.");
       setConfirmDelete(false);
+    }
+  }
+
+  /**
+   * Auto configuration for GitHub runs through the `gh` CLI: GitHub publishes no
+   * dynamic client registration, so there is no browser OAuth to start. The CLI
+   * has already been authorized, and its token works against the MCP endpoint.
+   */
+  async function handleGhConnect() {
+    setOauthRunning(true);
+    setSaveError(null);
+    try {
+      const row = isNew ? await createServer({ ...draft, authKind: "header", authHeader: "Authorization" }) : current;
+      if (!row) throw new Error("Server MCP belum tersimpan.");
+
+      const res = await connectGh(row.id);
+      setDraft((d) => ({ ...d, authKind: "header", authHeader: "Authorization", authValue: "" }));
+      const tested = await testServer(row.id, {});
+      setTestResult(tested);
+      if (tested.success) {
+        setDraft((d) => ({ ...d, authValue: "" }));
+        void res;
+      }
+    } catch (err: any) {
+      setTestResult({ success: false, message: err?.message ?? "Gagal memakai token gh CLI." });
+    } finally {
+      setOauthRunning(false);
+    }
+  }
+
+  /** Re-reads the CLI state; the user may have run `gh auth login` just now. */
+  async function refreshGh() {
+    setGhChecking(true);
+    try {
+      setGh(await ghStatus());
+    } catch (err: any) {
+      setGh(null);
+      setSaveError(err?.message ?? "Gagal memeriksa gh CLI.");
+    } finally {
+      setGhChecking(false);
     }
   }
 
@@ -232,7 +296,56 @@ export function McpServersPanel() {
                 </AppButton>
               </div>
 
-              {configMode === "auto" && (
+              {configMode === "auto" && draft.preset === "github" && (
+                <div className="rounded-xl ring ring-kumo-line p-4 bg-kumo-elevated/20 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <TerminalWindow size={14} className="text-kumo-subtle" />
+                    <span className="text-xs font-medium text-kumo-default">gh CLI</span>
+                    <button
+                      onClick={() => void refreshGh()}
+                      disabled={ghChecking}
+                      title="Periksa ulang gh CLI"
+                      className="ml-auto flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-kumo-line text-kumo-subtle hover:text-kumo-default disabled:opacity-40"
+                    >
+                      <ArrowsClockwise size={10} className={ghChecking ? "animate-spin" : ""} /> Refresh
+                    </button>
+                  </div>
+
+                  {ghChecking && !gh ? (
+                    <p className="text-xs text-kumo-subtle">Memeriksa gh CLI…</p>
+                  ) : gh?.installed && gh.authenticated ? (
+                    <>
+                      <p className="text-xs text-green-400">
+                        ✓ Terdeteksi{gh.account ? ` — akun ${gh.account}` : ""}
+                        {gh.version ? ` · ${gh.version}` : ""}
+                      </p>
+                      {gh.scopes.length ? (
+                        <p className="text-[11px] text-kumo-subtle font-mono">Scope: {gh.scopes.join(", ")}</p>
+                      ) : null}
+                      <AppButton variant="primary" size="sm" disabled={oauthRunning} onClick={handleGhConnect} className="rounded gap-1.5">
+                        <ShieldCheck size={14} /> {oauthRunning ? "Menghubungkan…" : "Pakai token gh CLI"}
+                      </AppButton>
+                    </>
+                  ) : gh?.installed ? (
+                    <>
+                      <p className="text-xs text-amber-400">{gh.error}</p>
+                      <p className="text-[11px] text-kumo-subtle">
+                        Jalankan <span className="font-mono">gh auth login</span> di terminal, lalu tekan Refresh.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-amber-400">gh CLI tidak terdeteksi di PATH.</p>
+                      <p className="text-[11px] text-kumo-subtle">
+                        Pasang dari <span className="font-mono">https://cli.github.com</span>, login, lalu tekan Refresh. Sementara itu pakai
+                        Manual Configuration dengan Personal Access Token.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {configMode === "auto" && draft.preset !== "github" && (
                 <div className="rounded-xl ring ring-kumo-line p-4 bg-kumo-elevated/20 space-y-3">
                   <p className="text-xs text-kumo-subtle">
                     Hubungkan akun Anda secara otomatis melalui alur OAuth resmi {selectedPreset?.label}.

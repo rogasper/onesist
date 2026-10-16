@@ -30,9 +30,8 @@ export const MCP_PRESETS: McpPreset[] = [
     logo: "🐙",
     transport: "http",
     url: "https://api.githubcopilot.com/mcp/",
-    authKind: "header",
-    authHeader: "Authorization",
-    hint: "GitHub tidak menyediakan pendaftaran klien OAuth otomatis — pakai Personal Access Token.",
+    authKind: "oauth",
+    hint: "Hubungkan otomatis lewat gh CLI, atau pakai Personal Access Token manual.",
   },
   {
     id: "figma",

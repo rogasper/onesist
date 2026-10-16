@@ -37,6 +37,17 @@ export interface McpPresetInfo {
   hint?: string;
 }
 
+export interface GhStatus {
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  authenticated: boolean;
+  account: string | null;
+  tokenPrefix: string | null;
+  scopes: string[];
+  error: string | null;
+}
+
 export interface McpTestResult {
   success: boolean;
   message: string;
@@ -148,6 +159,17 @@ export function useMcpServers() {
     return api<{ authorized: boolean; authorizationUrl?: string }>(`/api/mcp-servers/${id}/oauth/start`, { method: "POST" });
   };
 
+  const ghStatus = async (): Promise<GhStatus> => api<GhStatus>("/api/mcp-servers/gh/status");
+
+  const connectGh = async (id: string): Promise<{ ok: boolean; account: string | null; tokenPrefix: string | null }> => {
+    const res = await api<{ ok: boolean; account: string | null; tokenPrefix: string | null }>(
+      `/api/mcp-servers/${id}/gh/connect`,
+      { method: "POST" },
+    );
+    await refresh();
+    return res;
+  };
+
   return {
     servers,
     presets,
@@ -160,6 +182,8 @@ export function useMcpServers() {
     testServer,
     testDraft,
     startOAuth,
+    ghStatus,
+    connectGh,
   };
 }
 
