@@ -38,13 +38,18 @@ test("read-only blocks write and shell tools before Claude even asks; no-shell b
 });
 
 test("ask: the user's answer decides; 'always' hands Claude's own suggestions back", async () => {
-  const suggestions = [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "pwd" }], behavior: "allow", destination: "session" }] as any;
+  // The SDK suggests a project-level destination; Onesist keeps "always" to this session only.
+  const suggestions = [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "pwd" }], behavior: "allow", destination: "localSettings" }] as any;
   const once = makeCanUseTool({ runId: "r", policy: "ask", ask: answering("Izinkan sekali") as any });
   expect(await once("Bash", { command: "pwd" }, { signal: signal() } as any)).toEqual({ behavior: "allow", updatedInput: { command: "pwd" } });
   expect(asked.at(-1)).toBe("Claude Code meminta izin menjalankan perintah: pwd");
 
   const always = makeCanUseTool({ runId: "r", policy: "ask", ask: answering("Selalu izinkan") as any });
-  expect(await always("Bash", { command: "pwd" }, { signal: signal(), suggestions } as any)).toEqual({ behavior: "allow", updatedInput: { command: "pwd" }, updatedPermissions: suggestions });
+  expect(await always("Bash", { command: "pwd" }, { signal: signal(), suggestions } as any)).toEqual({
+    behavior: "allow",
+    updatedInput: { command: "pwd" },
+    updatedPermissions: [{ ...suggestions[0], destination: "session" }],
+  });
 
   const no = makeCanUseTool({ runId: "r", policy: "ask", ask: answering("Tolak") as any });
   expect(await no("Edit", { file_path: "/ws/a.md" }, { signal: signal() } as any)).toEqual({ behavior: "deny", message: "Ditolak oleh pengguna." });

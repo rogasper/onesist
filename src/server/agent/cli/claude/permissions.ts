@@ -51,7 +51,12 @@ export function makeCanUseTool(opts: { runId: string; policy: ClaudePolicy; ask?
     const answers = await ask(opts.runId, [{ question: question(toolName, input), options: [...CLAUDE_APPROVAL_OPTIONS] }]);
     const answer = answers?.[0];
     if (answer === CLAUDE_APPROVAL_OPTIONS[0]) return allow(input);
-    if (answer === CLAUDE_APPROVAL_OPTIONS[1]) return { behavior: "allow", updatedInput: input, updatedPermissions: options.suggestions ?? [] };
+    // "Always" lasts for this session only: the SDK's suggestions may target project settings,
+    // which would write a rule into the user's workspace.
+    if (answer === CLAUDE_APPROVAL_OPTIONS[1]) {
+      const updatedPermissions = (options.suggestions ?? []).map((s) => ({ ...s, destination: "session" as const }));
+      return { behavior: "allow", updatedInput: input, updatedPermissions };
+    }
     return deny("Ditolak oleh pengguna.");
   };
 }
