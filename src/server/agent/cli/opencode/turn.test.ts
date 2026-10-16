@@ -217,6 +217,23 @@ test("in read-only, shell is refused without a question", async () => {
   expect(registry.listPendingQuestions(runId)).toEqual([]);
 });
 
+test("a shell refusal by the mode is stored once as a notice that says why", async () => {
+  const runId = `run_oc_notice_${++runCounter}`;
+  onPrompt = () => {
+    send("session.execution.started");
+    send("permission.asked", { id: "per_3", action: "shell", resources: ["cat a.md"], source: { type: "tool", id: "call_3" } });
+    send("permission.asked", { id: "per_4", action: "shell", resources: ["wc -l b.md"], source: { type: "tool", id: "call_4" } });
+  };
+  onReply = () => finishText("selesai");
+  // Its own thread: the other tests in this file also refuse shell and write notices to the shared one.
+  const ownThread = store.createThread({ projectId: "p-oc-turn", title: "notice" } as any).id as string;
+  const turn = await startOpenCodeTurn(input({ runId, threadId: ownThread, permissionMode: "ask", threadMode: "ask" }));
+  await collect(turn.stream);
+  const notices = store.listMessages(ownThread).filter((m) => m.kind === "permissionRefused");
+  expect(notices.length).toBe(1);
+  expect(String(notices[0].contentJson)).toContain("shell-readonly");
+});
+
 test("Stop interrupts OpenCode and the stream ends with an abort", async () => {
   const runId = `run_oc_stop_${++runCounter}`;
   onPrompt = () => send("session.execution.started");

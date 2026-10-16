@@ -225,3 +225,12 @@ export function workspaceSetupText(data: { ok?: boolean; exitCode?: number | nul
   const head = data.ok ? "Setup worktree selesai" : `Setup worktree gagal (exit ${data.exitCode ?? "—"})`;
   return data.command ? `${head} · ${data.command}` : head;
 }
+
+/**
+ * The line shown where a CLI agent's shell command was refused by the thread's mode. The
+ * refusal comes from Onesist, not from the user, so it says why and how to get shell back.
+ */
+export function refusalNoticeText(data: { reason?: string; tool?: string }): string {
+  if (data.reason === "shell-disabled") return "Perintah shell dimatikan di mode ini.";
+  return "Perintah shell ditolak karena mode ini hanya membaca. Ganti ke mode Kerjakan untuk menjalankannya.";
+}

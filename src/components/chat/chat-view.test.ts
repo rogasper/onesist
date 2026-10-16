@@ -7,6 +7,7 @@
  *   bun test src/components/chat/chat-view.test.ts
  */
 import { expect, test } from "bun:test";
+import { refusalNoticeText } from "./chat-view";
 import {
   bashExitCode,
   changeStats,
@@ -159,4 +160,10 @@ test("workspace dividers say where the thread moved and how its setup went", () 
   expect(workspaceSetupText({ ok: true, command: "bun install" })).toBe("Setup worktree selesai · bun install");
   expect(workspaceSetupText({ ok: false, exitCode: 3, command: "bun install" })).toBe("Setup worktree gagal (exit 3) · bun install");
   expect(workspaceSetupText({ ok: false, exitCode: null })).toBe("Setup worktree gagal (exit —)");
+});
+
+test("a refused shell command says why, and how to run it", () => {
+  expect(refusalNoticeText({ reason: "shell-readonly", tool: "shell" })).toContain("hanya membaca");
+  expect(refusalNoticeText({ reason: "shell-readonly", tool: "shell" })).toContain("Kerjakan");
+  expect(refusalNoticeText({ reason: "shell-disabled", tool: "shell" })).toContain("dimatikan");
 });
