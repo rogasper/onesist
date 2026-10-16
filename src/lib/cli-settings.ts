@@ -24,6 +24,7 @@ const binaryField = (placeholder: string): CliSettingField => ({
 
 const FIELDS: Record<string, CliSettingField[]> = {
   antigravity: [binaryField("agy")],
+  claude: [binaryField("claude")],
   codex: [binaryField("codex")],
   opencode: [
     binaryField("opencode"),
