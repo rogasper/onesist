@@ -48,3 +48,13 @@ test("an Antigravity thread continues with agy --conversation, in its workspace"
   expect(terminalResumeCommand(agy(), "ses_abc")).toBeNull();
   expect(terminalResumeCommand(agy(), `${id}; rm -rf ~`)).toBeNull();
 });
+
+const codex = (cliPath: string | null = null) => ({ apiStyle: "cli", cliAgent: "codex", cliPath });
+const CODEX_THREAD = "019d2f7e-1a2b-7c3d-8e4f-5a6b7c8d9e0f";
+
+test("a Codex thread continues with codex resume, in its workspace", () => {
+  expect(terminalResumeCommand(codex(), CODEX_THREAD)).toBe(`codex resume ${CODEX_THREAD}`);
+  expect(terminalResumeCommand(codex("/opt/codex"), CODEX_THREAD, "/wt/api", "darwin")).toBe(`cd '/wt/api' && /opt/codex resume ${CODEX_THREAD}`);
+  expect(terminalResumeCommand(codex(), "thr_bukan_uuid")).toBeNull();
+  expect(terminalResumeCommand(codex(), `${CODEX_THREAD}; rm -rf ~`)).toBeNull();
+});
