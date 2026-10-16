@@ -23,3 +23,12 @@ export function visibleModels(
   const shown = [...pinned, ...rest];
   return { shown, hidden: matches.length - shown.length };
 }
+
+/**
+ * Whether the picker asks a provider for its full model list when it opens. A provider that
+ * shows at most one stored model is asked, CLI providers included: their list comes from the
+ * runtime and is stored on the first refresh, so later opens do not ask again.
+ */
+export function shouldFetchModelList(provider: { models?: string[] | null }): boolean {
+  return (provider.models?.length ?? 0) <= 1;
+}

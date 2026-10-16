@@ -5,7 +5,7 @@
  *   bun test src/components/chat/model-list.test.ts
  */
 import { expect, test } from "bun:test";
-import { visibleModels } from "./model-list";
+import { shouldFetchModelList, visibleModels } from "./model-list";
 
 const many = Array.from({ length: 20 }, (_, i) => `model-${i}`);
 
@@ -37,4 +37,12 @@ test("a search reaches every match, not just the first page, and ignores case", 
   const { shown, hidden } = visibleModels(many, { query: "MODEL-1", expanded: false, selected: null });
   expect(shown).toEqual(["model-1", "model-10", "model-11", "model-12", "model-13", "model-14", "model-15", "model-16", "model-17", "model-18", "model-19"]);
   expect(hidden).toBe(0);
+});
+
+test("the picker asks a provider for its list on open when it has at most one stored model, CLI providers included", () => {
+  expect(shouldFetchModelList({ models: [] })).toBe(true);
+  expect(shouldFetchModelList({ models: ["default"] })).toBe(true);
+  expect(shouldFetchModelList({ models: ["default", "opus"] })).toBe(false);
+  expect(shouldFetchModelList({ models: undefined })).toBe(true);
+  expect(shouldFetchModelList({ models: ["a", "b"] })).toBe(false);
 });
