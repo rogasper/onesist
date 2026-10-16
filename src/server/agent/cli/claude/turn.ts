@@ -91,6 +91,12 @@ export async function startClaudeTurn(input: ClaudeTurnInput, queryFn: ClaudeQue
   const usage = new Promise<Usage>((resolve) => {
     resolveUsage = resolve;
   });
+  // Resolves once the session is known (init) or the turn has ended, so the caller saves the session
+  // after the runtime took the prompt — the same point OpenCode and the chat route assume.
+  let markReady: () => void = () => {};
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
 
   const stream = new ReadableStream<Part>({
     async start(controller) {
@@ -111,8 +117,9 @@ export async function startClaudeTurn(input: ClaudeTurnInput, queryFn: ClaudeQue
         else run.abort.signal.addEventListener("abort", onAbort, { once: true });
         try {
           for await (const msg of q) {
-            if (msg?.type === "system" && msg.subtype === "init" && typeof msg.session_id === "string" && msg.session_id !== input.sessionId) {
-              input.onSessionCreated(msg.session_id);
+            if (msg?.type === "system" && msg.subtype === "init") {
+              if (typeof msg.session_id === "string" && msg.session_id !== input.sessionId) input.onSessionCreated(msg.session_id);
+              markReady();
             }
             if (finished) break;
             for (const part of mapper.map(msg)) controller.enqueue(part);
@@ -126,6 +133,7 @@ export async function startClaudeTurn(input: ClaudeTurnInput, queryFn: ClaudeQue
       const end = (opts: { aborted?: boolean; error?: unknown }) => {
         if (finished) return;
         finished = true;
+        markReady();
         for (const part of mapper.finish(opts)) controller.enqueue(part);
         resolveUsage(mapper.usage());
         controller.close();
@@ -149,5 +157,6 @@ export async function startClaudeTurn(input: ClaudeTurnInput, queryFn: ClaudeQue
       }
     },
   });
+  await ready;
   return { stream, usage };
 }

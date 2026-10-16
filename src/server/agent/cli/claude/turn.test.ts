@@ -117,6 +117,17 @@ test("a new turn streams its text, records the session Onesist chose, and report
   expect(liveClaudeTurns()).toBe(0);
 });
 
+test("startClaudeTurn resolves only once the session is known, so the caller can save it", async () => {
+  const q = fakeQuery(async function* (options) {
+    await Bun.sleep(50); // the SDK takes a moment to start Claude Code
+    yield* answer(options.sessionId);
+  });
+  const sessions: string[] = [];
+  const turn = await startClaudeTurn(base({ onSessionCreated: (id: string) => sessions.push(id) }) as any, q.fn as any);
+  expect(sessions).toEqual([q.calls[0].sessionId]);
+  await collect(turn.stream);
+});
+
 test("a known session is resumed and not recorded again", async () => {
   const sid = "33333333-3333-4333-8333-333333333333";
   const q = fakeQuery(async function* () {
