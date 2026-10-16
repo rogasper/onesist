@@ -9,6 +9,7 @@
 import type { ProviderRow } from "~/server/agent/config";
 
 const SESSION_ID = /^ses_[A-Za-z0-9]+$/;
+const AGY_CONVERSATION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function quoteArg(arg: string): string {
   return /[\s"$`\\'&|;<>()]/.test(arg) ? JSON.stringify(arg) : arg;
@@ -26,9 +27,16 @@ export function terminalResumeCommand(
   cwd: string | null = null,
   platform: NodeJS.Platform = process.platform,
 ): string | null {
-  if (provider.apiStyle !== "cli" || provider.cliAgent !== "opencode") return null;
-  if (!sessionId || !SESSION_ID.test(sessionId)) return null;
-  const resume = `${quoteArg(provider.cliPath?.trim() || "opencode")} --session ${sessionId}`;
+  if (provider.apiStyle !== "cli" || !sessionId) return null;
+  let resume: string;
+  if (provider.cliAgent === "opencode" && SESSION_ID.test(sessionId)) {
+    resume = `${quoteArg(provider.cliPath?.trim() || "opencode")} --session ${sessionId}`;
+  } else if (provider.cliAgent === "antigravity" && AGY_CONVERSATION.test(sessionId)) {
+    // Fase 5A: a conversation agy made headless (-p) is opened interactively the same way.
+    resume = `${quoteArg(provider.cliPath?.trim() || "agy")} --conversation ${sessionId}`;
+  } else {
+    return null;
+  }
   if (!cwd) return resume;
   if (platform === "win32") {
     // cmd expands %VAR% even inside quotes, and a path cannot hold a quote: refuse rather than guess.

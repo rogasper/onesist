@@ -38,3 +38,13 @@ test("a thread in a worktree goes there first", () => {
   expect(terminalResumeCommand(oc(), "ses_abc", "C:\\%PATH%", "win32")).toBeNull();
   expect(terminalResumeCommand(oc(), "ses_abc", null, "darwin")).toBe("opencode --session ses_abc");
 });
+
+const agy = (cliPath: string | null = null) => ({ apiStyle: "cli", cliAgent: "antigravity", cliPath });
+
+test("an Antigravity thread continues with agy --conversation, in its workspace", () => {
+  const id = "4cd04889-9baa-49dc-80a0-74254a50372a";
+  expect(terminalResumeCommand(agy(), id)).toBe(`agy --conversation ${id}`);
+  expect(terminalResumeCommand(agy("/Users/a b/agy"), id, "/wt/api", "darwin")).toBe(`cd '/wt/api' && "/Users/a b/agy" --conversation ${id}`);
+  expect(terminalResumeCommand(agy(), "ses_abc")).toBeNull();
+  expect(terminalResumeCommand(agy(), `${id}; rm -rf ~`)).toBeNull();
+});

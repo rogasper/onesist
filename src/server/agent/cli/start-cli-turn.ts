@@ -45,7 +45,7 @@ export async function startCliTurn(
 ): Promise<CliTurn> {
   const runtime = runtimeOverride ?? cliRuntimeFor(input.provider);
   if (!runtime) {
-    throw new Error(`Provider CLI "${input.provider.cliAgent ?? "?"}" belum didukung di chat. Saat ini baru OpenCode.`);
+    throw new Error(`Provider CLI "${input.provider.cliAgent ?? "?"}" belum didukung di chat. Saat ini baru OpenCode dan Antigravity.`);
   }
   const userText = textOfMessage(input.lastUser as any);
   if (!userText) throw new Error("Provider CLI baru menerima pesan teks; gambar belum didukung.");
