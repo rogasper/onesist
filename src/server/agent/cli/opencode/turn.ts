@@ -12,12 +12,13 @@ import type { TextStreamPart, ToolSet } from "~/server/agent/ai";
 import { awaitQuestion, createRun, recordApprovalDecision } from "~/server/agent/run-registry";
 import type { PermissionMode, ThreadMode } from "~/server/agent/types";
 import {
-  ocCreateSession, ocInterrupt, ocOpenEvents, ocPrompt, ocReplyPermission, ocSetModel, ocUpdatePermissions, parseModelRef,
+  ocCancelForm, ocCreateSession, ocInterrupt, ocOpenEvents, ocPrompt, ocReplyForm, ocReplyPermission, ocSetModel, ocUpdatePermissions, parseModelRef,
 } from "./client";
 import { PERMISSION_OPTIONS, autoDecision, decisionFromAnswer, permissionQuestion, permissionRules } from "./rules";
 import { ensureOnesistMcp, type OnesistMcp } from "./mcp";
 import { getOpenCodeConnection } from "./server";
 import { createOpenCodeMapper } from "./stream-mapper";
+import { formAnswer, formQuestions, type OcForm } from "./forms";
 import { appendMessage } from "~/server/agent/store";
 
 export interface OpenCodeTurnInput {
@@ -80,6 +81,26 @@ export async function startOpenCodeTurn(input: OpenCodeTurnInput): Promise<OpenC
   await ocPrompt(conn, session, input.text);
 
   let refusalNoticed = false;
+  const handledForms = new Set<string>();
+  const handleForm = async (form: OcForm) => {
+    if (!form?.id || handledForms.has(form.id)) return;
+    handledForms.add(form.id);
+    const { fields, questions } = formQuestions(form);
+    const cancel = (message: string) => ocCancelForm(conn, session, form.id, message).catch((err) => console.error("[opencode] form cancel failed:", err));
+    if (fields.length === 0) return void (await cancel("Tidak ada pertanyaan yang bisa dijawab di sini."));
+    const answers = await awaitQuestion(
+      input.runId,
+      questions.map((q) => (q.options.length ? { question: q.question, options: q.options } : { question: q.question })),
+    );
+    if (!answers) return void (await cancel("Pertanyaan tidak dijawab."));
+    const result = formAnswer(fields, answers);
+    if (!result.ok) return void (await cancel(result.message));
+    try {
+      await ocReplyForm(conn, session, form.id, result.answer);
+    } catch (err) {
+      console.error("[opencode] form reply failed:", err);
+    }
+  };
   const handlePermission = async (d: any) => {
     const requestId = typeof d.id === "string" ? d.id : "";
     if (!requestId) return;
@@ -123,6 +144,10 @@ export async function startOpenCodeTurn(input: OpenCodeTurnInput): Promise<OpenC
         for await (const event of iterator) {
           if (event.type === "permission.asked") {
             if (event.data.sessionID === session) void handlePermission(event.data);
+            continue;
+          }
+          if (event.type === "form.created") {
+            if (event.data.form?.sessionID === session) void handleForm(event.data.form);
             continue;
           }
           for (const part of mapper.map(event)) controller.enqueue(part);

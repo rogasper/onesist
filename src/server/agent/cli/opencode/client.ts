@@ -96,6 +96,16 @@ export async function ocReplyPermission(conn: OpenCodeConnection, sessionId: str
   await request(conn, "POST", `/api/session/${seg(sessionId)}/permission/${seg(requestId)}/reply`, { decision });
 }
 
+/** Answers an OpenCode form (the question tool). `answer` maps each field's key to its value. */
+export async function ocReplyForm(conn: OpenCodeConnection, sessionId: string, formId: string, answer: Record<string, unknown>): Promise<void> {
+  await request(conn, "POST", `/api/session/${seg(sessionId)}/form/${seg(formId)}/reply`, { answer });
+}
+
+/** Declines an OpenCode form; the question tool then ends with `message`. */
+export async function ocCancelForm(conn: OpenCodeConnection, sessionId: string, formId: string, message: string): Promise<void> {
+  await request(conn, "DELETE", `/api/session/${seg(sessionId)}/form/${seg(formId)}?message=${encodeURIComponent(message)}`);
+}
+
 export async function ocInterrupt(conn: OpenCodeConnection, sessionId: string): Promise<void> {
   await request(conn, "POST", `/api/session/${seg(sessionId)}/interrupt`);
 }
