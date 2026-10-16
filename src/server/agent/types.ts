@@ -132,6 +132,8 @@ export interface ProviderPreset {
   requiresApiKey: boolean;
   /** Short note shown in the UI (e.g. for Ollama/LM Studio). */
   hint?: string;
+  /** Shown in the picker as "segera hadir"; cannot be saved as a provider yet. */
+  comingSoon?: boolean;
 }
 
 /** Agent step limit, following the dbx `maxAgentTurns` convention (FR-L7).
