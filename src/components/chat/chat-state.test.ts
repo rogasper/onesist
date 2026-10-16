@@ -5,7 +5,7 @@
  *   bun test src/components/chat/chat-state.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chatActivity, isDetailFor, markTaken, providerRetryLabel, settleSteers, threadBadges, type SteerItem } from "./chat-state";
+import { chatActivity, chatErrorReport, isDetailFor, markTaken, providerRetryLabel, settleSteers, threadBadges, type SteerItem } from "./chat-state";
 
 const steer = (id: string, text = id): SteerItem => ({ id, text });
 
@@ -115,5 +115,22 @@ describe("isDetailFor", () => {
   test("nothing is shown without a detail or without a selection", () => {
     expect(isDetailFor(null, "thr_a")).toBe(false);
     expect(isDetailFor({ thread: { id: "thr_a" } }, null)).toBe(false);
+  });
+});
+
+describe("chatErrorReport", () => {
+  test("keeps the message, the stack, and which thread and run failed, so a server log entry can be traced", () => {
+    const err = new Error("Maximum update depth exceeded");
+    const report = chatErrorReport(err, { threadId: "thr_1", runId: "run_9", streaming: true });
+    expect(report.where).toBe("chat-stream");
+    expect(report.message).toBe("Maximum update depth exceeded");
+    expect(report.stack).toContain("Maximum update depth exceeded");
+    expect(report.context).toBe("thread=thr_1 run=run_9 streaming=true");
+  });
+
+  test("a failure without a stack or run still produces a readable report", () => {
+    const report = chatErrorReport({ message: "Load failed" } as Error, { threadId: "thr_2", runId: null, streaming: false });
+    expect(report.stack).toBe("");
+    expect(report.context).toBe("thread=thr_2 run=- streaming=false");
   });
 });

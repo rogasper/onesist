@@ -102,3 +102,20 @@ export function threadBadges(activity: { running: boolean; pendingApprovals: num
 export function isDetailFor(detail: { thread: { id: string } } | null, activeId: string | null): boolean {
   return !!detail && !!activeId && detail.thread.id === activeId;
 }
+
+/**
+ * What the chat reports to the server log when a stream fails: the message, the stack when there
+ * is one, and which thread and run were involved. The stack is what a React error needs to be
+ * traced, and the server log otherwise has only the message.
+ */
+export function chatErrorReport(
+  error: Error,
+  where: { threadId: string; runId: string | null; streaming: boolean },
+): { where: string; message: string; stack: string; context: string } {
+  return {
+    where: "chat-stream",
+    message: String(error.message ?? ""),
+    stack: typeof error.stack === "string" ? error.stack : "",
+    context: `thread=${where.threadId} run=${where.runId ?? "-"} streaming=${where.streaming}`,
+  };
+}

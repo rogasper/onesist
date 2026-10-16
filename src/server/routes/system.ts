@@ -41,7 +41,8 @@ router.post("system/client-error", async ({ body }) => {
   const where = String(data.where ?? "klien");
   const message = String(data.message ?? "(tanpa pesan)").slice(0, 500);
   const stack = String(data.stack ?? "").slice(0, 1500);
-  console.error(`[client] ${where}: ${message}${stack ? `\n${stack}` : ""}`);
+  const context = String(data.context ?? "").slice(0, 200);
+  console.error(`[client] ${where}: ${message}${context ? ` (${context})` : ""}${stack ? `\n${stack}` : ""}`);
   return json({ ok: true });
 });
 

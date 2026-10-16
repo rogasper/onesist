@@ -421,7 +421,7 @@ router.get("providers/:id/status", async (ctx) => {
   const runtime = cliRuntimeFor(row);
   if (runtime) return json({ status: await runtime.probe(row) });
   if (row.apiStyle === "cli") {
-    return json({ status: { state: "error", version: null, message: "Provider CLI ini belum didukung di chat. Saat ini baru OpenCode." } });
+    return json({ status: { state: "error", version: null, message: "Provider CLI ini belum didukung di chat." } });
   }
   return json({ status: { state: "ready", version: null, message: "Provider API — koneksinya dicek lewat tombol Test." } });
 });
