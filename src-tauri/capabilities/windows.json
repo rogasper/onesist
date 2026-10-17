@@ -8,6 +8,9 @@
   },
   "permissions": [
     "core:default",
+    "allow-pick-folder",
+    "allow-open-project-window",
+    "allow-open-pane-window",
     "core:window:allow-set-title",
     "core:window:allow-set-background-color",
     "notification:default",
