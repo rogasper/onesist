@@ -13,6 +13,9 @@
   },
   "permissions": [
     "core:default",
+    "allow-pick-folder",
+    "allow-open-project-window",
+    "allow-open-pane-window",
     "core:window:allow-set-background-color",
     "core:window:allow-set-title",
     "updater:default",

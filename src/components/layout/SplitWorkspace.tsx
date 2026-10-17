@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArrowsLeftRight, X } from "@phosphor-icons/react";
+import { ArrowSquareOut, ArrowsLeftRight, X } from "@phosphor-icons/react";
+import { openPaneWindow } from "~/lib/window";
+import { windowErrorText } from "~/lib/window-error";
+import { InlineAlert } from "~/components/ui/InlineAlert";
 import {
   MIN_PANE_PX,
   SPLIT_TABS,
@@ -161,6 +164,7 @@ interface ExtraPaneProps {
 }
 
 function ExtraPane({ index, tab, projectId, onTabChange, onClose, onSwap, onDirtyChange }: ExtraPaneProps) {
+  const [windowError, setWindowError] = useState<string | null>(null);
   return (
     <section className="h-full min-h-0 flex flex-col rounded-lg border border-kumo-line bg-kumo-elevated/20 overflow-hidden">
       <header className="flex items-center gap-1 px-2 py-1 border-b border-kumo-line shrink-0">
@@ -175,6 +179,16 @@ function ExtraPane({ index, tab, projectId, onTabChange, onClose, onSwap, onDirt
           ))}
         </select>
         <div className="flex-1" />
+        <button
+          onClick={() => {
+            setWindowError(null);
+            openPaneWindow(projectId, tab).catch((e) => setWindowError(windowErrorText(e)));
+          }}
+          title="Buka di window baru"
+          className="p-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated"
+        >
+          <ArrowSquareOut size={12} />
+        </button>
         {onSwap && (
           <button onClick={onSwap} title="Tukar dengan pane utama" className="p-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated">
             <ArrowsLeftRight size={12} />
@@ -184,6 +198,7 @@ function ExtraPane({ index, tab, projectId, onTabChange, onClose, onSwap, onDirt
           <X size={12} />
         </button>
       </header>
+      {windowError ? <InlineAlert className="mx-2 mt-1">{windowError}</InlineAlert> : null}
       <div className="flex-1 min-h-0 overflow-auto p-2">
         <PaneBody tab={tab} projectId={projectId} paneId={`pane-${index}`} onDirtyChange={onDirtyChange} />
       </div>

@@ -20,6 +20,7 @@ import { router as chatRouter } from "./chat";
 import { router as settingsRouter } from "./settings";
 import { router as browserRouter } from "./browser";
 import { router as mcpRouter } from "./mcp";
+import { router as locksRouter } from "./locks";
 
 export const routers = [
   systemRouter,
@@ -44,4 +45,5 @@ export const routers = [
   settingsRouter,
   browserRouter,
   mcpRouter,
+  locksRouter,
 ];

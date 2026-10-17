@@ -30,7 +30,10 @@ type EventName =
   // divider while the summary is written, without waiting for the turn's stream.
   | "chat:compaction"
   // Fase 4C: a thread's workspace moved, or its worktree setup started or finished.
-  | "chat:workspace";
+  | "chat:workspace"
+  // Fase 5E: a document's write lock moved between windows (claimed, released, or its
+  // holder's stream closed). Windows waiting on it claim again.
+  | "lock:changed";
 
 interface EventPayload {
   type: EventName;
@@ -146,6 +149,10 @@ class AppEventBus extends EventEmitter {
     estimatedAfter?: number;
   }) {
     this.emitAppEvent({ type: "chat:compaction", data: { ...input } });
+  }
+
+  emitLockChanged(input: { key: string }) {
+    this.emitAppEvent({ type: "lock:changed", data: { ...input } });
   }
 
   emitChatApprovalResolved(input: { threadId: string; toolCallId: string }) {

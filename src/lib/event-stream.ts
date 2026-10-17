@@ -12,6 +12,8 @@
  */
 
 /** Gets the inner `data`, and the whole envelope (with `timestamp`) as the second argument. */
+import { windowClientId } from "./window-client";
+
 export type EventHandler = (data: any, envelope?: any) => void;
 export type StreamStatus = "open" | "lost";
 
@@ -142,7 +144,7 @@ async function openSource(): Promise<void> {
       opening = false;
       return;
     }
-    const es = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
+    const es = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}&client=${windowClientId()}`);
     source = es;
     opening = false;
     for (const name of registry.names()) es.addEventListener(name, onEvent);

@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "extra-windows",
+  "description": "Project windows (win-*) and tab windows (pane-*): no updater, relaunch, sidecar spawn or window-state.",
+  "windows": ["win-*", "pane-*"],
+  "remote": {
+    "urls": ["http://localhost:*", "http://127.0.0.1:*"]
+  },
+  "permissions": [
+    "core:default",
+    "allow-pick-folder",
+    "allow-open-project-window",
+    "allow-open-pane-window",
+    "core:window:allow-set-title",
+    "core:window:allow-set-background-color",
+    "core:window:allow-destroy",
+    "notification:default",
+    "opener:allow-open-path",
+    "opener:allow-reveal-item-in-dir",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}
