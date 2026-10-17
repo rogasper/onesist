@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useNavigate, useLocation, useSearch } from "@tanstack/react-router";
 import { Badge } from "@cloudflare/kumo";
-import { Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
+import { ArrowSquareOut, Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
+import { openPaneWindow } from "~/lib/window";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
@@ -359,6 +360,18 @@ function ProjectLayout() {
           >
             Pisah{split.panes.length > 0 ? ` (${split.panes.length + 1})` : ""}
           </AppButton>
+          {isSplitTab(activeTab) ? (
+            <AppButton
+              variant="chip"
+              size="sm"
+              icon={<ArrowSquareOut size={12} />}
+              onClick={() => void openPaneWindow(project.id, activeTab)}
+              className="px-3 shrink-0"
+              title="Buka tab ini di window baru"
+            >
+              Window baru
+            </AppButton>
+          ) : null}
         </div>
 
         {notice && (

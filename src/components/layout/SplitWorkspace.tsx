@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { ArrowsLeftRight, X } from "@phosphor-icons/react";
+import { ArrowSquareOut, ArrowsLeftRight, X } from "@phosphor-icons/react";
+import { openPaneWindow } from "~/lib/window";
 import {
   MIN_PANE_PX,
   SPLIT_TABS,
@@ -175,6 +176,13 @@ function ExtraPane({ index, tab, projectId, onTabChange, onClose, onSwap, onDirt
           ))}
         </select>
         <div className="flex-1" />
+        <button
+          onClick={() => void openPaneWindow(projectId, tab)}
+          title="Buka di window baru"
+          className="p-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated"
+        >
+          <ArrowSquareOut size={12} />
+        </button>
         {onSwap && (
           <button onClick={onSwap} title="Tukar dengan pane utama" className="p-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated">
             <ArrowsLeftRight size={12} />
