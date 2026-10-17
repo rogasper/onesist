@@ -139,6 +139,8 @@ export async function startPiTurn(input: PiTurnInput): Promise<{ stream: Readabl
         // Output that arrives after the turn ended (a late event, the process exiting) is dropped:
         // the stream is closed and enqueueing on it would throw.
         if (settled) return;
+        // Once Stop is pressed the turn is ending: a late agent_end must not turn the abort into a finish.
+        if (run.abort.signal.aborted) return;
         if (r.type === "extension_ui_request" && r.method === "confirm") {
           void (async () => {
             const answers = await awaitQuestion(input.runId, [{ question: `${String(r.title ?? PI_APPROVAL_TITLE("alat"))}${r.message ? ` — ${String(r.message)}` : ""}`, options: ["Izinkan sekali", "Tolak"] }]);

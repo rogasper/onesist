@@ -80,6 +80,8 @@ beforeAll(() => {
 // The fake process appends to one log for the whole file; each test reads only its own commands.
 beforeEach(() => {
   fs.rmSync(log, { force: true });
+  // A test that fails before it removes its flag must not make the next test wait on a dialog.
+  for (const f of ["ask", "dies", "slow", "missing"]) fs.rmSync(path.join(dir, f), { force: true });
 });
 
 let n = 0;
