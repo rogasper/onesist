@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.4.0 — Runtime CLI baru, workspace per thread, dan window terpisah
+
+Rilis besar setelah v0.3.0: chat kini bisa memakai Claude Code, Codex, Antigravity, dan Pi sebagai agent, lengkap dengan izin per aksi dan tombol Stop. Thread bisa dipindah antar provider, dicabang, dan dikerjakan di worktree sendiri. Pane bisa dibuka di window desktop terpisah.
+
+### Feat — Chat
+- **Claude Code, Codex, Antigravity (agy), dan Pi** sebagai provider chat. Masing-masing dideteksi, bisa diuji dari pengaturan, dan memakai binary yang sudah terpasang di komputer.
+- **Izin per aksi.** Aksi yang butuh izin (tulis berkas, perintah shell) menampilkan kartu "Izinkan sekali", "Selalu izinkan", atau "Tolak". Mode baca-saja tidak pernah menjalankan perubahan.
+- **Lanjutkan di terminal** untuk thread Claude Code, Codex, Antigravity, dan Pi.
+- **Pindah provider di tengah thread.** Riwayat dibawa ke sesi CLI baru secara terbatas, dan saat kembali hanya perubahan sejak terakhir yang dikirim. Pergantian ditandai di transkrip.
+- **Fork dan merge back.** Thread bisa dicabang, dan hasil cabang bisa dibawa kembali ke induknya.
+- **Workspace per thread.** Thread bisa bekerja di folder project, di repo `input/code/<repo>`, atau di worktree Git baru. Worktree bisa dibersihkan dari aplikasi; perubahan lokal tidak akan hilang tanpa konfirmasi.
+- **Generate OpenAPI, RTM, dan SIT** berjalan sebagai thread chat.
+- **Output tool besar** dipotong di transkrip dan bisa dimuat utuh dari kartu tool.
+
+### Feat — Window
+- **Pane di window desktop terpisah.** Tombol "Window baru" di tab project membuka satu tab di window sendiri, sampai 5 window.
+- **Satu penulis per dokumen.** Dokumen yang sedang dibuka di window lain tampil hanya-baca sampai window itu melepasnya.
+
+### Fix
+- **Aplikasi macOS:** entitlements untuk sidecar Bun, supaya aplikasi tidak crash saat dibuka.
+- **Sesi CLI disimpan sebelum giliran pertama selesai**, sehingga thread tidak kehilangan sesinya kalau giliran gagal.
+- **Pesan saat run berjalan** masuk antrean di server dan tidak hilang.
+- **Edit yang belum disimpan** di pane window: pindah tab atau tutup window meminta konfirmasi dulu.
+- **Dialog izin Claude Code** tidak lagi menyimpan "selalu izinkan" ke pengaturan project.
+
+### Perubahan perilaku
+- **`agent-runner` sudah dihapus.** Generate OpenAPI, RTM, dan SIT sekarang membuka thread chat, bukan proses terpisah di halaman.
+
 ## v0.3.0 — Chat yang lebih rapi, pratinjau PDF dan gambar, dan konteks yang diringkas otomatis
 
 Rilis perbaikan UI chat dan project: panel Berkas dan Memori dipindah ke sheet samping, composer satu baris, dan tab Task dibuka sebagai modal. Konteks percakapan yang penuh kini diringkas otomatis dan terlihat di transkrip.
