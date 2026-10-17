@@ -1,5 +1,7 @@
 import { json } from "../http/response";
 import { Router } from "../http/router";
+import { isValidClientId } from "./locks";
+import { docLocks } from "~/server/realtime/doc-locks";
 
 export const router = new Router();
 
@@ -26,6 +28,11 @@ router.get("events", async (ctx) => {
     return json({ error: "Too many event streams" }, 429);
   }
   activeStreams += 1;
+  // Fase 5E: the window's client id keeps its document locks alive for as long as one of its
+  // streams is open.
+  const clientParam = ctx.query.get("client");
+  const clientId = isValidClientId(clientParam) ? clientParam : null;
+  if (clientId) docLocks.connect(clientId);
   let isCleanedUp = false;
   let cleanup: (() => void) | null = null;
   const stream = new ReadableStream({
@@ -40,7 +47,7 @@ router.get("events", async (ctx) => {
         }
       };
       const handlers: Record<string, (...args: any[]) => void> = {};
-      for (const event of ["file:changed", "task:status", "fsd:conversion", "chat:run", "chat:approval", "chat:steer", "chat:approval-resolved", "chat:queue", "chat:turn", "chat:question", "chat:question-resolved", "chat:provider-retry", "chat:compaction"]) {
+      for (const event of ["file:changed", "task:status", "fsd:conversion", "chat:run", "chat:approval", "chat:steer", "chat:approval-resolved", "chat:queue", "chat:turn", "chat:question", "chat:question-resolved", "chat:provider-retry", "chat:compaction", "lock:changed"]) {
         const handler = (payload: any) => send(event, payload);
         eventBus.on(event, handler);
         handlers[event] = handler;
@@ -59,6 +66,9 @@ router.get("events", async (ctx) => {
         for (const [event, handler] of Object.entries(handlers)) eventBus.off(event, handler);
         clearInterval(keepAlive);
         activeStreams = Math.max(0, activeStreams - 1);
+        if (clientId) {
+          for (const key of docLocks.disconnect(clientId)) eventBus.emitLockChanged({ key });
+        }
         try { controller.close(); } catch {}
       };
       ctx.request.signal.addEventListener("abort", cleanup);
