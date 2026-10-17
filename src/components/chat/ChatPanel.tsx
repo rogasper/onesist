@@ -89,7 +89,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   // "Lanjutkan di terminal": only for a thread that runs in an OpenCode or Antigravity session, and not mid-run.
   const threadProvider = detail ? (providers.find((p) => p.id === detail.thread.providerId) ?? providers.find((p) => p.isDefault) ?? null) : null;
   const canContinueInTerminal =
-    !!detail?.thread.cliSessionId && threadProvider?.apiStyle === "cli" && (threadProvider.cliAgent === "opencode" || threadProvider.cliAgent === "antigravity" || threadProvider.cliAgent === "codex" || threadProvider.cliAgent === "claude");
+    !!detail?.thread.cliSessionId && threadProvider?.apiStyle === "cli" && (threadProvider.cliAgent === "opencode" || threadProvider.cliAgent === "antigravity" || threadProvider.cliAgent === "codex" || threadProvider.cliAgent === "claude" || threadProvider.cliAgent === "pi");
   const threadBusy = !!detail?.activeRun || !!active?.activity?.running;
   const [terminalNote, setTerminalNote] = useState<string | null>(null);
   // Fase 4B: a branch shows where it came from and can bring its work back.

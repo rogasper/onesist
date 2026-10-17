@@ -13,6 +13,8 @@ const AGY_CONVERSATION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 // Codex thread ids are UUIDs (shape from the v2 schema; re-checked in Task 6).
 const CODEX_THREAD = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Claude Code session ids are UUIDs (`--session-id` must be a valid UUID).
+// Pi sessions are .jsonl files under the app's data folder: an absolute path with no shell characters.
+const PI_SESSION_FILE = /^\/[^;&|`$<>()'"\n\r]+\.jsonl$/;
 const CLAUDE_SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function quoteArg(arg: string): string {
@@ -44,6 +46,9 @@ export function terminalResumeCommand(
   } else if (provider.cliAgent === "claude" && CLAUDE_SESSION.test(sessionId)) {
     // Fase 5B: `claude --resume <id>` opens the session interactively.
     resume = `${quoteArg(provider.cliPath?.trim() || "claude")} --resume ${sessionId}`;
+  } else if (provider.cliAgent === "pi" && PI_SESSION_FILE.test(sessionId)) {
+    // Fase 5D: `pi --session <file>` opens the session file interactively.
+    resume = `${quoteArg(provider.cliPath?.trim() || "pi")} --session ${sessionId}`;
   } else {
     return null;
   }
