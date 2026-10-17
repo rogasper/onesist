@@ -201,6 +201,19 @@ function RootComponent() {
     return () => window.removeEventListener("projects-updated", fetchProjects);
   }, []);
 
+  // Fase 5E: a tab opened in its own window shows only the tab — no sidebar, tab bar or dock.
+  if (pathname.startsWith("/pane/")) {
+    return (
+      <html suppressHydrationWarning data-mode={getStoredTheme() === "dark" ? "dark" : undefined} className="h-svh overflow-hidden">
+        <head><HeadContent /></head>
+        <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
+          <Outlet />
+          <Scripts />
+        </body>
+      </html>
+    );
+  }
+
   return (
     <html suppressHydrationWarning data-mode={getStoredTheme() === "dark" ? "dark" : undefined} className="h-svh overflow-hidden">
       <head><HeadContent /></head>
