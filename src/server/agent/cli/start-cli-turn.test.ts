@@ -19,7 +19,7 @@ test("the message text joins its text parts and ignores the rest", () => {
 
 test("a CLI agent other than OpenCode is refused with a clear message", async () => {
   const thread: any = { id: "t", projectId: "p", mode: "agent", permissionMode: "ask", title: null, model: null, cliSessionId: null };
-  const provider: any = { apiStyle: "cli", cliAgent: "pi", cliPath: null, model: null };
+  const provider: any = { apiStyle: "cli", cliAgent: "tanpa-runtime", cliPath: null, model: null };
   await expect(startCliTurn({ runId: "r", thread, root: "/x", provider, lastUser: { parts: [{ type: "text", text: "hai" }] } as any })).rejects.toThrow("belum didukung");
 });
 
