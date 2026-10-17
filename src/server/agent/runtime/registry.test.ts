@@ -26,6 +26,6 @@ test("an OpenCode provider runs on the OpenCode runtime, with model options", ()
 });
 
 test("a CLI agent without a runtime gets none, and no controls", () => {
-  expect(cliRuntimeFor({ apiStyle: "cli", cliAgent: "pi" })).toBeNull();
-  expect(runtimeCapabilities({ apiStyle: "cli", cliAgent: "pi" })).toEqual({ reasoningEffort: false, modelOptions: false });
+  expect(cliRuntimeFor({ apiStyle: "cli", cliAgent: "tanpa-runtime" })).toBeNull();
+  expect(runtimeCapabilities({ apiStyle: "cli", cliAgent: "tanpa-runtime" })).toEqual({ reasoningEffort: false, modelOptions: false });
 });

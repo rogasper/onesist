@@ -68,3 +68,12 @@ test("a Claude Code thread continues with claude --resume, in its workspace", ()
   expect(terminalResumeCommand(claude(), "bukan-uuid")).toBeNull();
   expect(terminalResumeCommand(claude(), `${CLAUDE_SESSION}; rm -rf ~`)).toBeNull();
 });
+
+const pi = (cliPath: string | null = null) => ({ apiStyle: "cli", cliAgent: "pi", cliPath });
+
+test("a Pi thread continues with pi --session <file>, in its workspace", () => {
+  expect(terminalResumeCommand(pi(), "/Users/a/.onesist/data/pi/sessions/s1.jsonl")).toBe("pi --session /Users/a/.onesist/data/pi/sessions/s1.jsonl");
+  expect(terminalResumeCommand(pi("/opt/pi"), "/d/s.jsonl", "/wt/api", "darwin")).toBe("cd '/wt/api' && /opt/pi --session /d/s.jsonl");
+  expect(terminalResumeCommand(pi(), "relatif/s.jsonl")).toBeNull();
+  expect(terminalResumeCommand(pi(), "/d/s.jsonl; rm -rf ~")).toBeNull();
+});

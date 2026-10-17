@@ -7,12 +7,13 @@ import { supportsReasoningEffort } from "~/lib/reasoning-level";
 import type { RuntimeCapabilities } from "~/lib/runtime-types";
 import { antigravityRuntime } from "~/server/agent/cli/antigravity/runtime";
 import { claudeRuntime } from "~/server/agent/cli/claude/runtime";
+import { piRuntime } from "~/server/agent/cli/pi/runtime";
 import { codexRuntime } from "~/server/agent/cli/codex/runtime";
 import { opencodeRuntime } from "~/server/agent/cli/opencode/runtime";
 import type { ProviderRow } from "~/server/agent/config";
 import type { CliRuntime } from "./types";
 
-const CLI_RUNTIMES: Record<string, CliRuntime> = { opencode: opencodeRuntime, antigravity: antigravityRuntime, codex: codexRuntime, claude: claudeRuntime };
+const CLI_RUNTIMES: Record<string, CliRuntime> = { opencode: opencodeRuntime, antigravity: antigravityRuntime, codex: codexRuntime, claude: claudeRuntime, pi: piRuntime };
 
 type ProviderKind = Pick<ProviderRow, "apiStyle" | "cliAgent">;
 

@@ -246,7 +246,6 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     endpoint: "",
     cliAgent: "pi",
     requiresApiKey: false,
-    comingSoon: true,
   },
 ];
 
