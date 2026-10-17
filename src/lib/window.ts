@@ -26,17 +26,14 @@ export function paneWindowPath(projectId: string, tab: SplitTab): string {
 /**
  * Opens one tab of a project in its own window: a desktop window in the app, a browser tab
  * on the web. The desktop side validates the project id and tab and builds the URL from the
- * main window's origin; nothing else from here reaches it.
+ * main window's origin; nothing else from here reaches it. A refusal on the desktop (for
+ * example the window limit) is thrown to the caller, never replaced by a browser tab.
  */
 export async function openPaneWindow(projectId: string, tab: SplitTab): Promise<void> {
   if (isTauri()) {
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("open_pane_window", { projectId, tab });
-      return;
-    } catch (e) {
-      console.warn("[window] open_pane_window failed, fallback to window.open", e);
-    }
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("open_pane_window", { projectId, tab });
+    return;
   }
   window.open(paneWindowPath(projectId, tab), "_blank", "noopener");
 }

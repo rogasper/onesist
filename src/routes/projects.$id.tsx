@@ -2,6 +2,8 @@ import { createFileRoute, Link, Outlet, useNavigate, useLocation, useSearch } fr
 import { Badge } from "@cloudflare/kumo";
 import { ArrowSquareOut, Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import { openPaneWindow } from "~/lib/window";
+import { windowErrorText } from "~/lib/window-error";
+import { InlineAlert } from "~/components/ui/InlineAlert";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 // NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
@@ -107,6 +109,8 @@ function ProjectLayout() {
   );
   const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
   const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
+  /** Why the last "Window baru" did not open a window (for example the window limit). */
+  const [windowError, setWindowError] = useState<string | null>(null);
   const skill = useSkillInstall();
   // Live defaultAgent — the route loader is cached/stale; refresh via the
   // "project-updated" event fired by Settings after saving.
@@ -365,7 +369,10 @@ function ProjectLayout() {
               variant="chip"
               size="sm"
               icon={<ArrowSquareOut size={12} />}
-              onClick={() => void openPaneWindow(project.id, activeTab)}
+              onClick={() => {
+                setWindowError(null);
+                openPaneWindow(project.id, activeTab).catch((e) => setWindowError(windowErrorText(e)));
+              }}
               className="px-3 shrink-0"
               title="Buka tab ini di window baru"
             >
@@ -374,6 +381,7 @@ function ProjectLayout() {
           ) : null}
         </div>
 
+        {windowError ? <InlineAlert className="mb-3">{windowError}</InlineAlert> : null}
         {notice && (
           <div className={`mb-4 px-3 py-2 rounded border text-xs flex items-center gap-2 ${
             notice.tone === "red"
