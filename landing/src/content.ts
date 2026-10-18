@@ -10,7 +10,7 @@ export const LINKS = {
   docs: "https://github.com/rogasper/onesist/tree/main/docs",
 };
 
-export const HERO_IMAGE = "/screenshots/hero-agent-approval.png";
+export const HERO_IMAGE = "/screenshots/hero-agent-approval.jpg";
 
 export const AUDIENCE: { title: string; line: string }[] = [
   { title: "System Analysts", line: "FSD → ERD, spec, tasks" },
@@ -45,14 +45,14 @@ export const WORKSPACE_POINTS: { title: string; body: string }[] = [
 ];
 
 export const SLIDES: { label: string; title: string; desc: string; file: string }[] = [
-  { label: "Agents", title: "Agent chat with approvals", desc: "Claude Code drafts, you approve each write.", file: "hero-agent-approval.png" },
-  { label: "Split", title: "Split view", desc: "FSD and ERD side by side, up to four panes.", file: "split-view.png" },
-  { label: "Windows", title: "A tab in its own window", desc: "Spread documents across screens.", file: "pane-window.png" },
-  { label: "Projects", title: "Projects dashboard", desc: "Every project, its files and skills in one place.", file: "dashboard.png" },
-  { label: "ERD", title: "ERD Studio", desc: "Interactive canvas with live DBML.", file: "erd.png" },
-  { label: "Spec", title: "API spec", desc: "Endpoint cards with search and OpenAPI export.", file: "spec.png" },
-  { label: "Tasks", title: "Tasks", desc: "Story points, dependencies and handoff prompts.", file: "tasks.png" },
-  { label: "Timeline", title: "Timeline", desc: "Developer load and a sprint Gantt.", file: "timeline.png" },
+  { label: "Agents", title: "Agent chat with approvals", desc: "Claude Code drafts, you approve each write.", file: "hero-agent-approval.jpg" },
+  { label: "Split", title: "Split view", desc: "FSD and ERD side by side, up to four panes.", file: "split-view.jpg" },
+  { label: "Windows", title: "A tab in its own window", desc: "Spread documents across screens.", file: "pane-window.jpg" },
+  { label: "Overview", title: "Project overview", desc: "Your FSD in a rich editor, with every file of the project beside it.", file: "overview.jpg" },
+  { label: "ERD", title: "ERD Studio", desc: "Interactive canvas with live DBML.", file: "erd.jpg" },
+  { label: "Spec", title: "API spec", desc: "Endpoint cards with search and OpenAPI export.", file: "spec.jpg" },
+  { label: "Tasks", title: "Tasks", desc: "Story points, dependencies and handoff prompts.", file: "tasks.jpg" },
+  { label: "Timeline", title: "Timeline", desc: "Developer load and a sprint Gantt.", file: "timeline.jpg" },
 ];
 
 export const COMING_SOON = {
