@@ -43,7 +43,7 @@ export function Screens() {
                   {failed[s.file] ? (
                     <div className="h-[260px] flex items-center justify-center bg-zinc-50 text-sm text-zinc-400">Screenshot unavailable</div>
                   ) : (
-                    <img src={`/screenshots/${s.file}`} alt={s.title} className="w-full h-auto block" loading="lazy" decoding="async" onError={() => setFailed((f) => ({ ...f, [s.file]: true }))} />
+                    <img src={`/screenshots/${s.file}`} alt={s.title} className="w-full h-auto max-h-[620px] object-contain block bg-white" loading="lazy" decoding="async" onError={() => setFailed((f) => ({ ...f, [s.file]: true }))} />
                   )}
                 </div>
               </div>

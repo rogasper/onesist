@@ -41,6 +41,12 @@ html { scroll-behavior: smooth; }
   border-radius: inherit;
   background: radial-gradient(600px circle at 18% 0%, rgba(255,255,255,0.9), transparent 42%);
   pointer-events: none;
+  z-index: 0;
+}
+/* The highlight is decoration: keep the card's content above it. */
+.specular > * {
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes float {
