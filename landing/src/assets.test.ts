@@ -24,6 +24,22 @@ for (const rel of shots) {
   test(`${rel} is a v0.4.0 capture`, () => expect(fs.statSync(path.join(pub, rel)).mtimeMs).toBeGreaterThanOrEqual(CAPTURED_FROM));
 }
 
+const sizeOf = (p: string): [number, number] => {
+  const out = Bun.spawnSync(["sips", "-g", "pixelWidth", "-g", "pixelHeight", p]).stdout.toString();
+  return [Number(out.match(/pixelWidth: (\d+)/)?.[1]), Number(out.match(/pixelHeight: (\d+)/)?.[1])];
+};
+const OG_SCRIPT = path.join(root, "og", "make-og.py");
+
+for (const name of ["og-image-onesist-1200x630.jpg", "og-image-onesist.png"]) {
+  test(`${name} is a fresh 1200×630 render under 200 KB`, () => {
+    const p = path.join(pub, "screenshots", name);
+    expect(fs.existsSync(OG_SCRIPT)).toBe(true);
+    expect(sizeOf(p)).toEqual([1200, 630]);
+    expect(fs.statSync(p).size).toBeLessThan(200_000);
+    expect(fs.statSync(p).mtimeMs).toBeGreaterThanOrEqual(fs.statSync(OG_SCRIPT).mtimeMs);
+  });
+}
+
 test("every social image in index.html exists", () => {
   const html = fs.readFileSync(path.join(root, "index.html"), "utf-8");
   const urls = [...html.matchAll(/(?:og:image|twitter:image)" content="https:\/\/onesist\.rogasper\.com\/([^"]+)"/g)].map((m) => m[1]);
