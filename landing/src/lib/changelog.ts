@@ -24,12 +24,16 @@ const VERSION = String.raw`v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?`;
 const BULLET_MAX = 140;
 
 export function stripInlineMarkdown(s: string): string {
-  return s
+  // Code spans first, kept verbatim: they hold identifiers like snake_case names.
+  const spans: string[] = [];
+  const text = s
+    .replace(/`([^`]*)`/g, (_, code: string) => `\u0000${spans.push(code) - 1}\u0000`)
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/(\*\*|__)(.+?)\1/g, "$2")
-    .replace(/(\*|_)(.+?)\1/g, "$2")
-    .replace(/`([^`]*)`/g, "$1")
-    .trim();
+    .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, "$2")
+    // Single markers only at word boundaries, so chat_threads.cli_session_id stays intact.
+    .replace(/(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])/g, "$1")
+    .replace(/(?<![\w_])_(?=\S)(.+?)(?<=\S)_(?![\w_])/g, "$1");
+  return text.replace(/\u0000(\d+)\u0000/g, (_, i: string) => spans[Number(i)]).trim();
 }
 
 export function parseLatestVersion(md: string): string | null {

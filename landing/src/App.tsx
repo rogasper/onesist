@@ -12,7 +12,7 @@ import { Workspace } from "./components/Workspace";
 
 export default function App() {
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#fcfcfa] text-zinc-900 antialiased selection:bg-[#6d7cff]/10">
+    <div className="min-h-screen overflow-x-clip bg-[#fcfcfa] text-zinc-900 antialiased selection:bg-[#6d7cff]/10">
       <Nav />
       <Hero />
       <BuiltFor />

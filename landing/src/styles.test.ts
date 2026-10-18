@@ -15,6 +15,11 @@ test("card content is stacked above the specular highlight", () => {
   expect(rule).toMatch(/position:\s*relative/);
   expect(rule).toMatch(/z-index:\s*1/);
 });
+test("the page wrapper clips sideways without becoming a scroll container (keeps the nav sticky)", () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, "App.tsx"), "utf-8");
+  expect(app).not.toMatch(/overflow-(x-)?(hidden|auto|scroll)/);
+  expect(app).toContain("overflow-x-clip");
+});
 test("the highlight itself stays at the bottom layer", () => {
   const rule = css.match(/\.specular::before\s*\{([^}]*)\}/)?.[1] ?? "";
   expect(rule).toMatch(/z-index:\s*0/);

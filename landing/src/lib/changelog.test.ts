@@ -4,7 +4,7 @@
  *   cd landing && bun test src/lib/changelog.test.ts
  */
 import { expect, test } from "bun:test";
-import { FALLBACK_CHANGELOG, loadChangelog, parseChangelog, parseLatestVersion } from "./changelog";
+import { FALLBACK_CHANGELOG, loadChangelog, parseChangelog, parseLatestVersion, stripInlineMarkdown } from "./changelog";
 
 const MD = `# Changelog
 
@@ -36,6 +36,9 @@ test("entries keep version, title and a clean first bullet", () => {
 });
 test("limit is honoured", () => expect(parseChangelog(MD, 1)).toHaveLength(1));
 test("garbage input gives no entries and does not throw", () => expect(parseChangelog("<html>404</html>")).toEqual([]));
+test("underscores inside identifiers are kept", () => expect(stripInlineMarkdown("Column chat_threads.cli_session_id is set")).toBe("Column chat_threads.cli_session_id is set"));
+test("code spans keep their contents verbatim", () => expect(stripInlineMarkdown("Uses `snake_case_name` and `**raw**`")).toBe("Uses snake_case_name and **raw**"));
+test("word-level emphasis is still removed", () => expect(stripInlineMarkdown("**Bold.** and _italic_ and *star*")).toBe("Bold. and italic and star"));
 test("long bullets are cut at 140 chars", () => expect(parseChangelog(`## v1.0.0 — T\n- ${"a".repeat(300)}`)[0].d.length).toBeLessThanOrEqual(140));
 test("every source failing keeps the fallback", async () => {
   const failing = (async () => {
