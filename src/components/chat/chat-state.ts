@@ -61,6 +61,8 @@ export interface ChatActivity {
   /** Load pending approvals. A run started elsewhere can be parked on one, and the
    *  card must stay answerable here, or that run waits forever. */
   approvalsOn: boolean;
+  /** Hentikan is offered whenever a run is known, started here or elsewhere. */
+  stoppable: boolean;
 }
 
 export function chatActivity(input: { streaming: boolean; watching: boolean }): ChatActivity {
@@ -71,7 +73,26 @@ export function chatActivity(input: { streaming: boolean; watching: boolean }): 
     busy,
     liveEvents: busy,
     approvalsOn: busy,
+    stoppable: busy,
   };
+}
+
+/** Shown when a send, retry or edit must wait for the run that is still going. */
+export const RUN_STILL_GOING = "Masih ada run yang berjalan. Tunggu sampai selesai, atau tekan Hentikan.";
+
+/**
+ * What to do when this client's stream ended. An error while the server still runs
+ * a turn is followed, not shown as a failure: the run keeps going on the server, and
+ * a dropped connection no longer stops it.
+ */
+export function afterStreamEnded(input: { errored: boolean; serverRunning: boolean }): "follow" | "show-error" | "idle" {
+  if (!input.errored) return "idle";
+  return input.serverRunning ? "follow" : "show-error";
+}
+
+/** The reason a retry or edit cannot go yet, or null when it can. */
+export function resendBlock(input: { busy: boolean; serverRunning: boolean }): string | null {
+  return input.busy || input.serverRunning ? RUN_STILL_GOING : null;
 }
 
 /**

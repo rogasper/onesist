@@ -5,7 +5,19 @@
  *   bun test src/components/chat/chat-state.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chatActivity, chatErrorReport, isDetailFor, markTaken, providerRetryLabel, settleSteers, threadBadges, type SteerItem } from "./chat-state";
+import {
+  afterStreamEnded,
+  chatActivity,
+  chatErrorReport,
+  isDetailFor,
+  markTaken,
+  providerRetryLabel,
+  RUN_STILL_GOING,
+  resendBlock,
+  settleSteers,
+  threadBadges,
+  type SteerItem,
+} from "./chat-state";
 
 const steer = (id: string, text = id): SteerItem => ({ id, text });
 
@@ -63,6 +75,7 @@ describe("chatActivity", () => {
       busy: false,
       liveEvents: false,
       approvalsOn: false,
+      stoppable: false,
     });
   });
 
@@ -132,5 +145,24 @@ describe("chatErrorReport", () => {
     const report = chatErrorReport({ message: "Load failed" } as Error, { threadId: "thr_2", runId: null, streaming: false });
     expect(report.stack).toBe("");
     expect(report.context).toBe("thread=thr_2 run=- streaming=false");
+  });
+});
+
+describe("run recovery", () => {
+  test("a run started elsewhere can be stopped", () => {
+    expect(chatActivity({ streaming: false, watching: true })).toMatchObject({ runningElsewhere: true, busy: true, stoppable: true });
+    expect(chatActivity({ streaming: false, watching: false }).stoppable).toBe(false);
+  });
+  test("a stream that died while the server still runs is followed, not shown as an error", () => {
+    expect(afterStreamEnded({ errored: true, serverRunning: true })).toBe("follow");
+  });
+  test("a stream error with no run left on the server shows the error", () => {
+    expect(afterStreamEnded({ errored: true, serverRunning: false })).toBe("show-error");
+  });
+  test("a normal end is idle", () => expect(afterStreamEnded({ errored: false, serverRunning: false })).toBe("idle"));
+  test("retry and edit wait for the run instead of hitting a 409", () => {
+    expect(resendBlock({ busy: false, serverRunning: true })).toBe(RUN_STILL_GOING);
+    expect(resendBlock({ busy: true, serverRunning: false })).toBe(RUN_STILL_GOING);
+    expect(resendBlock({ busy: false, serverRunning: false })).toBeNull();
   });
 });
