@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.4.1 — Chat tetap mengikuti run saat koneksi putus
+
+Perbaikan untuk chat yang berhenti di tengah run. Run di server tetap jalan seperti biasa, dan sekarang klien juga kembali mengikutinya.
+
+### Fix — Chat
+- **Stream putus tidak lagi membuat chat macet.** Setelah koneksi terputus, chat menyambung ulang ke run yang masih berjalan. Tombol Hentikan tetap terlihat, dan banner error disembunyikan selama run aktif.
+- **Hentikan tersedia saat menonton run** yang dimulai dari window lain.
+- **Coba lagi dan edit pesan saat run masih berjalan** menunggu run selesai dengan pesan yang jelas, bukan pesan error mentah.
+- **Satu pesan yang gagal ditampilkan tidak menjatuhkan seluruh chat.** Teks pesan tetap terlihat, dan kejadiannya dicatat di log server.
+- Chat lebih ringan saat jawaban sedang mengalir: pembaruan tampilan digabung dalam jeda singkat.
+
+### Fix — Desktop
+- **Log server sesi sebelumnya disimpan** sebagai `server.prev.log`, tidak ditimpa saat aplikasi dibuka ulang.
+
 ## v0.4.0 — Runtime CLI baru, workspace per thread, dan window terpisah
 
 Rilis besar setelah v0.3.0: chat kini bisa memakai Claude Code, Codex, Antigravity, dan Pi sebagai agent, lengkap dengan izin per aksi dan tombol Stop. Thread bisa dipindah antar provider, dicabang, dan dikerjakan di worktree sendiri. Pane bisa dibuka di window desktop terpisah.
