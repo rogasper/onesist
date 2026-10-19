@@ -144,3 +144,16 @@ export function chatErrorReport(
     context: `thread=${where.threadId} run=${where.runId ?? "-"} streaming=${where.streaming}`,
   };
 }
+
+/**
+ * The report for an error that a React render threw: the error's own stack, then the
+ * component stack React attaches (it is not on the error). Cut to the server's limits
+ * (`/api/system/client-error`: stack 1500, context 200), so the log line stays readable.
+ */
+export function renderErrorReport(error: unknown, componentStack: string, context: string): { where: "chat-render"; message: string; stack: string; context: string } {
+  const isError = error instanceof Error;
+  const message = isError ? String(error.message ?? "") : String(error ?? "");
+  const own = isError && typeof error.stack === "string" ? error.stack : "";
+  const stack = componentStack.trim() ? `${own}\ncomponent stack:\n${componentStack.trim()}` : own;
+  return { where: "chat-render", message, stack: stack.slice(0, 1500), context: context.slice(0, 200) };
+}

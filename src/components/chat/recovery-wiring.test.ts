@@ -26,6 +26,9 @@ test("retry and edit wait for the run instead of posting into a 409", () => {
 test("a run started elsewhere can be stopped from its strip", () => {
   expect(src).toContain("{activity.stoppable ? (");
 });
+test("each transcript row is contained by an error boundary", () => {
+  expect(src).toMatch(/<MessageErrorBoundary[\s\S]{0,120}<MessageBlock/);
+});
 test("a live connection that comes back re-checks the run", () => {
   expect(src).toContain('if (status === "error") void followIfStillRunning();');
 });

@@ -4,6 +4,7 @@ import { useChat } from "~/lib/ai-client";
 import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { threadHasRunningTurn } from "~/lib/thread-run";
+import { MessageErrorBoundary } from "~/components/chat/MessageErrorBoundary";
 import { Button } from "@cloudflare/kumo";
 import { ArrowClockwise, ArrowDown, ArrowUp, BookOpen, Brain, Check, GitBranch, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
@@ -1139,23 +1140,25 @@ export function ChatSurface({
 
           {messages.map((m, mi) => (
             <div key={m.id ?? mi} data-user-turn={m.role === "user" ? m.id : undefined}>
-            <MessageBlock
-              message={m}
-              streaming={streaming && mi === messages.length - 1}
-              metadata={metadataById.get(m.id ?? "")}
-              projectId={projectId}
-              files={filesByMessage.get(m.id ?? "")}
-              threadId={threadId}
-              root={detail.rootPath ?? null}
-              toolDuration={toolDuration}
-              approvalById={approvalById}
-              nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
-              onContinueAfterLimit={stableContinueAfterLimit}
-              onResend={stableResend}
-              onRetry={stableRetry}
-              onFork={stableFork}
-              canRetry={mi === messages.length - 1 && m.role === "assistant"}
-            />
+            <MessageErrorBoundary context={`thread=${threadId} message=${m.id ?? mi}`} fallbackText={messageText(m)}>
+              <MessageBlock
+                message={m}
+                streaming={streaming && mi === messages.length - 1}
+                metadata={metadataById.get(m.id ?? "")}
+                projectId={projectId}
+                files={filesByMessage.get(m.id ?? "")}
+                threadId={threadId}
+                root={detail.rootPath ?? null}
+                toolDuration={toolDuration}
+                approvalById={approvalById}
+                nextStepLimit={Math.min(MAX_STEPS_MAX, Math.max(currentMaxSteps * 2, MAX_STEPS_DEFAULT))}
+                onContinueAfterLimit={stableContinueAfterLimit}
+                onResend={stableResend}
+                onRetry={stableRetry}
+                onFork={stableFork}
+                canRetry={mi === messages.length - 1 && m.role === "assistant"}
+              />
+            </MessageErrorBoundary>
             {compaction?.at === "before-turn" && mi === lastUserIndex ? <CompactDivider event={compaction} /> : null}
             </div>
           ))}

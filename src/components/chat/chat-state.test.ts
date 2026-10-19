@@ -12,6 +12,7 @@ import {
   isDetailFor,
   markTaken,
   providerRetryLabel,
+  renderErrorReport,
   RUN_STILL_GOING,
   resendBlock,
   settleSteers,
@@ -164,5 +165,25 @@ describe("run recovery", () => {
     expect(resendBlock({ busy: false, serverRunning: true })).toBe(RUN_STILL_GOING);
     expect(resendBlock({ busy: true, serverRunning: false })).toBe(RUN_STILL_GOING);
     expect(resendBlock({ busy: false, serverRunning: false })).toBeNull();
+  });
+});
+
+describe("renderErrorReport", () => {
+  test("a render error keeps its message and the component stack in the report", () => {
+    const err = new Error("Minified React error #185");
+    err.stack = "Error: Minified React error #185\n    at Row";
+    const r = renderErrorReport(err, "\n    in MessageRow\n    in ChatSurface", "thread=t1 message=m1");
+    expect(r.where).toBe("chat-render");
+    expect(r.message).toBe("Minified React error #185");
+    expect(r.stack).toContain("at Row");
+    expect(r.stack).toContain("component stack:");
+    expect(r.stack).toContain("in MessageRow");
+    expect(r.context).toBe("thread=t1 message=m1");
+  });
+  test("a non-Error value is still reported as text", () => {
+    expect(renderErrorReport("boom", "", "").message).toBe("boom");
+  });
+  test("the stack is cut to the server's limit", () => {
+    expect(renderErrorReport(new Error("x"), "a".repeat(5000), "").stack.length).toBeLessThanOrEqual(1500);
   });
 });
