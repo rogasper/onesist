@@ -11,7 +11,7 @@ import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
 import { FileCard } from "~/components/chat/FileCard";
 import { Composer, type Attachment, type PendingImage } from "~/components/chat/Composer";
-import { chatActivity, chatErrorReport, markTaken, providerRetryLabel, settleSteers } from "~/components/chat/chat-state";
+import { afterStreamEnded, chatActivity, chatErrorReport, markTaken, providerRetryLabel, RUN_STILL_GOING, resendBlock, settleSteers } from "~/components/chat/chat-state";
 import { loadDraft, promptText, quoteBlock, saveDraft } from "~/components/chat/chat-draft";
 import { refSlug, refTokens, type MentionRef } from "~/lib/mention-ref";
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from "~/lib/image-attachment";
@@ -207,6 +207,21 @@ export function ChatSurface({
   const [actionNote, setActionNote] = useState<string | null>(null);
   const activity = chatActivity({ streaming, watching: watchingRun });
   const { runningElsewhere, busy } = activity;
+
+  /**
+   * Re-attaches to a run the server still has, when this client's view of it has
+   * no run any more: the stream died, or the thread was left and reopened. The
+   * server decides; the stream route replays the run from its start. Returns
+   * whether a run is going.
+   */
+  async function followIfStillRunning(): Promise<boolean> {
+    const serverRunning = await threadHasRunningTurn(threadId);
+    if (!serverRunning) return false;
+    setWatchingRun(true);
+    awaitingRefresh.current = true;
+    void resumeStream();
+    return true;
+  }
   // A run started elsewhere can be parked on an approval; the card must still be
   // answerable here, or the run waits forever.
   // The queue is the server's: re-read whenever it changes.
@@ -240,6 +255,8 @@ export function ChatSurface({
     },
     onOpen: () => {
       approvalState.handlers.onOpen?.();
+      // The stream failed and the live connection is back: the run may still be going.
+      if (status === "error") void followIfStillRunning();
       // Subscribed while watching: read once more, in case the run closed before
       // we listened.
       if (!watchingRun) return;
@@ -247,6 +264,27 @@ export function ChatSurface({
       onRefresh();
     },
   });
+
+  // The stream failed. A run the server still has is followed (the SDK's error is
+  // not the end of the run); with no run left, the error stays on screen.
+  useEffect(() => {
+    if (status !== "error") return;
+    let alive = true;
+    void (async () => {
+      const serverRunning = await threadHasRunningTurn(threadId);
+      if (!alive) return;
+      if (afterStreamEnded({ errored: true, serverRunning }) === "follow") {
+        setWatchingRun(true);
+        awaitingRefresh.current = true;
+        void resumeStream();
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // Runs once per error; the follow decision reads the server, not the closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   const [input, setInput] = useState("");
   const [mode, setMode] = useState(detail.thread.mode);
@@ -755,7 +793,7 @@ export function ChatSurface({
     // left and reopened mid-run). Sending then fails with "Masih ada run yang berjalan", so the
     // server's state decides first: a message sent during a run waits in the queue instead.
     if (await threadHasRunningTurn(threadId)) {
-      setWatchingRun(true);
+      await followIfStillRunning();
       if (payload) void queue.enqueue([payload]);
       return;
     }
@@ -963,7 +1001,12 @@ export function ChatSurface({
   /** Resend from a user message: remove it and what follows (undoing the turns'
    *  file changes unless told otherwise), then send the text as a new message. */
   async function resend(messageId: string, text: string, opts: { conversationOnly?: boolean } = {}): Promise<ResendResult> {
-    if (busy) return { error: "Tunggu run yang sedang berjalan selesai, lalu edit pesan." };
+    const serverRunning = busy ? false : await threadHasRunningTurn(threadId);
+    const block = resendBlock({ busy, serverRunning });
+    if (block) {
+      if (!busy) await followIfStillRunning();
+      return { error: block };
+    }
     let res: Response;
     try {
       res = await fetch(`/api/chat/threads/${threadId}/messages/${messageId}/truncate`, {
@@ -975,7 +1018,12 @@ export function ChatSurface({
     } catch {
       return { error: "Tidak bisa menghubungi server." };
     }
-    const data = (await res.json().catch(() => ({}))) as { error?: string; removedIds?: string[]; conflicts?: { path: string }[] };
+    const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string; removedIds?: string[]; conflicts?: { path: string }[] };
+    // A run started between the check and the request: follow it, do not show the server's wording.
+    if (res.status === 409 && data.code === "run_active") {
+      await followIfStillRunning();
+      return { error: RUN_STILL_GOING };
+    }
     if (res.status === 409 && data.conflicts) return { conflicts: data.conflicts.map((c) => c.path) };
     if (!res.ok) return { error: data.error ?? "Gagal mengirim ulang pesan." };
 
@@ -1154,7 +1202,7 @@ export function ChatSurface({
             </div>
           ) : null}
 
-          {error ? (
+          {error && !busy ? (
             // "Load failed" (WebKit) tells the user nothing. When the failure is
             // the connection to our own server, say what happened, that the
             // history survives, and where the log is — that is the difference
@@ -1176,7 +1224,7 @@ export function ChatSurface({
               )}
             </InlineAlert>
           ) : null}
-          {error ? (
+          {error && !busy ? (
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => void retryAfterError()}>
                 Coba lagi

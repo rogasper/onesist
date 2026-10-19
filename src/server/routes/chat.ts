@@ -1024,7 +1024,14 @@ router.post("chat/threads/:id/messages/:messageId/truncate", async (ctx) => {
     conversationOnly: body?.conversationOnly === true,
   });
   if (!result.ok) {
-    return json(result.conflicts ? { error: result.error, conflicts: result.conflicts } : { error: result.error }, result.status);
+    return json(
+      {
+        error: result.error,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.conflicts ? { conflicts: result.conflicts } : {}),
+      },
+      result.status,
+    );
   }
   return json({ removedIds: result.removedIds, undone: result.undone });
 });
