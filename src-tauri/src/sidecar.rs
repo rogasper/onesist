@@ -141,6 +141,8 @@ impl SidecarState {
         let db_path = app_data.join("data.db");
         let client_dir = server_dir.join("client");
         let migrations_dir = server_dir.join("server").join("assets").join("migrations");
+        // Keep the previous session's logs: a crash report is usually read after a restart.
+        rotate_logs(&logs_dir)?;
         let log_out = fs::File::create(logs_dir.join("server.log"))?;
         let log_err = fs::File::create(logs_dir.join("server.err.log"))?;
 
@@ -434,4 +436,48 @@ fn wait_healthy(port: u16) -> bool {
         std::thread::sleep(Duration::from_millis(200));
     }
     false
+}
+
+/// Moves this session's server logs aside as `*.prev.log` before the new ones are created.
+/// The previous `.prev` copy is replaced; a missing log is skipped.
+fn rotate_logs(dir: &Path) -> std::io::Result<()> {
+    for (current, previous) in [("server.log", "server.prev.log"), ("server.err.log", "server.err.prev.log")] {
+        let from = dir.join(current);
+        if from.exists() {
+            // `rename` replaces an existing target on Unix; on Windows it fails, so the old copy goes first.
+            let to = dir.join(previous);
+            let _ = fs::remove_file(&to);
+            fs::rename(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rotate_logs;
+    use std::fs;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("onesist-logs-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn rotate_keeps_the_previous_session_log() {
+        let dir = temp_dir("keep");
+        fs::write(dir.join("server.log"), "old session").unwrap();
+        rotate_logs(&dir).unwrap();
+        assert_eq!(fs::read_to_string(dir.join("server.prev.log")).unwrap(), "old session");
+        assert!(!dir.join("server.log").exists());
+    }
+
+    #[test]
+    fn rotate_with_no_log_is_a_no_op() {
+        let dir = temp_dir("empty");
+        rotate_logs(&dir).unwrap();
+        assert!(!dir.join("server.prev.log").exists());
+    }
 }

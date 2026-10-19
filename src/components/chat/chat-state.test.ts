@@ -5,7 +5,20 @@
  *   bun test src/components/chat/chat-state.test.ts
  */
 import { describe, expect, test } from "bun:test";
-import { chatActivity, chatErrorReport, isDetailFor, markTaken, providerRetryLabel, settleSteers, threadBadges, type SteerItem } from "./chat-state";
+import {
+  afterStreamEnded,
+  chatActivity,
+  chatErrorReport,
+  isDetailFor,
+  markTaken,
+  providerRetryLabel,
+  renderErrorReport,
+  RUN_STILL_GOING,
+  resendBlock,
+  settleSteers,
+  threadBadges,
+  type SteerItem,
+} from "./chat-state";
 
 const steer = (id: string, text = id): SteerItem => ({ id, text });
 
@@ -63,6 +76,7 @@ describe("chatActivity", () => {
       busy: false,
       liveEvents: false,
       approvalsOn: false,
+      stoppable: false,
     });
   });
 
@@ -132,5 +146,44 @@ describe("chatErrorReport", () => {
     const report = chatErrorReport({ message: "Load failed" } as Error, { threadId: "thr_2", runId: null, streaming: false });
     expect(report.stack).toBe("");
     expect(report.context).toBe("thread=thr_2 run=- streaming=false");
+  });
+});
+
+describe("run recovery", () => {
+  test("a run started elsewhere can be stopped", () => {
+    expect(chatActivity({ streaming: false, watching: true })).toMatchObject({ runningElsewhere: true, busy: true, stoppable: true });
+    expect(chatActivity({ streaming: false, watching: false }).stoppable).toBe(false);
+  });
+  test("a stream that died while the server still runs is followed, not shown as an error", () => {
+    expect(afterStreamEnded({ errored: true, serverRunning: true })).toBe("follow");
+  });
+  test("a stream error with no run left on the server shows the error", () => {
+    expect(afterStreamEnded({ errored: true, serverRunning: false })).toBe("show-error");
+  });
+  test("a normal end is idle", () => expect(afterStreamEnded({ errored: false, serverRunning: false })).toBe("idle"));
+  test("retry and edit wait for the run instead of hitting a 409", () => {
+    expect(resendBlock({ busy: false, serverRunning: true })).toBe(RUN_STILL_GOING);
+    expect(resendBlock({ busy: true, serverRunning: false })).toBe(RUN_STILL_GOING);
+    expect(resendBlock({ busy: false, serverRunning: false })).toBeNull();
+  });
+});
+
+describe("renderErrorReport", () => {
+  test("a render error keeps its message and the component stack in the report", () => {
+    const err = new Error("Minified React error #185");
+    err.stack = "Error: Minified React error #185\n    at Row";
+    const r = renderErrorReport(err, "\n    in MessageRow\n    in ChatSurface", "thread=t1 message=m1");
+    expect(r.where).toBe("chat-render");
+    expect(r.message).toBe("Minified React error #185");
+    expect(r.stack).toContain("at Row");
+    expect(r.stack).toContain("component stack:");
+    expect(r.stack).toContain("in MessageRow");
+    expect(r.context).toBe("thread=t1 message=m1");
+  });
+  test("a non-Error value is still reported as text", () => {
+    expect(renderErrorReport("boom", "", "").message).toBe("boom");
+  });
+  test("the stack is cut to the server's limit", () => {
+    expect(renderErrorReport(new Error("x"), "a".repeat(5000), "").stack.length).toBeLessThanOrEqual(1500);
   });
 });

@@ -85,10 +85,13 @@ test("with conversationOnly the conversation is cut and the file is left as it i
 test("a run in progress blocks the resend", () => {
   msg("user", "r-u1", "sedang berjalan");
   reg.createRun({ runId: "run_r1", threadId, projectId: "p-edit" });
-  const res = edit.truncateFromMessage({ threadId, root, messageId: "r-u1", resetFiles: false, conversationOnly: false });
-  expect(res.ok).toBe(false);
-  if (!res.ok) expect(res.status).toBe(409);
-  reg.finishRun("run_r1", "stopped");
+  try {
+    const res = edit.truncateFromMessage({ threadId, root, messageId: "r-u1", resetFiles: false, conversationOnly: false });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res).toMatchObject({ status: 409, code: "run_active" });
+  } finally {
+    reg.finishRun("run_r1", "stopped");
+  }
   expect(store.listMessages(threadId).map((m) => m.id)).toEqual(["r-u1"]);
 });
 

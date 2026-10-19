@@ -61,6 +61,8 @@ export interface ChatActivity {
   /** Load pending approvals. A run started elsewhere can be parked on one, and the
    *  card must stay answerable here, or that run waits forever. */
   approvalsOn: boolean;
+  /** Hentikan is offered whenever a run is known, started here or elsewhere. */
+  stoppable: boolean;
 }
 
 export function chatActivity(input: { streaming: boolean; watching: boolean }): ChatActivity {
@@ -71,7 +73,30 @@ export function chatActivity(input: { streaming: boolean; watching: boolean }): 
     busy,
     liveEvents: busy,
     approvalsOn: busy,
+    stoppable: busy,
   };
+}
+
+/** Shortest gap between two renders of the streamed transcript (ms). Chunks that arrive
+ *  closer together are merged, so a fast stream does not re-render the whole chat per chunk. */
+export const CHAT_STREAM_THROTTLE_MS = 50;
+
+/** Shown when a send, retry or edit must wait for the run that is still going. */
+export const RUN_STILL_GOING = "Masih ada run yang berjalan. Tunggu sampai selesai, atau tekan Hentikan.";
+
+/**
+ * What to do when this client's stream ended. An error while the server still runs
+ * a turn is followed, not shown as a failure: the run keeps going on the server, and
+ * a dropped connection no longer stops it.
+ */
+export function afterStreamEnded(input: { errored: boolean; serverRunning: boolean }): "follow" | "show-error" | "idle" {
+  if (!input.errored) return "idle";
+  return input.serverRunning ? "follow" : "show-error";
+}
+
+/** The reason a retry or edit cannot go yet, or null when it can. */
+export function resendBlock(input: { busy: boolean; serverRunning: boolean }): string | null {
+  return input.busy || input.serverRunning ? RUN_STILL_GOING : null;
 }
 
 /**
@@ -118,4 +143,17 @@ export function chatErrorReport(
     stack: typeof error.stack === "string" ? error.stack : "",
     context: `thread=${where.threadId} run=${where.runId ?? "-"} streaming=${where.streaming}`,
   };
+}
+
+/**
+ * The report for an error that a React render threw: the error's own stack, then the
+ * component stack React attaches (it is not on the error). Cut to the server's limits
+ * (`/api/system/client-error`: stack 1500, context 200), so the log line stays readable.
+ */
+export function renderErrorReport(error: unknown, componentStack: string, context: string): { where: "chat-render"; message: string; stack: string; context: string } {
+  const isError = error instanceof Error;
+  const message = isError ? String(error.message ?? "") : String(error ?? "");
+  const own = isError && typeof error.stack === "string" ? error.stack : "";
+  const stack = componentStack.trim() ? `${own}\ncomponent stack:\n${componentStack.trim()}` : own;
+  return { where: "chat-render", message, stack: stack.slice(0, 1500), context: context.slice(0, 200) };
 }

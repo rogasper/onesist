@@ -19,7 +19,7 @@ import { appendMessage, createThread, getThread, latestSeq, messageSeq, updateTh
 
 export type TruncateResult =
   | { ok: true; removedIds: string[]; undone: string[] }
-  | { ok: false; status: number; error: string; conflicts?: { path: string; state: string }[] };
+  | { ok: false; status: number; error: string; code?: "run_active"; conflicts?: { path: string; state: string }[] };
 
 /**
  * Removes a user message and everything after it, and (unless `conversationOnly`)
@@ -36,7 +36,7 @@ export function truncateFromMessage(input: {
   const thread = getThread(input.threadId);
   if (!thread) return { ok: false, status: 404, error: "Thread tidak ditemukan." };
   if (getRunForThread(input.threadId)) {
-    return { ok: false, status: 409, error: "Masih ada run yang berjalan di percakapan ini. Hentikan dulu." };
+    return { ok: false, status: 409, code: "run_active", error: "Masih ada run yang berjalan di percakapan ini. Hentikan dulu." };
   }
   if (thread.summary) {
     return {
