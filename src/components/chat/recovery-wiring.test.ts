@@ -23,6 +23,9 @@ test("retry and edit wait for the run instead of posting into a 409", () => {
   expect(src).toContain("resendBlock({ busy, serverRunning })");
   expect(src).toContain('data.code === "run_active"');
 });
+test("a run started elsewhere can be stopped from its strip", () => {
+  expect(src).toContain("{activity.stoppable ? (");
+});
 test("a live connection that comes back re-checks the run", () => {
   expect(src).toContain('if (status === "error") void followIfStillRunning();');
 });

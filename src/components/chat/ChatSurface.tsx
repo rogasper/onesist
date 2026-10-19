@@ -1334,7 +1334,15 @@ export function ChatSurface({
         <div className="border-t border-kumo-line shrink-0">
           <div className="mx-auto w-full max-w-3xl px-6 py-1.5 flex items-center gap-2 text-xs text-kumo-subtle">
             <Pulse />
-            <span>Agent masih bekerja di percakapan ini. Transkrip akan dilengkapi begitu run selesai.</span>
+            <span className="min-w-0 truncate">Agent masih bekerja di percakapan ini. Mengikuti hasilnya…</span>
+            {activity.stoppable ? (
+              <button
+                onClick={stopActiveRun}
+                className="ml-auto shrink-0 rounded-md px-2 py-0.5 ring ring-kumo-line hover:bg-kumo-elevated text-kumo-default"
+              >
+                Hentikan
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
