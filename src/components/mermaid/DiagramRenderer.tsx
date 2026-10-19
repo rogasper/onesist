@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MermaidBlock } from "./MermaidBlock";
@@ -90,7 +90,9 @@ const SCROLL_TABLE_COMPONENTS: Record<string, React.ComponentType<any>> = {
 };
 
 export function MarkdownViewer({ content, className, codeRenderer, scrollTables = false }: MarkdownViewerProps) {
-  const components: Record<string, React.ComponentType<any>> = {
+  // Built once per renderer, not per render: react-markdown mounts every component by
+  // type, so new function identities would remount each code block on every stream chunk.
+  const components = useMemo<Record<string, React.ComponentType<any>>>(() => ({
     ...(scrollTables ? SCROLL_TABLE_COMPONENTS : {}),
     code({ className: cls, children, node, ...props }: any) {
       const lang = languageOf(cls);
@@ -122,7 +124,7 @@ export function MarkdownViewer({ content, className, codeRenderer, scrollTables 
     // Images in a document are stored project-relative (`input/assets/x.png`);
     // without this the browser asks the SPA route for them and shows nothing.
     img: WorkspaceImage,
-  };
+  }), [codeRenderer, scrollTables]);
 
   return (
     <div className={className}>

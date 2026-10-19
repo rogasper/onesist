@@ -11,7 +11,7 @@ import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
 import { FileCard } from "~/components/chat/FileCard";
 import { Composer, type Attachment, type PendingImage } from "~/components/chat/Composer";
-import { afterStreamEnded, chatActivity, chatErrorReport, markTaken, providerRetryLabel, RUN_STILL_GOING, resendBlock, settleSteers } from "~/components/chat/chat-state";
+import { afterStreamEnded, CHAT_STREAM_THROTTLE_MS, chatActivity, chatErrorReport, markTaken, providerRetryLabel, RUN_STILL_GOING, resendBlock, settleSteers } from "~/components/chat/chat-state";
 import { loadDraft, promptText, quoteBlock, saveDraft } from "~/components/chat/chat-draft";
 import { refSlug, refTokens, type MentionRef } from "~/lib/mention-ref";
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from "~/lib/image-attachment";
@@ -175,6 +175,7 @@ export function ChatSurface({
     id: threadId,
     transport: transport!,
     messages: initialMessages,
+    throttle: CHAT_STREAM_THROTTLE_MS,
     // A run still working when the thread was opened is followed live from where
     // it is (the stream route replays what came before), not only read at its end.
     resume: !!detail.activeRun,
@@ -1674,6 +1675,11 @@ function MessageBlockView({
   const [draft, setDraft] = useState("");
   const [resendNote, setResendNote] = useState<{ conflicts?: string[]; error?: string } | null>(null);
   const [resending, setResending] = useState(false);
+  /** Stable across chunks: markdown keeps its component identities (DiagramRenderer). */
+  const codeRenderer = useCallback(
+    (lang: string, code: string) => (isCardWorthyCode(lang, code) ? <CodeCard lang={lang} code={code} projectId={projectId} /> : null),
+    [projectId],
+  );
 
   if (message.role === "user") {
     const text = (message.parts ?? []).map((p: any) => (isTextUIPart(p) ? p.text : "")).join("");
@@ -1849,7 +1855,7 @@ function MessageBlockView({
           <MarkdownViewer
             content={b.text}
             scrollTables
-            codeRenderer={(lang, code) => (isCardWorthyCode(lang, code) ? <CodeCard lang={lang} code={code} projectId={projectId} /> : null)}
+            codeRenderer={codeRenderer}
           />
         </div>
       );

@@ -77,6 +77,10 @@ export function chatActivity(input: { streaming: boolean; watching: boolean }): 
   };
 }
 
+/** Shortest gap between two renders of the streamed transcript (ms). Chunks that arrive
+ *  closer together are merged, so a fast stream does not re-render the whole chat per chunk. */
+export const CHAT_STREAM_THROTTLE_MS = 50;
+
 /** Shown when a send, retry or edit must wait for the run that is still going. */
 export const RUN_STILL_GOING = "Masih ada run yang berjalan. Tunggu sampai selesai, atau tekan Hentikan.";
 
