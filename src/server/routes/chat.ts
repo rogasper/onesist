@@ -581,81 +581,84 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
 
   let result;
   try {
-    const lastUserText = lastUser ? messageText(lastUser) : "";
-    const { tools: externalTools } = await loadMcpToolsForTurn(lastUserText);
-
     if (provider.apiStyle === "cli") {
       result = await startCliTurn({ runId, thread: current, root: workspace.cwd, provider, lastUser: lastUser as UIMessage | undefined });
     } else {
+      // Only a native turn can carry external MCP tools, so a CLI turn must not
+      // pay for connecting to every enabled server.
+      const lastUserText = lastUser ? messageText(lastUser) : "";
+      const { tools: externalTools } = await loadMcpToolsForTurn(lastUserText);
+
       result = await startTurn({
-      runId,
-      threadId: current.id,
-      projectId: current.projectId,
-      root,
-      provider,
-      permissionMode: current.permissionMode as any,
-      maxSteps: stepBudget,
-      mode: current.mode as any,
-      reasoningLevel: parseReasoningLevel(current.reasoningEffort),
-      system,
-      messages: modelMessages,
-      summary: current.summary,
-      onFileChange,
-      externalTools,
-      // FR-C12: remember what the agent has seen so a later external edit can be
-      // reported against it.
-      onFileRead: ({ path: readPath, hash }) => {
-        try {
-          recordThreadRead({ threadId: current.id, path: readPath, hash });
-        } catch (err) {
-          console.error("[chat] failed to record file read:", err);
-        }
-      },
-      onCompactStart: () => eventBus.emitChatCompaction({ threadId: current.id, phase: "start", at: "in-run" }),
-      onCompactFailed: () => eventBus.emitChatCompaction({ threadId: current.id, phase: "failed", at: "in-run" }),
-      onCompact: (info) => {
-        // FR-B8/FR-B9: the summary is stored on the thread (not just in one
-        // turn's memory) and the event is written as a marker message so it
-        // stays visible after reload.
-        setThreadSummary(current.id, info.summary);
-        eventBus.emitChatCompaction({
-          threadId: current.id,
-          phase: "done",
-          at: "in-run",
-          estimatedBefore: info.estimatedBefore,
-          estimatedAfter: info.estimatedAfter,
-        });
-        appendMessage({
-          threadId: current.id,
-          role: "system",
-          kind: "compactNotice",
-          parts: [
-            {
-              type: "data-notice",
-              data: {
-                kind: "compacted",
-                estimatedBefore: info.estimatedBefore,
-                estimatedAfter: info.estimatedAfter,
+        runId,
+        threadId: current.id,
+        projectId: current.projectId,
+        root,
+        provider,
+        permissionMode: current.permissionMode as any,
+        maxSteps: stepBudget,
+        mode: current.mode as any,
+        reasoningLevel: parseReasoningLevel(current.reasoningEffort),
+        system,
+        messages: modelMessages,
+        summary: current.summary,
+        onFileChange,
+        externalTools,
+        // FR-C12: remember what the agent has seen so a later external edit can be
+        // reported against it.
+        onFileRead: ({ path: readPath, hash }) => {
+          try {
+            recordThreadRead({ threadId: current.id, path: readPath, hash });
+          } catch (err) {
+            console.error("[chat] failed to record file read:", err);
+          }
+        },
+        onCompactStart: () => eventBus.emitChatCompaction({ threadId: current.id, phase: "start", at: "in-run" }),
+        onCompactFailed: () => eventBus.emitChatCompaction({ threadId: current.id, phase: "failed", at: "in-run" }),
+        onCompact: (info) => {
+          // FR-B8/FR-B9: the summary is stored on the thread (not just in one
+          // turn's memory) and the event is written as a marker message so it
+          // stays visible after reload.
+          setThreadSummary(current.id, info.summary);
+          eventBus.emitChatCompaction({
+            threadId: current.id,
+            phase: "done",
+            at: "in-run",
+            estimatedBefore: info.estimatedBefore,
+            estimatedAfter: info.estimatedAfter,
+          });
+          appendMessage({
+            threadId: current.id,
+            role: "system",
+            kind: "compactNotice",
+            parts: [
+              {
+                type: "data-notice",
+                data: {
+                  kind: "compacted",
+                  estimatedBefore: info.estimatedBefore,
+                  estimatedAfter: info.estimatedAfter,
+                },
               },
-            },
-          ],
-        });
-      },
-      onStepFinish: ({ stepCount }) => {
-        /* Step counting lives in run-registry; this records the LAST count so
-         * the route can tell whether the turn ended because of the step ceiling
-         * (FR-B11). */
-        lastStepCount = stepCount;
-      },
-      onSteerConsumed: (steered) => {
-        // Persisted at the moment the model receives it (FR-B20 wording: "pesan
-        // diambil pada batas langkah"), so the transcript and the model agree.
-        for (const m of steered) {
-          appendMessage({ threadId: current.id, role: "user", parts: m.parts, id: m.id });
-        }
-        eventBus.emitChatSteer({ threadId: current.id, messageIds: steered.map((m) => m.id) });
-      },
-    });
+            ],
+          });
+        },
+        onStepFinish: ({ stepCount }) => {
+          /* Step counting lives in run-registry; this records the LAST count so
+           * the route can tell whether the turn ended because of the step ceiling
+           * (FR-B11). */
+          lastStepCount = stepCount;
+        },
+        onSteerConsumed: (steered) => {
+          // Persisted at the moment the model receives it (FR-B20 wording: "pesan
+          // diambil pada batas langkah"), so the transcript and the model agree.
+          for (const m of steered) {
+            appendMessage({ threadId: current.id, role: "user", parts: m.parts, id: m.id });
+          }
+          eventBus.emitChatSteer({ threadId: current.id, messageIds: steered.map((m) => m.id) });
+        },
+      });
+    }
   } catch (err) {
     // Failure BEFORE the stream starts (e.g. incomplete provider config) still
     // throws; that is different from a mid-stream failure.

@@ -16,6 +16,7 @@
  */
 import crypto from "node:crypto";
 import { auth, type OAuthClientProvider, type OAuthTokens } from "@ai-sdk/mcp";
+import { assertSafeMcpUrl, safeMcpFetch } from "./url-guard";
 
 export class McpOAuthError extends Error {}
 
@@ -149,6 +150,10 @@ function providerFor(flow: Flow): OAuthClientProvider {
     storedState() {
       return flow.state;
     },
+    /** Metadata points at the authorization server, so that URL is checked too. */
+    async validateAuthorizationServerURL(_serverUrl, authorizationServerUrl) {
+      await assertSafeMcpUrl(authorizationServerUrl.toString());
+    },
   };
 }
 
@@ -165,8 +170,9 @@ export interface BeginResult {
 /** Starts a flow. Either a URL to approve, or a credential that is already ready. */
 export async function beginOAuth(serverUrl: string): Promise<BeginResult> {
   sweep();
+  const safeUrl = await assertSafeMcpUrl(serverUrl);
   const flow: Flow = {
-    serverUrl,
+    serverUrl: safeUrl.href,
     authorizationUrl: "",
     codeVerifier: "",
     state: crypto.randomBytes(16).toString("hex"),
@@ -174,7 +180,7 @@ export async function beginOAuth(serverUrl: string): Promise<BeginResult> {
     createdAt: Date.now(),
   };
 
-  const result = await auth(providerFor(flow), { serverUrl });
+  const result = await auth(providerFor(flow), { serverUrl: safeUrl.href, fetchFn: safeMcpFetch });
   if (result === "AUTHORIZED") {
     // The provider handed back a token without a browser round trip.
     if (!flow.tokens) throw new McpOAuthError("Server MCP tidak mengembalikan token.");
@@ -198,6 +204,7 @@ export async function completeOAuth(state: string, code: string): Promise<void> 
     serverUrl: flow.serverUrl,
     authorizationCode: code,
     callbackState: state,
+    fetchFn: safeMcpFetch,
   });
   flows.delete(state);
   if (!flow.tokens) throw new McpOAuthError("Server MCP tidak mengembalikan token.");

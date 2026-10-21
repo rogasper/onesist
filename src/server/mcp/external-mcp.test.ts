@@ -95,7 +95,7 @@ test("mcp_servers table persistence and CRUD behavior", () => {
 
 test("fetchServerTools connects to mock MCP server and loads tools", async () => {
   const row = db.select().from(mcpServers).where(eq(mcpServers.name, "github")).get()!;
-  const { tools, count, instructions } = await fetchServerTools(row as any);
+  const { tools, count, instructions } = await fetchServerTools(row as any, { allowPrivateHosts: true });
   expect(count).toBe(1);
   expect(tools["get_repo"]).toBeDefined();
   expect(instructions).toBe("Mock server instructions");
@@ -150,8 +150,8 @@ test("a changed credential is not served from the previous connection", async ()
 
   const base = { id: "draft", name: "d", transport: "http" as const, url: `http://127.0.0.1:${port}`, command: null, argsJson: null, envJson: null, authKind: "header" as const, authHeader: "Authorization" };
 
-  await fetchServerTools({ ...base, authValue: "token-one" } as any);
-  await fetchServerTools({ ...base, authValue: "token-two" } as any);
+  await fetchServerTools({ ...base, authValue: "token-one" } as any, { allowPrivateHosts: true });
+  await fetchServerTools({ ...base, authValue: "token-two" } as any, { allowPrivateHosts: true });
 
   // Both credentials must reach the server: the second call is a new connection,
   // not a reuse of the first.

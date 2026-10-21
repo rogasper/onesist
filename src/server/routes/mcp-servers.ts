@@ -10,6 +10,7 @@ import { fetchServerTools, getMcpClient, closeServerClient } from "~/server/mcp/
 import { beginOAuth, completeOAuth, hasPendingOAuth, isRegistrationUnsupported, peekOAuthTokens, takeOAuthTokens } from "~/server/mcp/oauth";
 import { peekCredential, putCredential, takeCredential } from "~/server/mcp/credentials";
 import { ghStatus, readGhToken } from "~/server/mcp/gh";
+import { UnsafeMcpUrlError } from "~/server/mcp/url-guard";
 import { MCP_PRESETS, getMcpPreset } from "~/server/agent/mcp-presets";
 import { newId } from "~/server/agent/store";
 import { maskApiKey, redactSecrets } from "~/server/agent/config";
@@ -57,6 +58,20 @@ function readBoolean(v: unknown, fallback: boolean): boolean {
 }
 
 /**
+ * The name becomes the tool prefix (`<name>__<tool>`), and the approval gate
+ * reads the prefix back to find the server's read-only flag. So it must never
+ * contain `__` itself, or a crafted name could point the lookup at another row.
+ */
+function nameProblem(name: string): string | null {
+  if (!name) return "Nama server MCP tidak boleh kosong.";
+  if (name.includes("__")) return "Nama server MCP tidak boleh mengandung \"__\".";
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+    return "Nama server MCP hanya boleh berisi huruf, angka, \"-\" dan \"_\", maksimal 64 karakter.";
+  }
+  return null;
+}
+
+/**
  * Turns the reference the UI holds into the credential it stands for.
  *
  * The browser never sees an acquired token, so a save sends a reference and the
@@ -90,7 +105,8 @@ router.get("mcp-servers", async () => {
 router.post("mcp-servers", async (ctx) => {
   const body = (await ctx.body()) as Record<string, unknown>;
   const name = String(body.name ?? "").trim();
-  if (!name) return json({ error: "Nama server MCP tidak boleh kosong." }, 400);
+  const problem = nameProblem(name);
+  if (problem) return json({ error: problem }, 400);
 
   const existing = db.select().from(mcpServers).all();
   if (existing.some((s: typeof mcpServers.$inferSelect) => s.name.trim().toLowerCase() === name.toLowerCase())) {
@@ -140,7 +156,8 @@ router.put("mcp-servers/:id", async (ctx) => {
 
   if (typeof body.name === "string") {
     const name = body.name.trim();
-    if (!name) return json({ error: "Nama server tidak boleh kosong." }, 400);
+    const problem = nameProblem(name);
+    if (problem) return json({ error: problem }, 400);
     const others = db.select().from(mcpServers).all().filter((s: typeof mcpServers.$inferSelect) => s.id !== row.id);
     if (others.some((s: typeof mcpServers.$inferSelect) => s.name.trim().toLowerCase() === name.toLowerCase())) {
       return json({ error: `Nama "${name}" sudah dipakai server MCP lain.` }, 409);
@@ -312,6 +329,9 @@ router.post("mcp-servers/oauth/start", async (ctx) => {
         409,
       );
     }
+    if (err instanceof UnsafeMcpUrlError) {
+      return json({ error: err.message }, 400);
+    }
     return json({ error: redactSecrets(err?.message ?? String(err)) }, 502);
   }
 });
@@ -326,7 +346,9 @@ router.post("mcp-servers/oauth/result", async (ctx) => {
   const state = body.state ? String(body.state) : "";
   const authValue = peekOAuthTokens(state);
   if (!authValue) return json({ pending: true });
-  return json({ pending: false, credentialRef: state, authKind: "oauth" as const, authHeader: null, authValue });
+  // Only the reference travels: the token itself stays on the server until the
+  // row is saved (see `credentialFrom`).
+  return json({ pending: false, credentialRef: state, authKind: "oauth" as const, authHeader: null });
 });
 
 // GET /api/mcp-servers/oauth/callback — the browser lands here after approval.
@@ -335,108 +357,101 @@ router.get("mcp-servers/oauth/callback", async (ctx) => {
   const state = ctx.query.get("state");
   const failed = ctx.query.get("error");
 
-  const page = (title: string, body: string, success: boolean) =>
-    new Response(
+  // Everything below is user/provider controlled (`failed` comes straight from
+  // the query string), so it is escaped before it reaches the document.
+  const escapeHtml = (value: string) =>
+    value.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+
+  const page = (title: string, body: string, success: boolean) => {
+    const safeTitle = escapeHtml(title);
+    const safeBody = escapeHtml(body);
+    const accent = success ? "#6d7cff" : "#f87171";
+    return new Response(
       `<!doctype html>
       <html lang="id">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>${title} — Onesist</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script>
-          tailwind.config = {
-            theme: {
-              extend: {
-                colors: {
-                  kumo: {
-                    base: '#09090b',
-                    recessed: '#121215',
-                    elevated: '#18181b',
-                    line: '#27272a',
-                    brand: '#6d7cff',
-                    subtle: '#a1a1aa',
-                    default: '#f4f4f5',
-                    tint: 'rgba(109, 124, 255, 0.08)'
-                  }
-                },
-                fontFamily: {
-                  sans: ['Geist Variable', 'Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-                }
-              }
-            }
-          }
-        </script>
+        <title>${safeTitle} — Onesist</title>
         <style>
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px) scale(0.97); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            padding: 16px; background: #09090b; color: #f4f4f5;
+            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
           }
-          .animate-fade-in {
-            animation: fadeIn 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          .card {
+            position: relative; width: 100%; max-width: 420px; padding: 24px;
+            background: #18181b; border: 1px solid #27272a; border-radius: 16px;
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45); animation: fade-in 300ms ease-out;
           }
+          .card::before {
+            content: ""; position: absolute; top: -1px; left: 50%; transform: translateX(-50%);
+            width: 96px; height: 3px; border-radius: 999px;
+            background: linear-gradient(90deg, transparent, ${accent}, transparent);
+          }
+          .top { display: flex; align-items: flex-start; gap: 16px; }
+          .icon {
+            flex: none; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+            border: 1px solid #27272a; border-radius: 12px; background: ${success ? "rgba(109,124,255,0.1)" : "rgba(248,113,113,0.1)"};
+            color: ${accent};
+          }
+          h1 { margin: 0; font-size: 16px; letter-spacing: -0.01em; }
+          p { margin: 6px 0 0; font-size: 14px; line-height: 1.55; color: #a1a1aa; word-break: break-word; }
+          .foot {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            margin-top: 24px; padding-top: 16px; border-top: 1px solid #27272a;
+            font-size: 12px; color: #a1a1aa;
+          }
+          button {
+            flex: none; cursor: pointer; padding: 6px 12px; border-radius: 8px;
+            border: 1px solid #27272a; background: transparent; color: #f4f4f5;
+            font: inherit; transition: border-color 150ms, background 150ms;
+          }
+          button:hover { border-color: ${accent}; background: #1f1f23; }
+          @keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
         </style>
       </head>
-      <body class="bg-kumo-base text-kumo-default font-sans min-h-screen flex items-center justify-center p-4 selection:bg-kumo-tint">
-        <div class="w-full max-w-md animate-fade-in">
-          <div class="relative rounded-2xl border border-kumo-line bg-kumo-elevated p-6 shadow-2xl backdrop-blur-xl">
-            <!-- Top glow accent bar -->
-            <div class="absolute -top-px left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-to-r from-transparent ${success ? 'via-kumo-brand' : 'via-red-500'} to-transparent opacity-90"></div>
-
-            <div class="flex items-start gap-4">
-              <div class="shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${
-                success
-                  ? 'bg-kumo-brand/10 text-kumo-brand border border-kumo-line'
-                  : 'bg-red-500/10 text-red-400 border border-kumo-line'
-              }">
-                ${
-                  success
-                    ? `<svg class="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`
-                    : `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`
-                }
-              </div>
-              <div class="flex-1 min-w-0 pt-0.5">
-                <h1 class="text-base font-semibold text-kumo-default tracking-tight">${title}</h1>
-                <p class="mt-1.5 text-sm text-kumo-subtle leading-relaxed">${body}</p>
-              </div>
-            </div>
-
-            <div class="mt-6 pt-4 border-t border-kumo-line flex items-center justify-between text-xs text-kumo-subtle">
-              <span class="truncate pr-2">
-                ${
-                  success
-                    ? 'Jendela ini akan otomatis tertutup dalam <span id="countdown" class="font-mono font-medium text-kumo-default">2</span> detik…'
-                    : 'Silakan tutup jendela ini atau coba lagi.'
-                }
-              </span>
-              <button onclick="window.close()" class="shrink-0 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer border border-kumo-line text-kumo-default hover:bg-kumo-elevated hover:border-kumo-brand">
-                Tutup Jendela
-              </button>
+      <body>
+        <div class="card">
+          <div class="top">
+            <div class="icon">${
+              success
+                ? `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`
+                : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`
+            }</div>
+            <div>
+              <h1>${safeTitle}</h1>
+              <p>${safeBody}</p>
             </div>
           </div>
+          <div class="foot">
+            <span>${
+              success
+                ? `Jendela ini akan tertutup dalam <span id="countdown">2</span> detik…`
+                : "Silakan tutup jendela ini atau coba lagi."
+            }</span>
+            <button onclick="window.close()">Tutup Jendela</button>
+          </div>
         </div>
-
         ${
           success
             ? `<script>
                 let seconds = 2;
-                const cdEl = document.getElementById('countdown');
+                const el = document.getElementById("countdown");
                 const timer = setInterval(() => {
                   seconds--;
-                  if (cdEl) cdEl.textContent = seconds;
-                  if (seconds <= 0) {
-                    clearInterval(timer);
-                    window.close();
-                  }
+                  if (el) el.textContent = String(seconds);
+                  if (seconds <= 0) { clearInterval(timer); window.close(); }
                 }, 1000);
-                setTimeout(() => { window.close(); }, 2000);
               </script>`
-            : ``
+            : ""
         }
       </body>
       </html>`,
       { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
     );
+  };
 
   if (failed) return page("Otorisasi ditolak", `Server MCP menolak permintaan: ${failed}.`, false);
   if (!code || !state || !hasPendingOAuth(state)) {

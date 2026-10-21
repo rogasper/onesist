@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { type Tool } from "ai";
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import { readStoredTokens } from "./oauth";
+import { assertSafeMcpUrl, safeMcpFetch } from "./url-guard";
 
 export class McpClientError extends Error {}
 
@@ -66,7 +67,15 @@ function connectionKey(config: McpServerConfig): string {
   ]);
 }
 
-export async function getMcpClient(config: McpServerConfig): Promise<MCPClient> {
+export interface ConnectOptions {
+  /**
+   * Tests only: the mock MCP server listens on loopback, which the URL guard
+   * refuses on purpose. No route ever sets this.
+   */
+  allowPrivateHosts?: boolean;
+}
+
+export async function getMcpClient(config: McpServerConfig, options: ConnectOptions = {}): Promise<MCPClient> {
   const key = connectionKey(config);
   const existing = activeClients.get(key);
   if (existing) {
@@ -107,12 +116,25 @@ export async function getMcpClient(config: McpServerConfig): Promise<MCPClient> 
       env: { ...process.env, ...env } as any,
     });
   } else {
-    const url = config.url?.trim();
-    if (!url) throw new McpClientError("URL server MCP belum diisi.");
+    const raw = config.url?.trim();
+    if (!raw) throw new McpClientError("URL server MCP belum diisi.");
+    let url: URL;
+    if (options.allowPrivateHosts) {
+      url = new URL(raw);
+    } else {
+      try {
+        url = await assertSafeMcpUrl(raw);
+      } catch (err) {
+        throw new McpClientError((err as Error).message);
+      }
+    }
     transportConfig = {
       type: config.transport === "sse" ? "sse" : "http",
-      url,
+      url: url.href,
       headers: Object.keys(headers).length ? headers : undefined,
+      // Validates every request and every redirect hop, unlike the transport's
+      // own redirect handling.
+      ...(options.allowPrivateHosts ? {} : { fetch: safeMcpFetch }),
     };
   }
 
@@ -125,8 +147,8 @@ export async function getMcpClient(config: McpServerConfig): Promise<MCPClient> 
   }
 }
 
-export async function fetchServerTools(config: McpServerConfig): Promise<{ tools: Record<string, Tool>; count: number; instructions?: string }> {
-  const client = await getMcpClient(config);
+export async function fetchServerTools(config: McpServerConfig, options: ConnectOptions = {}): Promise<{ tools: Record<string, Tool>; count: number; instructions?: string }> {
+  const client = await getMcpClient(config, options);
   const toolSet = await client.tools();
   const rawTools = toolSet as unknown as Record<string, Tool>;
   const count = Object.keys(rawTools).length;
@@ -155,6 +177,23 @@ export async function closeAllMcpClients(): Promise<void> {
   activeClients.clear();
 }
 
+/** A dead endpoint must delay a chat turn, not hold it. */
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new McpClientError(`${label} tidak merespons dalam ${Math.round(ms / 1000)} detik.`)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export async function loadMcpToolsForTurn(messageText?: string): Promise<{ tools: Record<string, Tool>; serverSummaries: { name: string; instructions?: string }[] }> {
   const rows = db.select().from(mcpServers).where(eq(mcpServers.enabled, true)).all();
   if (!rows.length) return { tools: {}, serverSummaries: [] };
@@ -176,7 +215,11 @@ export async function loadMcpToolsForTurn(messageText?: string): Promise<{ tools
     if (!isMentioned) continue;
 
     try {
-      const { tools: serverTools, instructions } = await fetchServerTools(row as any);
+      const { tools: serverTools, instructions } = await withTimeout(
+        fetchServerTools(row as any),
+        12_000,
+        `Server MCP "${row.name}"`,
+      );
       serverSummaries.push({ name: row.name, instructions: instructions ?? row.instructions ?? undefined });
       for (const [tName, tDef] of Object.entries(serverTools)) {
         tools[`${row.name}__${tName}`] = tDef;
