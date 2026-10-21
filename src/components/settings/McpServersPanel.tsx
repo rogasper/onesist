@@ -399,7 +399,7 @@ export function McpServersPanel() {
                   ) : gh?.installed && gh.authenticated ? (
                     <>
                       <p className="text-xs text-green-400">
-                        ✓ Terdeteksi{gh.account ? ` — akun ${gh.account}` : ""}
+                        Terdeteksi{gh.account ? ` — akun ${gh.account}` : ""}
                         {gh.version ? ` · ${gh.version}` : ""}
                       </p>
                       {gh.scopes.length ? (
@@ -437,7 +437,7 @@ export function McpServersPanel() {
                     <ShieldCheck size={14} /> {oauthRunning ? "Menghubungkan ke OAuth..." : `Hubungkan ke ${selectedPreset?.label}`}
                   </AppButton>
                   {credentialReady ? (
-                    <p className="text-[11px] text-green-400 font-mono">✓ Kredensial diperoleh — tekan Simpan untuk menyimpan</p>
+                    <p className="text-[11px] text-green-400 font-mono">Kredensial diperoleh — tekan Simpan untuk menyimpan</p>
                   ) : current?.hasAuthValue && current.preset === draft.preset ? (
                     <p className="text-[11px] text-kumo-subtle font-mono">Kredensial tersimpan (belum diubah)</p>
                   ) : null}
