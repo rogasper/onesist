@@ -104,18 +104,21 @@ function tokenize(text: string, chars: string[]): Token[] {
 function tokenClass(sigil: string): string {
   if (sigil === "$") return "bg-violet-400/15";
   if (sigil === "/") return "bg-amber-400/15";
+  if (sigil === "%") return "bg-emerald-400/15";
   return "bg-sky-400/15";
 }
 
 function sigilClass(sigil: string): string {
   if (sigil === "$") return "text-violet-400";
   if (sigil === "/") return "text-amber-400";
+  if (sigil === "%") return "text-emerald-400";
   return "text-sky-400";
 }
 
 function restClass(sigil: string): string {
   if (sigil === "$") return "text-violet-300";
   if (sigil === "/") return "text-amber-300";
+  if (sigil === "%") return "text-emerald-300";
   return "text-sky-300";
 }
 

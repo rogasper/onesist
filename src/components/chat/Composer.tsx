@@ -4,6 +4,7 @@ import { ArrowUp, ChatCircle, Info, Lightning, ListBullets, ListChecks, Papercli
 import { MenuOption, ToolbarMenu } from "~/components/chat/ToolbarMenu";
 import { MentionTextarea, type MentionFile, type MentionTrigger } from "~/components/docs/MentionTextarea";
 import { useFileDropZone } from "~/lib/file-drop";
+import { useMcpServers } from "~/lib/use-mcp-servers";
 import { ModelPicker } from "~/components/chat/ModelPicker";
 import { FRESH_CURSOR, attachmentLabel, isLongPaste, pastedTextName, stepHistory, type HistoryCursor } from "~/components/chat/chat-draft";
 import { formatCost, formatTokens, type ChatProviderOption, type ChatSkillOption, type ContextUsage, type ProjectActionFile, type ResolvedChatAction } from "~/lib/use-chat";
@@ -165,6 +166,7 @@ export function Composer(props: Props) {
   } = props;
   // A thread without its own provider runs on the default one (the server does the same).
   const activeProvider = providers.find((p) => p.id === providerId) ?? providers.find((p) => p.isDefault) ?? null;
+  const { servers: mcpServers } = useMcpServers();
 
   // ↑/↓ recall. The cursor restarts when the newest sent prompt changes (a send
   // happened, or another thread is open), so a stale position never recalls the wrong text.
@@ -281,12 +283,25 @@ export function Composer(props: Props) {
           tag: r.kind,
         })),
       },
+      {
+        char: "%",
+        label: "MCP Server · aktifkan tool server eksternal untuk pesan ini",
+        items: mcpServers
+          .filter((s) => s.enabled)
+          .map((s) => ({
+            name: s.name,
+            path: s.name,
+            insert: `%${s.name}`,
+            hint: `${s.presetLabel} · ${s.toolCount} tool`,
+            tag: s.readOnly ? "baca saja" : "aktif",
+          })),
+      },
     ],
     // `actions` MUST be here: it arrives from an async fetch, and without the
     // dependency the `/` popup kept whatever the list was on the last
     // mentions/skills change — usually empty, which renders as nothing at all
     // (MentionTextarea hides the popup when it has no items).
-    [mentions, skills, actions, refs],
+    [mentions, skills, actions, refs, mcpServers],
   );
 
   return (

@@ -23,6 +23,9 @@ import { diffStat, resolveInRoot, type DiffStat } from "./paths";
 import { readSkill } from "./skills";
 import { appendMemory } from "./memory";
 import { buildCodeSearchTool } from "./index/tool";
+import { db } from "~/server/db/client";
+import { mcpServers } from "~/server/db/schema";
+import { eq } from "drizzle-orm";
 import { buildDbTools } from "./db/tools";
 import { BrowserError, capture as captureInBrowser } from "~/server/browser/manager";
 import type { ChangeSource, FileOp } from "./types";
@@ -81,6 +84,7 @@ export interface ToolContext {
    *  already meant "no shell", leaving no way to allow file writes while
    *  refusing a shell. */
   includeShell?: boolean;
+  externalTools?: ToolSet;
 }
 
 const LIMITS = {
@@ -802,6 +806,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
   });
 
   const tools: ToolSet = {
+    ...(ctx.externalTools ?? {}),
     read_file: readFileTool,
     list_dir: listDirTool,
     glob: globTool,
@@ -829,3 +834,19 @@ export function buildTools(ctx: ToolContext): ToolSet {
 /** Names of state-changing tools — used for permission gating (FR-E) and to
  *  make sure subagents never get them (FR-G6). */
 export const MUTATING_TOOLS = new Set(["write_file", "edit_file", "bash", "memory_write", "app_write"]);
+
+export function isExternalTool(name: string): boolean {
+  return name.includes("__");
+}
+
+export function isServerReadOnly(name: string): boolean {
+  if (!isExternalTool(name)) return false;
+  const serverName = name.split("__")[0];
+  try {
+    const row = db.select().from(mcpServers).where(eq(mcpServers.name, serverName)).get() as { readOnly: boolean; enabled: boolean } | undefined;
+    return !!row?.readOnly && !!row?.enabled;
+  } catch {
+    return false;
+  }
+}
+

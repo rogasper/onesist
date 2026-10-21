@@ -1,6 +1,7 @@
 import { BrowserSection } from "~/components/settings/BrowserSection";
 import { IndexPanel } from "~/components/settings/IndexPanel";
 import { McpPanel } from "~/components/settings/McpPanel";
+import { McpServersPanel } from "~/components/settings/McpServersPanel";
 import { SubagentsPanel } from "~/components/settings/SubagentsPanel";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
@@ -41,9 +42,13 @@ interface DetectedAgent {
   path: string | null;
 }
 
+type SettingsTab = "umum" | "mcp" | "subagent" | "terminal";
+
 function SettingsPage() {
   const { id } = Route.useParams();
   const { project } = Route.useLoaderData() as { project: any };
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>("umum");
 
   const [name, setName] = useState(project?.name ?? "");
   const [company, setCompany] = useState(project?.company ?? "");
@@ -90,168 +95,217 @@ function SettingsPage() {
     return <ProjectNotFound />;
   }
 
+  const TABS: { id: SettingsTab; label: string }[] = [
+    { id: "umum", label: "Umum & Agent" },
+    { id: "mcp", label: "MCP" },
+    { id: "subagent", label: "Subagent" },
+    { id: "terminal", label: "Terminal & Index" },
+  ];
+
   return (
-    <div className="max-w-lg">
+    <div className="max-w-2xl">
       <PageHeader
         icon={<Gear size={14} className="text-kumo-brand" />}
         title="Settings"
         help="settings"
-        className="mb-5 shrink-0"
+        className="mb-4 shrink-0"
       />
 
-      <div className="space-y-5">
-        {/* Project */}
-        <Section title="Project">
-          <Field label="Name">
-            <input value={name} onChange={(e) => setName(e.target.value)}
-              className="w-full bg-kumo-elevated/40 text-sm text-kumo-default rounded-full border border-kumo-line/50 px-3.5 py-1.5 outline-none focus:border-kumo-brand" />
-          </Field>
-          <Field label="Company">
-            <input value={company} onChange={(e) => setCompany(e.target.value)}
-              className="w-full bg-kumo-elevated/40 text-sm text-kumo-default rounded-full border border-kumo-line/50 px-3.5 py-1.5 outline-none focus:border-kumo-brand" />
-          </Field>
-          <Field label="Description">
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
-              className="w-full bg-kumo-elevated/40 text-sm text-kumo-default rounded-xl border border-kumo-line/50 px-3.5 py-2 outline-none focus:border-kumo-brand resize-none" />
-          </Field>
-          <Field label="Root Path">
-            <div className="text-xs text-kumo-subtle py-1.5 px-3 font-mono truncate bg-kumo-elevated/40 rounded-full border border-kumo-line/30">{project.rootPath || "(none)"}</div>
-          </Field>
-        </Section>
-
-        {/* Agent */}
-        <Section title="Default Agent">
-          <div className="flex gap-2 flex-wrap">
-            {AGENTS.map((a) => {
-              const logo = agentLogo(a.value);
-              const detected = detectedAgents.find(
-                (d) => d.command === a.command || d.name.toLowerCase() === a.value.toLowerCase()
-              );
-              const isFound = detected ? detected.found : false;
-              const isSelected = defaultAgent === a.value;
-
-              return (
-                <AppButton
-                  key={a.value}
-                  variant="chip"
-                  size="sm"
-                  active={isSelected}
-                  disabled={!isFound}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (isFound) setDefaultAgent(a.value);
-                  }}
-                  className={`px-3 transition-opacity ${!isFound ? "opacity-40 cursor-not-allowed grayscale" : ""}`}
-                  title={!isFound ? `${a.label} is not installed on this machine` : detected?.version ? `${a.label} (${detected.version})` : a.label}
-                >
-                  <span className="flex items-center gap-1.5">
-                    {logo && <img src={logo} alt="" className={`w-4 h-4 rounded-sm object-contain ${!isFound ? "opacity-60" : ""}`} />}
-                    {a.label}
-                    {isSelected && <Check size={10} className="text-kumo-brand" weight="bold" />}
-                    {!isFound && <span className="text-[10px] text-kumo-subtle">(not installed)</span>}
-                  </span>
-                </AppButton>
-              );
-            })}
-          </div>
-          {agentsLoading ? (
-            <p className="text-[11px] text-kumo-subtle italic mt-2">Checking installed agent CLIs…</p>
-          ) : (
-            <div className="mt-1 space-y-1">
-              <p className="text-[11px] text-kumo-subtle">
-                Only installed CLI agents can be selected.
-              </p>
-              {(() => {
-                const currentAgentInfo = detectedAgents.find(
-                  (d) => d.command === defaultAgent || d.name.toLowerCase() === defaultAgent.toLowerCase()
-                );
-                if (currentAgentInfo && !currentAgentInfo.found) {
-                  return (
-                    <div className="flex items-center gap-1.5 text-xs text-amber-400 mt-1">
-                      <WarningCircle size={14} className="shrink-0" />
-                      <span>
-                        The current default agent (<b>{defaultAgent}</b>) is not detected on this machine.
-                      </span>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-            </div>
-          )}
-        </Section>
-
-        {/* Terminal */}
-        <Section title="Index">
-        <IndexPanel projectId={id} />
-      </Section>
-
-      <Section title="MCP">
-        <McpPanel projectId={id} />
-      </Section>
-
-      <BrowserSection />
-      <Section title="Subagent">
-        <SubagentsPanel projectId={id} />
-      </Section>
-
-      <Section title="Terminal">
-          <Field label="Font Size">
-            <FilterSelect
-              value={String(terminalPrefs.fontSize)}
-              onChange={(val) => setTerminalPrefs((p) => ({ ...p, fontSize: Number(val) }))}
-            >
-              {FONT_SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {s}px
-                </option>
-              ))}
-            </FilterSelect>
-          </Field>
-          <Field label="Theme">
-            <div className="flex gap-2">
-              {(["dark", "light"] as const).map((t) => (
-                <AppButton
-                  key={t}
-                  variant="chip"
-                  size="sm"
-                  active={terminalPrefs.theme === t}
-                  onClick={(e) => { e.stopPropagation(); setTerminalPrefs(p => ({ ...p, theme: t })); }}
-                  className="px-3 capitalize"
-                >{t}</AppButton>
-              ))}
-            </div>
-          </Field>
-          <Field label="Cursor">
-            <div className="flex gap-2">
-              {CURSORS.map((c) => (
-                <AppButton
-                  key={c.value}
-                  variant="chip"
-                  size="sm"
-                  active={terminalPrefs.cursor === c.value}
-                  onClick={(e) => { e.stopPropagation(); setTerminalPrefs(p => ({ ...p, cursor: c.value as "bar" | "block" | "underline" })); }}
-                  className="px-3"
-                >{c.label}</AppButton>
-              ))}
-            </div>
-          </Field>
-        </Section>
-
-        {/* Save */}
-        <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 mb-5 border-b border-kumo-line pb-3">
+        {TABS.map((t) => (
           <AppButton
-            variant="primary"
-            size="base"
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded px-4"
+            key={t.id}
+            variant="chip"
+            size="sm"
+            active={activeTab === t.id}
+            onClick={() => setActiveTab(t.id)}
+            className="px-3"
           >
-            {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
+            {t.label}
           </AppButton>
-          {saved && <span className="text-xs text-kumo-brand">Settings saved</span>}
-        </div>
+        ))}
       </div>
+
+      {activeTab === "umum" && (
+        <div className="space-y-5">
+          <Section title="Project">
+            <Field label="Name">
+              <input value={name} onChange={(e) => setName(e.target.value)}
+                className="w-full bg-kumo-elevated/40 text-sm text-kumo-default rounded-full border border-kumo-line/50 px-3.5 py-1.5 outline-none focus:border-kumo-brand" />
+            </Field>
+            <Field label="Company">
+              <input value={company} onChange={(e) => setCompany(e.target.value)}
+                className="w-full bg-kumo-elevated/40 text-sm text-kumo-default rounded-full border border-kumo-line/50 px-3.5 py-1.5 outline-none focus:border-kumo-brand" />
+            </Field>
+            <Field label="Description">
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
+                className="w-full bg-kumo-elevated/40 text-sm text-kumo-default rounded-xl border border-kumo-line/50 px-3.5 py-2 outline-none focus:border-kumo-brand resize-none" />
+            </Field>
+            <Field label="Root Path">
+              <div className="text-xs text-kumo-subtle py-1.5 px-3 font-mono truncate bg-kumo-elevated/40 rounded-full border border-kumo-line/30">{project.rootPath || "(none)"}</div>
+            </Field>
+          </Section>
+
+          <Section title="Default Agent">
+            <div className="flex gap-2 flex-wrap">
+              {AGENTS.map((a) => {
+                const logo = agentLogo(a.value);
+                const detected = detectedAgents.find(
+                  (d) => d.command === a.command || d.name.toLowerCase() === a.value.toLowerCase()
+                );
+                const isFound = detected ? detected.found : false;
+                const isSelected = defaultAgent === a.value;
+
+                return (
+                  <AppButton
+                    key={a.value}
+                    variant="chip"
+                    size="sm"
+                    active={isSelected}
+                    disabled={!isFound}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isFound) setDefaultAgent(a.value);
+                    }}
+                    className={`px-3 transition-opacity ${!isFound ? "opacity-40 cursor-not-allowed grayscale" : ""}`}
+                    title={!isFound ? `${a.label} is not installed on this machine` : detected?.version ? `${a.label} (${detected.version})` : a.label}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {logo && <img src={logo} alt="" className={`w-4 h-4 rounded-sm object-contain ${!isFound ? "opacity-60" : ""}`} />}
+                      {a.label}
+                      {isSelected && <Check size={10} className="text-kumo-brand" weight="bold" />}
+                      {!isFound && <span className="text-[10px] text-kumo-subtle">(not installed)</span>}
+                    </span>
+                  </AppButton>
+                );
+              })}
+            </div>
+            {agentsLoading ? (
+              <p className="text-[11px] text-kumo-subtle italic mt-2">Checking installed agent CLIs…</p>
+            ) : (
+              <div className="mt-1 space-y-1">
+                <p className="text-[11px] text-kumo-subtle">
+                  Only installed CLI agents can be selected.
+                </p>
+                {(() => {
+                  const currentAgentInfo = detectedAgents.find(
+                    (d) => d.command === defaultAgent || d.name.toLowerCase() === defaultAgent.toLowerCase()
+                  );
+                  if (currentAgentInfo && !currentAgentInfo.found) {
+                    return (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-400 mt-1">
+                        <WarningCircle size={14} className="shrink-0" />
+                        <span>
+                          The current default agent (<b>{defaultAgent}</b>) is not detected on this machine.
+                        </span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
+          </Section>
+
+          <div className="flex items-center gap-3">
+            <AppButton
+              variant="primary"
+              size="base"
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded px-4"
+            >
+              {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
+            </AppButton>
+            {saved && <span className="text-xs text-kumo-brand">Settings saved</span>}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "mcp" && (
+        <div className="space-y-5">
+          <Section title="MCP Servers (Eksternal)">
+            <McpServersPanel />
+          </Section>
+          <Section title="Onesist MCP Endpoint (untuk Agent luar)">
+            <McpPanel projectId={id} />
+          </Section>
+        </div>
+      )}
+
+      {activeTab === "subagent" && (
+        <div className="space-y-5">
+          <Section title="Subagent">
+            <SubagentsPanel projectId={id} />
+          </Section>
+        </div>
+      )}
+
+      {activeTab === "terminal" && (
+        <div className="space-y-5">
+          <Section title="Index">
+            <IndexPanel projectId={id} />
+          </Section>
+
+          <BrowserSection />
+
+          <Section title="Terminal">
+            <Field label="Font Size">
+              <FilterSelect
+                value={String(terminalPrefs.fontSize)}
+                onChange={(val) => setTerminalPrefs((p) => ({ ...p, fontSize: Number(val) }))}
+              >
+                {FONT_SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}px
+                  </option>
+                ))}
+              </FilterSelect>
+            </Field>
+            <Field label="Theme">
+              <div className="flex gap-2">
+                {(["dark", "light"] as const).map((t) => (
+                  <AppButton
+                    key={t}
+                    variant="chip"
+                    size="sm"
+                    active={terminalPrefs.theme === t}
+                    onClick={(e) => { e.stopPropagation(); setTerminalPrefs(p => ({ ...p, theme: t })); }}
+                    className="px-3 capitalize"
+                  >{t}</AppButton>
+                ))}
+              </div>
+            </Field>
+            <Field label="Cursor">
+              <div className="flex gap-2">
+                {CURSORS.map((c) => (
+                  <AppButton
+                    key={c.value}
+                    variant="chip"
+                    size="sm"
+                    active={terminalPrefs.cursor === c.value}
+                    onClick={(e) => { e.stopPropagation(); setTerminalPrefs(p => ({ ...p, cursor: c.value as "bar" | "block" | "underline" })); }}
+                    className="px-3"
+                  >{c.label}</AppButton>
+                ))}
+              </div>
+            </Field>
+          </Section>
+
+          <div className="flex items-center gap-3">
+            <AppButton
+              variant="primary"
+              size="base"
+              onClick={handleSave}
+              disabled={saving}
+              className="rounded px-4"
+            >
+              {saving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
+            </AppButton>
+            {saved && <span className="text-xs text-kumo-brand">Settings saved</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

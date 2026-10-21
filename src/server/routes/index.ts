@@ -21,6 +21,7 @@ import { router as settingsRouter } from "./settings";
 import { router as browserRouter } from "./browser";
 import { router as mcpRouter } from "./mcp";
 import { router as locksRouter } from "./locks";
+import { router as mcpServersRouter } from "./mcp-servers";
 
 export const routers = [
   systemRouter,
@@ -46,4 +47,5 @@ export const routers = [
   browserRouter,
   mcpRouter,
   locksRouter,
+  mcpServersRouter,
 ];
