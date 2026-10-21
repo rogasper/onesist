@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.4.2 — Server MCP eksternal: GitHub, Figma, Miro, dan Monday
+
+Chat kini bisa memakai tool dari server MCP di luar Onesist. Server dikelola dari Settings → MCP: pilih preset, hubungkan, uji koneksi, lalu tentukan apakah server itu baca-saja atau tidak.
+
+### Feat — MCP
+- **Lima preset**: GitHub, Figma, Miro, Monday, dan Custom (HTTP, SSE, atau Stdio).
+- **GitHub lewat gh CLI.** GitHub tidak menerima pendaftaran klien OAuth otomatis, jadi Onesist memakai token `gh` yang sudah login dan menampilkan akun serta scope-nya.
+- **OAuth 2.0 + PKCE dengan dynamic client registration** untuk Miro dan Monday. Figma dan GitHub memakai Personal Access Token.
+- **Kredensial baru tersimpan saat menekan Simpan.** Koneksi menghasilkan referensi sementara (30 menit); Batal atau ganti preset tidak meninggalkan token apa pun.
+- **Tool diberi namespace `<server>__<tool>`** supaya tidak bentrok, dan tampil di transkrip sebagai grup "MCP".
+- **Trigger `%server` di composer** untuk memakai satu server saja pada pesan itu. Tanpa trigger, semua server yang aktif dimuat.
+- **Toggle baca-saja per server.** Server yang ditandai baca-saja tidak meminta persetujuan untuk setiap tool; server lain selalu meminta izin sebelum tool dijalankan.
+- **Halaman callback OAuth mandiri**, tanpa aset dari CDN.
+
+### Security — MCP
+- **Hanya http/https dan host publik.** Endpoint yang mengarah ke localhost, loopback, jaringan privat, link-local, atau rentang reserved ditolak, termasuk IPv6 mapped dan bentuk desimal/hex dari alamat yang sama. Hostname di-resolve dan setiap alamatnya diperiksa; redirect diikuti manual supaya URL publik tidak bisa memantul ke jaringan lokal.
+- **Nama server tidak boleh mengandung `__`**, karena nama itu menjadi prefix tool yang dibaca lagi oleh gerbang izin.
+- **Token OAuth tidak dikirim ke halaman.** Halaman hanya memegang referensi kredensial sampai baris disimpan.
+- **Halaman callback tidak lagi memuat script dari CDN** dan semua nilai dari query string di-escape sebelum masuk ke HTML.
+
+### Fix — Chat
+- **Turn CLI tidak lagi menghubungi server MCP.** Tool eksternal hanya dimuat untuk turn native, dan server yang tidak menjawab dibatasi 12 detik agar tidak menahan giliran.
+
 ## v0.4.1 — Chat tetap mengikuti run saat koneksi putus
 
 Perbaikan untuk chat yang berhenti di tengah run. Run di server tetap jalan seperti biasa, dan sekarang klien juga kembali mengikutinya.
