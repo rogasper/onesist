@@ -21,7 +21,7 @@ import { reasoningProviderOptions, type ReasoningLevel } from "./reasoning";
 import { pruneForStep, resolveContextWindow, shouldCompact, summarizeOldest, type CompactionDecision } from "./context";
 import { ruleAllows } from "./approval-rules";
 import { awaitApproval, awaitQuestion, createRun, drainInjectedMessages, finishRun, getApprovalSecret, persistStepCount, recordApprovalDecision, recoverInterruptedRuns, stopRun, type InjectedMessage } from "./run-registry";
-import { MUTATING_TOOLS, buildTools, type FileChange, type TodoItem } from "./tools";
+import { MUTATING_TOOLS, buildTools, isExternalTool, isServerReadOnly, type FileChange, type TodoItem } from "./tools";
 import { SUBAGENT_LIMITS, findSubagent, withSubagentSlot, type SubagentInfo } from "./subagents";
 import { getAppSubagents } from "./store";
 import { isProtectedPath, toolPolicyFor, type PermissionMode, type ThreadMode } from "./types";
@@ -65,6 +65,7 @@ export interface TurnInput {
   /** Called when the summarising call gave no summary, so a started compaction is closed. */
   onCompactFailed?: () => void;
   onStepFinish?: (info: { stepCount: number }) => void;
+  externalTools?: ToolSet;
 }
 
 /** Argument summary for the approval card — never send the full raw JSON
@@ -206,6 +207,7 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
         }),
       ),
     onTodos: input.onTodos,
+    externalTools: input.externalTools,
   });
 
   const modelMessages: ModelMessage[] = await convertToModelMessages(input.messages as any);
@@ -224,7 +226,9 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
     stopWhen: isStepCount(input.maxSteps),
     toolApproval: async ({ toolCall }) => {
       const name = toolCall.toolName;
-      if (!MUTATING_TOOLS.has(name)) return "not-applicable";
+      const external = isExternalTool(name);
+      if (!MUTATING_TOOLS.has(name) && !external) return "not-applicable";
+      if (external && isServerReadOnly(name)) return "not-applicable";
       const toolCallId = (toolCall as any).toolCallId;
       if (input.permissionMode === "readonly") {
         recordApprovalDecision(input.runId, toolCallId, "denied-readonly");
