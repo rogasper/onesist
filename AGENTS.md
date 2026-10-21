@@ -184,8 +184,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 | `/api/mcp-servers` | GET, POST | External MCP server configs (`mcp_servers`); POST refuses names containing `__` |
 | `/api/mcp-servers/:id` | PUT, DELETE | Edit/remove one external server; a delete closes its cached connection |
 | `/api/mcp-servers/:id/test`, `/api/mcp-servers/test-draft` | POST | Connect, list tools, update status telemetry (draft: no row) |
-| `/api/mcp-servers/oauth/start`, `/oauth/result`, `/oauth/callback` | POST, POST, GET | OAuth 2.0 + PKCE flow; the token waits in memory under a 30-min reference until saved |
-| `/api/mcp-servers/gh/status`, `/gh/token` | GET, POST | `gh` CLI state / borrow its token as an unsaved credential |
+| `/api/mcp-servers/oauth/*`, `/api/mcp-servers/gh/*` | POST, GET | Connect steps for an external server (OAuth 2.0 + PKCE, or the `gh` CLI state); see the external-MCP convention below for how a connection result is held before the user saves it |
 | `/api/providers/:id/status` | GET | CLI runtime status (installed / logged in / reachable); API providers answer `ready` |
 | `/api/providers/:id/model-options` | GET | `?model=` → option descriptors of one model (OpenCode variants) |
 | `/api/projects/:id/agent-tasks` | POST | `{ mode: openapi\|rtm\|sit, fsd?, fds? }` → new chat thread + the prompt the chat sends in it |
