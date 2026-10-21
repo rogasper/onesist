@@ -335,25 +335,119 @@ router.get("mcp-servers/oauth/callback", async (ctx) => {
   const state = ctx.query.get("state");
   const failed = ctx.query.get("error");
 
-  const page = (title: string, body: string) =>
+  const page = (title: string, body: string, success: boolean) =>
     new Response(
-      `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head>` +
-        `<body style="font-family:system-ui;padding:2rem;background:#111;color:#eee">` +
-        `<h2>${title}</h2><p>${body}</p>` +
-        `<script>setTimeout(function(){window.close()},1500)</script></body></html>`,
+      `<!doctype html>
+      <html lang="id">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>${title} — Onesist</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script>
+          tailwind.config = {
+            theme: {
+              extend: {
+                colors: {
+                  kumo: {
+                    base: '#09090b',
+                    recessed: '#121215',
+                    elevated: '#18181b',
+                    line: '#27272a',
+                    brand: '#6d7cff',
+                    subtle: '#a1a1aa',
+                    default: '#f4f4f5',
+                    tint: 'rgba(109, 124, 255, 0.08)'
+                  }
+                },
+                fontFamily: {
+                  sans: ['Geist Variable', 'Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+                }
+              }
+            }
+          }
+        </script>
+        <style>
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+          }
+          .animate-fade-in {
+            animation: fadeIn 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          }
+        </style>
+      </head>
+      <body class="bg-kumo-base text-kumo-default font-sans min-h-screen flex items-center justify-center p-4 selection:bg-kumo-tint">
+        <div class="w-full max-w-md animate-fade-in">
+          <div class="relative rounded-2xl border border-kumo-line bg-kumo-elevated p-6 shadow-2xl backdrop-blur-xl">
+            <!-- Top glow accent bar -->
+            <div class="absolute -top-px left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-to-r from-transparent ${success ? 'via-kumo-brand' : 'via-red-500'} to-transparent opacity-90"></div>
+
+            <div class="flex items-start gap-4">
+              <div class="shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${
+                success
+                  ? 'bg-kumo-brand/10 text-kumo-brand border border-kumo-line'
+                  : 'bg-red-500/10 text-red-400 border border-kumo-line'
+              }">
+                ${
+                  success
+                    ? `<svg class="w-6 h-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`
+                    : `<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>`
+                }
+              </div>
+              <div class="flex-1 min-w-0 pt-0.5">
+                <h1 class="text-base font-semibold text-kumo-default tracking-tight">${title}</h1>
+                <p class="mt-1.5 text-sm text-kumo-subtle leading-relaxed">${body}</p>
+              </div>
+            </div>
+
+            <div class="mt-6 pt-4 border-t border-kumo-line flex items-center justify-between text-xs text-kumo-subtle">
+              <span class="truncate pr-2">
+                ${
+                  success
+                    ? 'Jendela ini akan otomatis tertutup dalam <span id="countdown" class="font-mono font-medium text-kumo-default">2</span> detik…'
+                    : 'Silakan tutup jendela ini atau coba lagi.'
+                }
+              </span>
+              <button onclick="window.close()" class="shrink-0 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer border border-kumo-line text-kumo-default hover:bg-kumo-elevated hover:border-kumo-brand">
+                Tutup Jendela
+              </button>
+            </div>
+          </div>
+        </div>
+
+        ${
+          success
+            ? `<script>
+                let seconds = 2;
+                const cdEl = document.getElementById('countdown');
+                const timer = setInterval(() => {
+                  seconds--;
+                  if (cdEl) cdEl.textContent = seconds;
+                  if (seconds <= 0) {
+                    clearInterval(timer);
+                    window.close();
+                  }
+                }, 1000);
+                setTimeout(() => { window.close(); }, 2000);
+              </script>`
+            : ``
+        }
+      </body>
+      </html>`,
       { status: 200, headers: { "content-type": "text/html; charset=utf-8" } },
     );
 
-  if (failed) return page("Otorisasi ditolak", `Server MCP menolak permintaan: ${failed}.`);
+  if (failed) return page("Otorisasi ditolak", `Server MCP menolak permintaan: ${failed}.`, false);
   if (!code || !state || !hasPendingOAuth(state)) {
-    return page("Otorisasi gagal", "Parameter OAuth tidak lengkap atau sesi sudah kedaluwarsa.");
+    return page("Otorisasi gagal", "Parameter OAuth tidak lengkap atau sesi sudah kedaluwarsa.", false);
   }
 
   try {
     await completeOAuth(state, code);
-    return page("Otorisasi berhasil", "Token sudah disimpan. Jendela ini akan tertutup.");
+    return page("Otorisasi berhasil", "Token sudah disimpan. Jendela ini akan tertutup.", true);
   } catch (err: any) {
-    return page("Otorisasi gagal", String(err?.message ?? err));
+    return page("Otorisasi gagal", String(err?.message ?? err), false);
   }
 });
 

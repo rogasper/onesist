@@ -345,7 +345,11 @@ export function McpServersPanel() {
                   >
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xl">{p.logo}</span>
+                        {p.logo.startsWith("/") ? (
+                          <img src={p.logo} alt={p.label} className="w-5 h-5 object-contain" />
+                        ) : (
+                          <span className="text-xl">{p.logo}</span>
+                        )}
                         {selected && <Check size={14} className="text-kumo-brand" weight="bold" />}
                       </div>
                       <h3 className="text-xs font-medium text-kumo-default">{p.label}</h3>
