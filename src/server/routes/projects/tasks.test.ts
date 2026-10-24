@@ -79,3 +79,14 @@ test("deleting a project removes its execution settings before the project row",
   expect(res.status).toBe(200);
   expect(db.select().from(projectExecSettings).where(eq(projectExecSettings.projectId, "p-del")).all()).toHaveLength(0);
 });
+
+test("re-import keeps the scope and criteria filled in by hand when the file has none", async () => {
+  db.update(tasks)
+    .set({ filesScopeJson: '["input/code/api/src/auth.ts"]', acceptanceCriteriaJson: '["Login memakai OTP"]' })
+    .where(eq(tasks.id, "t1"))
+    .run();
+  await call(tasksRouter, "POST", "/api/projects/p-tasks/tasks/import", {});
+  const row = db.select().from(tasks).where(eq(tasks.id, "t1")).get()!;
+  expect(row.filesScopeJson).toBe('["input/code/api/src/auth.ts"]');
+  expect(row.acceptanceCriteriaJson).toBe('["Login memakai OTP"]');
+});

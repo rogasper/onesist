@@ -103,12 +103,13 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
       blocksJson: pt.blocks.length > 0 ? JSON.stringify(pt.blocks) : null,
       critical: pt.critical ? 1 : 0,
       risk: pt.risk,
-      filesScopeJson: pt.filesScope.length > 0 ? JSON.stringify(pt.filesScope) : null,
       specRef: pt.specRef,
       erdRef: pt.erdRef,
       rtmRef: pt.rtmRef,
-      acceptanceCriteriaJson: pt.acceptanceCriteria.length > 0 ? JSON.stringify(pt.acceptanceCriteria) : null,
     };
+    // Scope and criteria are sticky too: a file without them must not wipe what was filled in.
+    if (pt.filesScope.length > 0) values.filesScopeJson = JSON.stringify(pt.filesScope);
+    if (pt.acceptanceCriteria.length > 0) values.acceptanceCriteriaJson = JSON.stringify(pt.acceptanceCriteria);
     // Sticky phase: only overwrite phase if the parsed file explicitly provided a phase
     if (pt.phase) {
       values.phase = pt.phase;
