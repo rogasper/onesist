@@ -142,6 +142,34 @@ export const projectExecSettings = sqliteTable("project_exec_settings", {
   updatedAt: text("updated_at"),
 });
 
+export const taskRuns = sqliteTable("task_runs", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id").notNull().references(() => tasks.id),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  threadId: text("thread_id"),
+  bundlePath: text("bundle_path").notNull(),
+  providerId: text("provider_id"),
+  model: text("model"),
+  state: text("state").notNull().default("running"),
+  revision: integer("revision").notNull().default(1),
+  integration: text("integration").notNull().default("pr"),
+  error: text("error"),
+  createdAt: text("created_at").default("datetime('now')"),
+  startedAt: text("started_at"),
+  endedAt: text("ended_at"),
+  updatedAt: text("updated_at"),
+});
+
+export const taskRunRepos = sqliteTable("task_run_repos", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => taskRuns.id),
+  repo: text("repo").notNull(),
+  worktreePath: text("worktree_path"),
+  branch: text("branch"),
+  baseBranch: text("base_branch"),
+  baseCommit: text("base_commit"),
+});
+
 export const fsdSessions = sqliteTable("fsd_sessions", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id),

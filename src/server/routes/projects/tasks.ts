@@ -4,7 +4,7 @@ import { Router } from "../../http/router";
 import { defaultRoot, getProject } from "../../http/route-utils";
 import { scanAllTaskFiles } from "~/lib/task-parser";
 import { db } from "~/server/db/client";
-import { tasks } from "~/server/db/schema";
+import { taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
 import { isTaskStatus } from "~/lib/task-status";
 
 export const router = new Router();
@@ -197,6 +197,10 @@ router.put("projects/:id/tasks/:taskId", async ({ params, body }) => {
 
 // DELETE /api/projects/:id/tasks/:taskId
 router.delete("projects/:id/tasks/:taskId", ({ params }) => {
+  // Runs and their repo rows go first: they reference the task, and the foreign keys are on.
+  const runIds = db.select({ id: taskRuns.id }).from(taskRuns).where(eq(taskRuns.taskId, params.taskId)).all();
+  for (const run of runIds) db.delete(taskRunRepos).where(eq(taskRunRepos.runId, run.id)).run();
+  db.delete(taskRuns).where(eq(taskRuns.taskId, params.taskId)).run();
   db.delete(tasks).where(eq(tasks.id, params.taskId)).run();
   return json({ deleted: true });
 });

@@ -90,3 +90,13 @@ test("re-import keeps the scope and criteria filled in by hand when the file has
   expect(row.filesScopeJson).toBe('["input/code/api/src/auth.ts"]');
   expect(row.acceptanceCriteriaJson).toBe('["Login memakai OTP"]');
 });
+
+test("deleting a task removes its runs first", async () => {
+  db.insert(tasks).values({ id: "t-del", projectId: "p-tasks", code: "del-1", title: "del-1: hapus", status: "todo" }).run();
+  db.run(sql`INSERT INTO task_runs (id, task_id, project_id, bundle_path) VALUES ('run-del', 't-del', 'p-tasks', '/tmp/run-del')`);
+  db.run(sql`INSERT INTO task_run_repos (id, run_id, repo) VALUES ('rr-del', 'run-del', '.')`);
+  const res = await call(tasksRouter, "DELETE", "/api/projects/p-tasks/tasks/t-del");
+  expect(res.status).toBe(200);
+  expect(db.all(sql`SELECT COUNT(*) AS n FROM task_runs WHERE task_id = 't-del'`)[0]).toEqual({ n: 0 });
+  expect(db.all(sql`SELECT COUNT(*) AS n FROM task_run_repos WHERE run_id = 'run-del'`)[0]).toEqual({ n: 0 });
+});

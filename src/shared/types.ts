@@ -81,6 +81,21 @@ export interface RepoSummary {
   suggestedChecks: CheckCommandSummary[];
 }
 
+/** The state of one run of a task, as the board shows it. */
+export type RunState = "running" | "waiting_input" | "validating" | "failed";
+
+export interface RunSummary {
+  id: string;
+  taskId: string;
+  threadId: string | null;
+  state: RunState;
+  bundlePath: string;
+  repos: { repo: string; branch: string | null; worktreePath: string | null }[];
+  error: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface BusinessRequirement {
   id: string;
   projectId: string;
