@@ -27,7 +27,10 @@ test("retrying a failed check sends the failing output to the same thread and ru
   const res = await retryRun("run-retry");
   expect(res.ok).toBe(true);
   expect(db.select().from(taskRuns).where(eq(taskRuns.id, "run-retry")).get()!.state).toBe("running");
-  expect(JSON.stringify(listQueue(thread.id))).toContain("error TS2304");
+  // The message is either still queued, or already sent as the user's turn (another test may have started the queue).
+  const queued = JSON.stringify(listQueue(thread.id));
+  const sent = store.listMessages(thread.id).some((m) => JSON.stringify(m.contentJson ?? "").includes("error TS2304"));
+  expect(queued.includes("error TS2304") || sent).toBe(true);
 });
 
 test("a run that is not failed cannot be retried", async () => {
