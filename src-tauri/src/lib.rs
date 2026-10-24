@@ -204,50 +204,69 @@ pub fn run() {
       #[cfg(target_os = "macos")]
       quit_observer::install();
 
-      // First-open splash (pure CSS, centered logo + ONESIST + by rogasper.com) — show until sidecar healthy, then close
-      // Marker file in app_data so it only shows on very first launch (sampai selesai wait_healthy)
-      let mut is_first_run = false;
-      let mut splash_marker: Option<std::path::PathBuf> = None;
+      // Launch splash (pure CSS, centered logo + ONESIST + by rogasper.com) — shown on
+      // EVERY launch: it covers the wait for the sidecar to become healthy and closes
+      // once the main window is ready (with a minimum display time so a fast start
+      // doesn't just flash it). It is created before the sidecar on purpose.
+      // The splash keeps Tauri's drag-drop handler on purpose: it has no
+      // page-side drop target, so swallowing a stray drop is safer there
+      // than letting WebKit navigate the window to a dropped file.
+      // App URLs resolve differently per build: against the Vite dev server in dev,
+      // where the splash lives at the public root (/splash.html), and against
+      // dist/client in production builds (dist/client/splash.html). One hard-coded
+      // path 404'd the other side — the dev splash rendered as a blank white window.
       let mut splash_window: Option<tauri::WebviewWindow> = None;
-      let splash_start = std::time::Instant::now();
-      if let Ok(app_data) = app.path().app_data_dir() {
-        let _ = std::fs::create_dir_all(&app_data);
-        let marker = app_data.join(".first_run_done");
-        splash_marker = Some(marker.clone());
-        // Show splash if marker doesn't exist (first open) — for debugging, also log
-        if !marker.exists() {
-          is_first_run = true;
-          eprintln!("[splash] first run detected, showing splash");
-          // Create splash before sidecar so user sees animation during wait_healthy (sampai selesai)
-          // The splash keeps Tauri's drag-drop handler on purpose: it has no
-          // page-side drop target, so swallowing a stray drop is safer there
-          // than letting WebKit navigate the window to a dropped file.
-          match tauri::WebviewWindowBuilder::new(
-            app,
-            "splash",
-            WebviewUrl::App("client/splash.html".into()),
-          )
-          .title("Onesist")
-          .inner_size(480.0, 320.0)
-          .min_inner_size(480.0, 320.0)
-          .max_inner_size(480.0, 320.0)
-          .decorations(false)
-          .center()
-          .resizable(false)
-          .visible(true)
-          .always_on_top(true)
-          .build() {
-            Ok(win) => {
-              eprintln!("[splash] window created");
-              splash_window = Some(win);
-            }
-            Err(e) => eprintln!("[splash] failed to create window: {}", e),
-          }
-        } else {
-          eprintln!("[splash] not first run, skipping splash");
-        }
+      // The setup closure blocks the event loop while the sidecar boots, so the splash's
+      // webview can only actually load its page AFTER setup returns — a close timer
+      // started at creation would fire first and the user would only ever see the
+      // webview's default white. The close is therefore gated on the page-load-finished
+      // signal (with a hard timeout fallback), plus a beat of visible content.
+      let (page_loaded_tx, page_loaded_rx) = std::sync::mpsc::channel::<()>();
+      // In dev, build the splash URL explicitly against the dev server, exactly the way
+      // the main window builds its URL — that External path is the proven-working one.
+      // In production the bundled asset path applies (dist/client/splash.html).
+      let splash_url = if cfg!(debug_assertions) {
+        let dev = std::env::var("SA_DEV_SERVER_URL")
+          .unwrap_or_else(|_| "http://localhost:4321".to_string());
+        let base = match dev.parse::<url::Url>() {
+          Ok(u) if u.scheme() == "http" || u.scheme() == "https" => u,
+          _ => url::Url::parse("http://localhost:4321").expect("static fallback url"),
+        };
+        WebviewUrl::External(base.join("splash.html").map_err(|e| e.to_string())?)
       } else {
-        eprintln!("[splash] could not get app_data_dir");
+        WebviewUrl::App("client/splash.html".into())
+      };
+      match tauri::WebviewWindowBuilder::new(app, "splash", splash_url)
+        .title("Onesist")
+        .inner_size(480.0, 320.0)
+        .min_inner_size(480.0, 320.0)
+        .max_inner_size(480.0, 320.0)
+        .decorations(false)
+        .center()
+        .resizable(false)
+        .visible(true)
+        .always_on_top(true)
+        // Pre-paint matches the app's light background (#fcfcfa, WINDOW_BG.light): the
+        // splash page reads the stored theme and repaints dark users within its first
+        // frame, and the app's own default is light. The webview's pre-page background
+        // must never be the white of an unloaded document.
+        .background_color(tauri::webview::Color(252, 252, 250, 255))
+        .on_page_load(move |_webview, payload| match payload.event() {
+          tauri::webview::PageLoadEvent::Started => {
+            log::info!("[splash] page load started: {}", payload.url());
+          }
+          tauri::webview::PageLoadEvent::Finished => {
+            log::info!("[splash] page load finished: {}", payload.url());
+            let _ = page_loaded_tx.send(());
+          }
+        })
+        .build() {
+        Ok(win) => {
+          let url = win.url().map(|u| u.to_string()).unwrap_or_else(|_| "<unknown>".into());
+          log::info!("[splash] window created, navigating to {url}");
+          splash_window = Some(win);
+        }
+        Err(e) => eprintln!("[splash] failed to create window: {}", e),
       }
 
       // Start the sidecar and wait for the web server to become healthy.
@@ -320,14 +339,15 @@ pub fn run() {
         );
         let _ = window.show();
         let _ = window.set_focus();
-        // Close splash after main is ready (sampai selesai) and mark first run done
+        // Close the splash once its page has actually loaded (see the channel above),
+        // then keep it on screen one more beat so the logo animation is seen.
         if let Some(splash) = splash_window {
-          let _ = splash.close();
-        }
-        if is_first_run {
-          if let Some(marker) = splash_marker {
-            let _ = std::fs::write(marker, "1");
-          }
+          std::thread::spawn(move || {
+            // Hard timeout: if the page never loads, the splash must not stick around.
+            let _ = page_loaded_rx.recv_timeout(std::time::Duration::from_secs(15));
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            let _ = splash.close();
+          });
         }
       } else if let Some(splash) = splash_window {
         // Sidecar failed — keep splash briefly then close to avoid stuck screen
