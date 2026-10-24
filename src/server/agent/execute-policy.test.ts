@@ -68,3 +68,13 @@ test("read-only file commands, an absolute cd into the run folder, and 2>/dev/nu
   expect(shellCommandAllowed("find . -exec rm {} ;", allowed, folder)).toBe(false);
   expect(shellCommandAllowed("grep -r foo . -exec x", allowed, folder)).toBe(false);
 });
+
+test("a pipe is allowed only into a text viewer", () => {
+  expect(shellCommandAllowed("cat src/sum.js | head -5", allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("echo hi | grep h", allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("rtk git log --oneline | head", allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("node test.js | sh", ["node test.js"], folder)).toBe(false);
+  expect(shellCommandAllowed("bun test | tee out.txt", allowed, folder)).toBe(false);
+  expect(shellCommandAllowed("cat x || rm y", allowed, folder)).toBe(false);
+  expect(shellCommandAllowed("echo hi > x.txt", allowed, folder)).toBe(false);
+});

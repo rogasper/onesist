@@ -16,15 +16,23 @@ export const EXECUTE_POLICY_FILE = ".onesist-execute.json";
  *
  * A command is judged one segment at a time (split on `&&` and `;`). Each segment must be a
  * `cd` into the run folder, one of the allowed commands, a read-only git command, an `echo`, or a
- * read-only file command (the same reads the Read, Glob, and Grep tools already allow). A leading
- * `rtk ` (the token-saving wrapper some setups add) and a trailing `2>/dev/null` are ignored. Pipes,
- * redirects, backticks, and command substitution are never allowed.
+ * read-only file command (the same reads the Read, Glob, and Grep tools already allow). A pipe is
+ * allowed only into a text viewer (head, tail, grep, ...). A leading `rtk ` and a trailing
+ * `2>/dev/null` are ignored. Redirects, backticks, and command substitution are never allowed.
  */
 export function shellCommandAllowed(command: string, allowed: string[], folder = ""): boolean {
   const trimmed = command.trim().replace(/\s*2>\/dev\/null/g, "");
-  if (/[|<>`\n\r]|\$\(/.test(trimmed)) return false;
-  const segments = trimmed.split(/&&|;/).map((seg) => seg.trim().replace(/^rtk\s+/, "").replace(/\$\?/g, ""));
-  if (segments.length === 0 || segments.some((seg) => seg === "")) return false;
+  if (/[<>`\n\r]|\$\(/.test(trimmed)) return false;
+  // Pieces alternate: segment, separator, segment, ... A segment after a pipe must be a text viewer.
+  const parts = trimmed.split(/(&&|;|\|)/);
+  const pipeSafe = ["head", "tail", "wc", "grep", "rg", "sort", "uniq", "cat"];
+  const segments: string[] = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const seg = parts[i].trim().replace(/^rtk\s+/, "").replace(/\$\?/g, "");
+    if (seg === "") return false;
+    if (i > 0 && parts[i - 1] === "|" && !pipeSafe.includes(seg.split(/\s+/)[0])) return false;
+    segments.push(seg);
+  }
   const safeGit = ["git status", "git status --short", "git diff", "git diff --stat", "git diff --name-only", "git log", "git log --oneline"];
   const readOnly = ["ls", "cat", "head", "tail", "wc", "pwd", "rg", "grep", "read"];
   return segments.every((seg) => {
