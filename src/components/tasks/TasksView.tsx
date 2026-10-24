@@ -5,6 +5,7 @@ import {
   ListDashes,
   ArrowsClockwise,
   CalendarDots,
+  Kanban,
   SquaresFour,
   CheckSquare,
   Archive,
@@ -25,12 +26,14 @@ import { PageHeader } from "~/components/ui/PageHeader";
 import { SearchInput } from "~/components/ui/SearchInput";
 import { FilterSelect } from "~/components/ui/FilterSelect";
 import { subscribe } from "~/lib/event-stream";
+import { TaskBoard } from "./TaskBoard";
 
 const STATUS_FILTERS = [
   { value: "all", label: "All status" },
   { value: "todo", label: "To Do" },
   { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Done" },
+  { value: "in_review", label: "In Review" },
+  { value: "done", label: "Completed" },
 ];
 
 /**
@@ -65,7 +68,24 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [view, setView] = useState<"tasks" | "timeline">("tasks");
-  const [viewMode, setViewMode] = useState<TaskViewMode>("list");
+  const [viewMode, setViewModeState] = useState<TaskViewMode>("list");
+  /** Remembered per project. Read after mount so server and client render the same first frame. */
+  const setViewMode = useCallback((mode: TaskViewMode) => {
+    setViewModeState(mode);
+    try {
+      localStorage.setItem(`onesist:tasks-view:${id}`, mode);
+    } catch {
+      /* private window or blocked storage: the choice just is not remembered */
+    }
+  }, [id]);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`onesist:tasks-view:${id}`);
+      if (stored === "list" || stored === "cards" || stored === "board") setViewModeState(stored);
+    } catch {
+      /* no storage: keep the default */
+    }
+  }, [id]);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [missingDialog, setMissingDialog] = useState<{ missing: string[]; prompt: string } | null>(null);
@@ -503,6 +523,17 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
                   >
                     Cards
                   </AppButton>
+                  <AppButton
+                    onClick={() => setViewMode("board")}
+                    variant="chip"
+                    size="xs"
+                    active={viewMode === "board"}
+                    icon={<Kanban size={11} />}
+                    className="px-2.5"
+                    title="Board view"
+                  >
+                    Board
+                  </AppButton>
                 </div>
                 <SearchInput
                   value={search}
@@ -672,6 +703,14 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       ) : (
         <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
           <div className="flex-1 flex flex-col min-w-0">
+            {viewMode === "board" ? (
+              <TaskBoard
+                tasks={filteredTasks}
+                allTasks={tasks.filter((t) => !t.archived)}
+                onStatusChange={handleStatusChange}
+                onOpenTask={(t) => setSelectedId(t.id)}
+              />
+            ) : (
             <TaskList
               groups={groupedTasks}
               selectedId={selectedId}
@@ -685,6 +724,7 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
               onArchivePhase={handleArchivePhase}
               onSelectPhase={handleSelectPhase}
             />
+            )}
           </div>
         </div>
       )}
