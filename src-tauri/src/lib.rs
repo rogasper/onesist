@@ -45,6 +45,7 @@ fn app_origin(app: &tauri::AppHandle) -> String {
         .try_state::<sidecar::SidecarState>()
         .and_then(|s| s.get_port())
         .unwrap_or(4321);
+    log::warn!("[window] app_origin fell back to sidecar port {port} (main window url unavailable)");
     format!("http://127.0.0.1:{}", port)
 }
 
@@ -63,26 +64,45 @@ fn pane_window_url(origin: &str, project_id: &str, tab: &str) -> Result<String, 
     Ok(format!("{}/pane/{}/{}", origin, project_id, tab))
 }
 
+/// Async on purpose: on Windows, building a webview window inside a synchronous
+/// command deadlocks the main thread (WebviewWindowBuilder "Known issues",
+/// wry#583, tauri#13092) — the new window stays blank white and the frozen
+/// event loop ignores the close button. An async command runs off the main
+/// thread, so build() can dispatch to it and wait safely.
 #[tauri::command]
-fn open_pane_window(app: tauri::AppHandle, project_id: String, tab: String) -> Result<String, String> {
+async fn open_pane_window(
+    app: tauri::AppHandle,
+    project_id: String,
+    tab: String,
+) -> Result<String, String> {
     if app.webview_windows().len() >= MAX_WINDOWS {
         return Err(format!("Limit {} window tercapai", MAX_WINDOWS));
     }
     let url = pane_window_url(&app_origin(&app), &project_id, &tab)?;
     let label = format!("pane-{}", uuid::Uuid::new_v4().simple());
-    tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?))
-        .title("Onesist")
-        .inner_size(1100.0, 800.0)
-        .min_inner_size(600.0, 400.0)
-        // HTML5 file drops, not Tauri's — same as the other windows.
-        .disable_drag_drop_handler()
-        .build()
-        .map_err(|e| e.to_string())?;
+    let built = tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?),
+    )
+    .title("Onesist")
+    .inner_size(1100.0, 800.0)
+    .min_inner_size(600.0, 400.0)
+    // HTML5 file drops, not Tauri's — same as the other windows.
+    .disable_drag_drop_handler()
+    .build();
+    match &built {
+        Ok(_) => log::info!("[window] pane window {label} opened -> {url}"),
+        Err(e) => log::error!("[window] pane window {label} FAILED ({url}): {e}"),
+    }
+    built.map_err(|e| e.to_string())?;
     Ok(label)
 }
 
+/// Async for the same Windows reason as open_pane_window: a synchronous
+/// command building a webview window deadlocks the main thread there.
 #[tauri::command]
-fn open_project_window(
+async fn open_project_window(
     app: tauri::AppHandle,
     path: Option<String>,
 ) -> Result<String, String> {
@@ -96,15 +116,19 @@ fn open_project_window(
     }
     let url = format!("{}{}", app_origin(&app), target);
     let label = format!("win-{}", uuid::Uuid::new_v4().simple());
-    let window = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?))
+    let built = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?))
         .title("Onesist")
         .inner_size(1440.0, 900.0)
         .min_inner_size(800.0, 600.0)
         // HTML5 file drops (composer attachments) instead of Tauri's own
         // drag-drop events — see the note on the main window.
         .disable_drag_drop_handler()
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build();
+    match &built {
+        Ok(_) => log::info!("[window] project window {label} opened -> {url}"),
+        Err(e) => log::error!("[window] project window {label} FAILED ({url}): {e}"),
+    }
+    let window = built.map_err(|e| e.to_string())?;
     // Only main window uses close-to-tray; other windows close normally
     let label_clone = label.clone();
     window.on_window_event(move |event| {
@@ -139,13 +163,25 @@ pub fn run() {
       }
     }))
     .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
+      // Log plugin on ALL builds: a release build has no console to catch
+      // eprintln!/log output, so a Windows-only bug we cannot reproduce on
+      // macOS can still be diagnosed from the shipped app's log dir
+      // (Windows: %APPDATA%/com.rogasper.onesist/logs, macOS: ~/Library/Logs/
+      // com.rogasper.onesist). Stdout keeps dev behavior unchanged; the file
+      // is capped and rotated so it cannot grow without bound.
+      app.handle().plugin(
+        tauri_plugin_log::Builder::default()
+          .level(log::LevelFilter::Info)
+          .targets([
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+              file_name: Some("shell".into()),
+            }),
+          ])
+          .max_file_size(512_000)
+          .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+          .build(),
+      )?;
 
       // On Windows, cap WebView2 (Chromium) V8 heap and enable timer throttling when hidden
       // to keep RAM consumption low under intense TUI ANSI streams (xterm.js).
@@ -483,19 +519,29 @@ fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
                 .show(|_| {});
         }
         "new-window" => {
-            if app.webview_windows().len() >= MAX_WINDOWS {
-                let _ = app.dialog().message(format!("Limit {} window tercapai", MAX_WINDOWS)).title("Onesist").kind(tauri_plugin_dialog::MessageDialogKind::Info).show(|_| {});
-                return;
-            }
-            let url = format!("{}/", app_origin(app));
-            let label = format!("win-{}", uuid::Uuid::new_v4().simple());
-            let _ = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(url.parse().unwrap()))
-                .title("Onesist")
-                .inner_size(1440.0, 900.0)
-                .min_inner_size(800.0, 600.0)
-                // Same reason as the main window: HTML5 drops, not Tauri's.
-                .disable_drag_drop_handler()
-                .build();
+            let app = app.clone();
+            // Never build the window inside the menu event handler: on Windows
+            // that deadlocks the main thread the same way a synchronous command
+            // does (wry#583) — blank window, close button ignored.
+            std::thread::spawn(move || {
+                if app.webview_windows().len() >= MAX_WINDOWS {
+                    let _ = app.dialog().message(format!("Limit {} window tercapai", MAX_WINDOWS)).title("Onesist").kind(tauri_plugin_dialog::MessageDialogKind::Info).show(|_| {});
+                    return;
+                }
+                let url = format!("{}/", app_origin(&app));
+                let label = format!("win-{}", uuid::Uuid::new_v4().simple());
+                let built = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(url.parse().unwrap()))
+                    .title("Onesist")
+                    .inner_size(1440.0, 900.0)
+                    .min_inner_size(800.0, 600.0)
+                    // Same reason as the main window: HTML5 drops, not Tauri's.
+                    .disable_drag_drop_handler()
+                    .build();
+                match &built {
+                    Ok(_) => log::info!("[window] menu window {label} opened -> {url}"),
+                    Err(e) => log::error!("[window] menu window {label} FAILED ({url}): {e}"),
+                }
+            });
         }
         _ => {}
     });
