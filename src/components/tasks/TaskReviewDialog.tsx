@@ -48,6 +48,8 @@ export function TaskReviewDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [editing, setEditing] = useState<{ repo: string; path: string; content: string } | null>(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
 
   useEffect(() => {
     if (!run) return;
@@ -66,7 +68,7 @@ export function TaskReviewDialog({
   }, [projectId, run?.id]);
 
   const files = useMemo(
-    () => repos.flatMap((r) => r.files.map((f) => ({ key: `${r.repo}:${f.path}`, full: fullPath(r.repo, f.path), ...f }))),
+    () => repos.flatMap((r) => r.files.map((f) => ({ key: `${r.repo}:${f.path}`, full: fullPath(r.repo, f.path), repo: r.repo, ...f }))),
     [repos],
   );
   const current = files.find((f) => f.key === selected) ?? null;
@@ -117,6 +119,60 @@ export function TaskReviewDialog({
 
   const revisionCount = comments.length + chosen.size;
 
+  const openEditor = async () => {
+    if (!current) return;
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/task-runs/${run.id}/file?repo=${encodeURIComponent(current.repo)}&path=${encodeURIComponent(current.path)}`, { cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { content?: string; error?: string };
+    if (!res.ok || typeof body.content !== "string") {
+      setError(body.error ?? "Berkas tidak bisa dibuka.");
+      return;
+    }
+    setEditing({ repo: current.repo, path: current.path, content: body.content });
+  };
+
+  const saveEdit = async (validateAfter: boolean) => {
+    if (!editing) return;
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/task-runs/${run.id}/file?repo=${encodeURIComponent(editing.repo)}&path=${encodeURIComponent(editing.path)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: editing.content }),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      setBusy(false);
+      setError(body.error ?? "Berkas gagal disimpan.");
+      return;
+    }
+    if (validateAfter) {
+      const v = await fetch(`/api/projects/${projectId}/task-runs/${run.id}/validate`, { method: "POST", cache: "no-store" });
+      const body = (await v.json().catch(() => ({}))) as { state?: string; error?: string };
+      setOutcome(v.ok ? (body.state === "in_review" ? "Validasi ulang lolos." : "Validasi ulang gagal. Lihat kartu task.") : body.error ?? "Validasi gagal dijalankan.");
+    }
+    setBusy(false);
+    setEditing(null);
+    onChanged();
+  };
+
+  const approve = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/task-runs/${run.id}/approve`, { method: "POST", cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { state?: string; outcomes?: { repo: string; integrated: string | null; prUrl: string | null; error: string | null }[]; error?: string };
+    setBusy(false);
+    if (!res.ok) {
+      setError(body.error ?? "Setujui gagal.");
+      return;
+    }
+    const lines = (body.outcomes ?? []).map((o) => (o.integrated ? `${o.repo}: ${o.prUrl ?? o.integrated}` : `${o.repo}: ${o.error}`));
+    setOutcome(lines.join("\n"));
+    onChanged();
+    if (body.state === "approved") onClose();
+  };
+
   return (
     <>
       <DialogRoot open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
@@ -162,6 +218,13 @@ export function TaskReviewDialog({
                         </button>
                         <span className="whitespace-pre pr-3">{l.text}</span>
                       </div>
+                      {current && l.newLine !== null && (findings ?? [])
+                        .filter((f) => f.file === current.full && f.line === l.newLine)
+                        .map((f, j) => (
+                          <div key={j} className="border-l-2 border-amber-400 bg-amber-500/5 px-14 py-1 font-sans text-[11px] text-kumo-default">
+                            <span className="text-kumo-subtle">AI [{f.severity}]</span> {f.message}
+                          </div>
+                        ))}
                       {target && current && l.newLine === target.line && target.file === current.full && (
                         <div className="flex gap-2 bg-kumo-elevated/60 p-2">
                           <textarea
@@ -213,10 +276,28 @@ export function TaskReviewDialog({
               </div>
             </div>
 
+            {editing && (
+              <div className="space-y-2 rounded-lg border border-kumo-line/50 p-2">
+                <p className="text-xs text-kumo-subtle">Edit sendiri · {editing.repo}/{editing.path}</p>
+                <textarea
+                  value={editing.content}
+                  onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+                  rows={10}
+                  className="w-full rounded border border-kumo-line/50 bg-kumo-base p-2 font-mono text-[11px]"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(null)} disabled={busy}>Batal</Button>
+                  <Button variant="ghost" size="sm" onClick={() => saveEdit(false)} disabled={busy}>Simpan</Button>
+                  <Button variant="primary" size="sm" onClick={() => saveEdit(true)} disabled={busy}>Simpan dan validasi ulang</Button>
+                </div>
+              </div>
+            )}
+            {outcome && <p className="whitespace-pre-line text-xs text-kumo-default">{outcome}</p>}
+
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setConfirmDiscard(true)} disabled={busy}>Buang run</Button>
-              <Button variant="ghost" size="sm" disabled title="Belum tersedia di tahap ini">Edit sendiri</Button>
-              <Button variant="ghost" size="sm" disabled title="Tersedia setelah tahap PR">Setujui</Button>
+              <Button variant="ghost" size="sm" onClick={openEditor} disabled={busy || !current || !!editing}>Edit sendiri</Button>
+              <Button variant="primary" size="sm" onClick={approve} disabled={busy || run.state !== "in_review"}>Setujui</Button>
               <Button variant="primary" size="sm" onClick={sendRevision} disabled={busy || revisionCount === 0}>
                 Minta revisi{revisionCount > 0 ? ` (${revisionCount})` : ""}
               </Button>

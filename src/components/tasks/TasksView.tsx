@@ -21,7 +21,6 @@ import { TaskList, type TaskViewMode, type TaskGroup } from "~/components/tasks/
 import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
 import type { Task } from "~/shared/types";
-import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { SearchInput } from "~/components/ui/SearchInput";
 import { FilterSelect } from "~/components/ui/FilterSelect";
@@ -30,8 +29,12 @@ import { TaskBoard } from "./TaskBoard";
 import { useExecSettings } from "~/lib/use-exec-settings";
 import { useRepos } from "~/lib/use-repos";
 import { useTaskRuns } from "~/lib/use-task-runs";
+import { dependencyState, taskKey } from "~/lib/task-board";
+import { readinessProblems } from "~/lib/task-readiness";
 import type { RunSummary } from "~/shared/types";
 import { openChatTask } from "~/lib/chat-task";
+import { normalizeStatus } from "~/lib/task-status";
+import { AppButton } from "~/components/ui/AppButton";
 
 const STATUS_FILTERS = [
   { value: "all", label: "All status" },
@@ -267,11 +270,12 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
     try {
       const res = await fetch(`/api/projects/${id}/tasks/${task.id}/runs`, { method: "POST", cache: "no-store" });
       const body = (await res.json().catch(() => ({}))) as { threadId?: string; text?: string; error?: string };
-      if (!res.ok || !body.threadId) {
+      if (!res.ok) {
         setRunError(body.error ?? "Gagal memulai run.");
         return;
       }
-      openChatTask({ threadId: body.threadId, text: body.text ?? null });
+      // The server queues the prompt on the thread; the chat only has to show it.
+      if (body.threadId) openChatTask({ threadId: body.threadId });
       setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: "in_progress" } : t)));
       reloadRuns();
     } catch {
@@ -311,6 +315,25 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
     if (!res.ok) setRunError(body.error ?? "Temuan AI belum bisa dibaca.");
     reloadRuns();
   }, [id, reloadRuns]);
+
+  const [startingAll, setStartingAll] = useState(false);
+  /** Tasks that could start now: To Do, ready, not waiting on another task, and no run of their own. */
+  const readyTasks = useMemo(() => {
+    const byKey = new Map(tasks.filter((t) => !t.archived).map((t) => [taskKey(t), t]));
+    return tasks.filter((t) => {
+      if (t.archived || normalizeStatus(t.status) !== "todo") return false;
+      if (runs[t.id] && ["queued", "running", "waiting_input", "validating"].includes(runs[t.id].state)) return false;
+      if (dependencyState(t, byKey).locked) return false;
+      return readinessProblems(t, repos.length).length === 0;
+    });
+  }, [tasks, runs, repos.length]);
+
+  /** Starts the ready tasks one after another; the server decides who runs now and who queues. */
+  const startAllReady = useCallback(async () => {
+    setStartingAll(true);
+    for (const task of readyTasks) await handleStartRun(task);
+    setStartingAll(false);
+  }, [readyTasks, handleStartRun]);
 
   const handleSave = useCallback(async (taskId: string, data: Partial<Task>) => {
     const res = await fetch(`/api/projects/${id}/tasks/${taskId}`, {
@@ -762,6 +785,19 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       ) : (
         <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
           <div className="flex-1 flex flex-col min-w-0">
+            {viewMode === "board" && execSettings.settings?.taskMode !== "delivery" && (
+              <div className="flex items-center gap-2 px-3 pt-3 text-xs">
+                <AppButton
+                  variant="primary"
+                  size="sm"
+                  disabled={readyTasks.length === 0 || startingAll}
+                  onClick={startAllReady}
+                >
+                  {startingAll ? "Memulai…" : `Jalankan yang siap (${readyTasks.length})`}
+                </AppButton>
+                <span className="text-kumo-subtle">Batas paralel dijaga server; sisanya masuk antrian.</span>
+              </div>
+            )}
             {viewMode === "board" ? (
               <TaskBoard
                 tasks={filteredTasks}

@@ -13,6 +13,7 @@ import { criterionStatus, parseRunReport, type RunReport } from "~/lib/run-repor
 import { outsideScope } from "~/lib/file-scope";
 import type { RunValidation } from "~/shared/types";
 import { readWorktreeConfig } from "./task-checks";
+import { promoteQueued } from "./task-runs";
 
 export const CHECK_TIMEOUT_MS = 10 * 60_000;
 const TAIL_CHARS = 4_000;
@@ -140,10 +141,12 @@ export async function validateRun(runId: string): Promise<ValidateResult> {
     }
     db.update(taskRuns).set({ state: "in_review", error: null, validationJson: JSON.stringify(validation), endedAt: now, updatedAt: now }).where(eq(taskRuns.id, runId)).run();
     db.update(tasks).set({ status: "in_review", updatedAt: now }).where(eq(tasks.id, run.taskId)).run();
+    void promoteQueued(run.projectId).catch((err) => console.error("[task-validation] promote failed:", err));
     return { ok: true, state: "in_review", validation };
   }
   const reason = `Cek gagal: ${failing!.name} (${failing!.repo})`;
   db.update(taskRuns).set({ state: "failed", error: reason, validationJson: JSON.stringify(validation), updatedAt: now }).where(eq(taskRuns.id, runId)).run();
+  void promoteQueued(run.projectId).catch((err) => console.error("[task-validation] promote failed:", err));
   return { ok: true, state: "failed", validation };
 }
 

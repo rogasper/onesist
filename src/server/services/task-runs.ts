@@ -5,18 +5,19 @@
  */
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getProvider } from "~/server/agent/config";
 import { cliRuntimeFor } from "~/server/agent/runtime/registry";
 import { createThread, updateThread } from "~/server/agent/store";
 import { getSetting, normalizeAgentMaxSteps } from "~/server/agent/settings";
-import { createWorktree, findRepo, listProjectRepos } from "~/server/agent/workspace/worktrees";
+import { createWorktree, findRepo, listProjectRepos, type RepoInfo } from "~/server/agent/workspace/worktrees";
+import { enqueue, kick } from "~/server/agent/queue";
 import { runGit } from "~/server/agent/workspace/git";
 import { slug } from "~/server/agent/workspace/location";
 import { writeExecutePolicy } from "~/server/agent/execute-policy";
 import { readWorktreeConfig } from "./task-checks";
 import { db } from "~/server/db/client";
-import { taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
+import { projects, taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
 import { eventBus } from "~/server/realtime/events";
 import { readinessProblems, PROBLEM_LABELS } from "~/lib/task-readiness";
 import { parseDependencies, taskKey } from "~/lib/task-board";
@@ -74,10 +75,14 @@ export function buildRunPrompt(input: RunPromptInput): string {
 }
 
 export type StartRunResult =
-  | { ok: true; runId: string; threadId: string; title: string; text: string }
+  | { ok: true; runId: string; threadId: string | null; title: string; text: string | null; queued: boolean; position: number | null }
   | { ok: false; status: number; error: string };
 
 function refuse(status: number, error: string): StartRunResult {
+  return { ok: false, status, error };
+}
+
+function fail(status: number, error: string): { ok: false; status: number; error: string } {
   return { ok: false, status, error };
 }
 
@@ -108,81 +113,81 @@ function doneDependencyCodes(task: Task, projectId: string): string[] {
   });
 }
 
-export async function startTaskRun(input: { projectId: string; root: string; task: Task; baseDir: string }): Promise<StartRunResult> {
-  const { projectId, root, task, baseDir } = input;
-  const settings = getExecSettings(projectId);
+interface StartContext {
+  projectId: string;
+  root: string;
+  task: Task;
+  bundlePath: string;
+  providerId: string;
+  model: string | null;
+  cliAgent: string | null;
+  maxSteps: number;
+  maxParallel: number;
+  baseBranches: Record<string, string>;
+  repoInfos: RepoInfo[];
+}
 
-  if (settings.taskMode === "delivery") return refuse(409, "Project ini mode delivery: task tidak dijalankan agen.");
-  if (!settings.execProviderId) return refuse(409, "Pilih agen eksekusi dulu di Pengaturan project → Task.");
+/**
+ * Everything a run needs before it may start: the provider, readiness, and the repos. Shared by
+ * a start now and a start from the queue later, so both refuse for the same reasons.
+ */
+function prepareStart(projectId: string, root: string, task: Task, baseDir: string): { ok: true; ctx: Omit<StartContext, "bundlePath"> } | { ok: false; status: number; error: string } {
+  const settings = getExecSettings(projectId);
+  if (settings.taskMode === "delivery") return fail(409, "Project ini mode delivery: task tidak dijalankan agen.");
+  if (!settings.execProviderId) return fail(409, "Pilih agen eksekusi dulu di Pengaturan project → Task.");
   const provider = getProvider(settings.execProviderId);
-  if (!provider || !cliRuntimeFor(provider)) return refuse(409, "Agen eksekusi harus agen CLI (OpenCode, Claude Code, atau Codex).");
-  if (provider.cliAgent === "antigravity") return refuse(409, "Antigravity belum didukung untuk eksekusi task.");
+  if (!provider || !cliRuntimeFor(provider)) return fail(409, "Agen eksekusi harus agen CLI (OpenCode, Claude Code, atau Codex).");
+  if (provider.cliAgent === "antigravity") return fail(409, "Antigravity belum didukung untuk eksekusi task.");
 
   const repos = listProjectRepos(root);
   const problems = readinessProblems(task, repos.length);
-  if (problems.length > 0) return refuse(409, `Task belum siap: ${problems.map((p) => PROBLEM_LABELS[p]).join(", ")}.`);
-
-  if (countActive({ taskId: task.id }) > 0) return refuse(409, "Task ini sudah punya run yang berjalan.");
-  if (countActive({ projectId }) >= settings.maxParallel) {
-    return refuse(409, `Batas paralel tercapai (${settings.maxParallel}). Tunggu salah satu run selesai.`);
-  }
+  if (problems.length > 0) return fail(409, `Task belum siap: ${problems.map((p) => PROBLEM_LABELS[p]).join(", ")}.`);
 
   const repoIds = parseList(task.reposJson);
   const resolved = repoIds.length > 0 ? repoIds : repos.length === 1 ? [repos[0].id] : [];
   const repoInfos = resolved.map((id) => findRepo(root, id));
   const missing = resolved.find((_, i) => !repoInfos[i]);
-  if (missing) return refuse(409, `Repo ${missing} tidak ditemukan di project ini.`);
+  if (missing) return fail(409, `Repo ${missing} tidak ditemukan di project ini.`);
 
-  const runId = randomUUID();
-  const bundlePath = path.join(baseDir, "runs", runId);
-  const now = new Date().toISOString();
-  db.insert(taskRuns)
-    .values({
-      id: runId,
-      taskId: task.id,
+  void baseDir;
+  return {
+    ok: true,
+    ctx: {
       projectId,
-      bundlePath,
+      root,
+      task,
       providerId: provider.id,
       model: settings.execModel,
-      state: "running",
-      createdAt: now,
-      startedAt: now,
-      updatedAt: now,
-    })
-    .run();
+      cliAgent: provider.cliAgent ?? null,
+      maxSteps: normalizeAgentMaxSteps(getSetting("agentMaxSteps")),
+      maxParallel: settings.maxParallel,
+      baseBranches: settings.baseBranches,
+      repoInfos: repoInfos as RepoInfo[],
+    },
+  };
+}
 
-  // The run's shell rules: the checks each repo configured, and nothing else (see execute-policy).
+/**
+ * Creates the run's folder, worktrees, and thread, then queues its prompt on the thread so the
+ * server sends it, with or without a client open.
+ */
+async function launchRun(runId: string, ctx: StartContext): Promise<StartRunResult> {
+  const { projectId, root, task, bundlePath } = ctx;
   const config = readWorktreeConfig(root);
-  writeExecutePolicy(bundlePath, resolved.flatMap((id) => (config.checks[id] ?? []).map((c) => c.command)));
+  writeExecutePolicy(bundlePath, ctx.repoInfos.flatMap((r) => (config.checks[r.id] ?? []).map((c) => c.command)));
 
   const branch = `onesist/${slug(task.code ?? task.title, 32)}-${runId.replace(/-/g, "").slice(-6)}`;
   const worktrees: { id: string; worktreePath: string; branch: string }[] = [];
-  for (const repo of repoInfos.filter((r): r is NonNullable<typeof r> => r !== null)) {
-    const baseRef = settings.baseBranches[repo.id] ?? null;
-    const made = await createWorktree({
-      repo,
-      projectId,
-      projectRoot: root,
-      baseDir: bundlePath,
-      branch,
-      baseRef,
-      fromOrigin: false,
-    });
+  for (const repo of ctx.repoInfos) {
+    const baseRef = ctx.baseBranches[repo.id] ?? null;
+    const made = await createWorktree({ repo, projectId, projectRoot: root, baseDir: bundlePath, branch, baseRef, fromOrigin: false });
     if (!made.ok) {
       db.update(taskRuns).set({ state: "failed", error: made.error, endedAt: new Date().toISOString() }).where(eq(taskRuns.id, runId)).run();
       return refuse(made.status, made.error);
     }
     const head = await runGit(made.path, ["rev-parse", "HEAD"]);
     db.insert(taskRunRepos)
-      .values({
-        id: randomUUID(),
-        runId,
-        repo: repo.id,
-        worktreePath: made.path,
-        branch: made.branch,
-        baseBranch: baseRef,
-        baseCommit: head.code === 0 ? head.stdout.trim() : null,
-      })
+      .values({ id: randomUUID(), runId, repo: repo.id, worktreePath: made.path, branch: made.branch, baseBranch: baseRef, baseCommit: head.code === 0 ? head.stdout.trim() : null })
       .run();
     worktrees.push({ id: repo.id, worktreePath: made.path, branch: made.branch });
   }
@@ -192,12 +197,12 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
     projectId,
     title,
     mode: "agent",
-    providerId: provider.id,
-    model: settings.execModel,
+    providerId: ctx.providerId,
+    model: ctx.model,
     // `execute` where the run's rules reach every shell command (Claude Code, OpenCode, Pi). Codex
     // runs its own shell inside the sandbox without asking, so its runs keep `ask`.
-    permissionMode: EXECUTE_RUNTIMES.includes(provider.cliAgent ?? "") ? "execute" : "ask",
-    maxSteps: normalizeAgentMaxSteps(getSetting("agentMaxSteps")),
+    permissionMode: EXECUTE_RUNTIMES.includes(ctx.cliAgent ?? "") ? "execute" : "ask",
+    maxSteps: ctx.maxSteps,
   });
   updateThread(thread.id, {
     workspaceStrategy: "worktree",
@@ -205,8 +210,9 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
     workspacePath: bundlePath,
     workspaceBranch: worktrees.length === 1 ? branch : null,
   });
-  db.update(taskRuns).set({ threadId: thread.id, updatedAt: new Date().toISOString() }).where(eq(taskRuns.id, runId)).run();
-  db.update(tasks).set({ status: "in_progress", updatedAt: new Date().toISOString() }).where(eq(tasks.id, task.id)).run();
+  const now = new Date().toISOString();
+  db.update(taskRuns).set({ threadId: thread.id, state: "running", startedAt: now, updatedAt: now }).where(eq(taskRuns.id, runId)).run();
+  db.update(tasks).set({ status: "in_progress", updatedAt: now }).where(eq(tasks.id, task.id)).run();
 
   const text = buildRunPrompt({
     title: task.title,
@@ -218,7 +224,77 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
     repos: worktrees,
     doneDependencies: doneDependencyCodes(task, projectId),
   });
-  return { ok: true, runId, threadId: thread.id, title, text };
+  // The server sends the prompt through the thread's queue, so the run starts even with no client open.
+  enqueue(thread.id, [text]);
+  void kick(thread.id);
+  return { ok: true, runId, threadId: thread.id, title, text, queued: false, position: null };
+}
+
+/**
+ * Starts the task's run now, or queues it when the project is at its parallel limit. A queued
+ * run is started by `promoteQueued` when a slot frees up.
+ */
+export async function startTaskRun(input: { projectId: string; root: string; task: Task; baseDir: string }): Promise<StartRunResult> {
+  const { projectId, root, task, baseDir } = input;
+  const prepared = prepareStart(projectId, root, task, baseDir);
+  if (!prepared.ok) return refuse(prepared.status, prepared.error);
+  if (countActive({ taskId: task.id }) > 0) return refuse(409, "Task ini sudah punya run yang berjalan.");
+
+  const runId = randomUUID();
+  const bundlePath = path.join(baseDir, "runs", runId);
+  const ctx: StartContext = { ...prepared.ctx, bundlePath };
+  const now = new Date().toISOString();
+  const atLimit = countActive({ projectId }) >= prepared.ctx.maxParallel;
+  db.insert(taskRuns)
+    .values({
+      id: runId,
+      taskId: task.id,
+      projectId,
+      bundlePath,
+      providerId: prepared.ctx.providerId,
+      model: prepared.ctx.model,
+      state: atLimit ? "queued" : "running",
+      createdAt: now,
+      startedAt: atLimit ? null : now,
+      updatedAt: now,
+    })
+    .run();
+
+  if (atLimit) {
+    db.update(tasks).set({ status: "in_progress", updatedAt: now }).where(eq(tasks.id, task.id)).run();
+    const position = db.select({ id: taskRuns.id }).from(taskRuns).where(and(eq(taskRuns.projectId, projectId), eq(taskRuns.state, "queued"))).all().length;
+    return { ok: true, runId, threadId: null, title: task.title, text: null, queued: true, position };
+  }
+  return launchRun(runId, ctx);
+}
+
+/**
+ * Starts queued runs, oldest first, while the project has a free slot. Called whenever a run
+ * leaves an active state (approved, discarded, failed, or validated).
+ */
+export async function promoteQueued(projectId: string): Promise<void> {
+  const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
+  if (!project?.rootPath) return;
+  for (;;) {
+    const maxParallel = getExecSettings(projectId).maxParallel;
+    if (countActive({ projectId }) >= maxParallel) return;
+    const next = db
+      .select()
+      .from(taskRuns)
+      .where(and(eq(taskRuns.projectId, projectId), eq(taskRuns.state, "queued")))
+      .orderBy(asc(taskRuns.createdAt))
+      .get();
+    if (!next) return;
+    const task = db.select().from(tasks).where(eq(tasks.id, next.taskId)).get() as Task | undefined;
+    // Claim the slot before any await, so two promotions cannot take the same one.
+    db.update(taskRuns).set({ state: "running", updatedAt: new Date().toISOString() }).where(eq(taskRuns.id, next.id)).run();
+    const prepared = task ? prepareStart(projectId, project.rootPath, task, next.bundlePath) : { ok: false as const, status: 404, error: "Task tidak ditemukan." };
+    if (!prepared.ok) {
+      db.update(taskRuns).set({ state: "failed", error: prepared.error, endedAt: new Date().toISOString() }).where(eq(taskRuns.id, next.id)).run();
+      continue;
+    }
+    await launchRun(next.id, { ...prepared.ctx, bundlePath: next.bundlePath });
+  }
 }
 
 /**
@@ -243,6 +319,7 @@ export function applyRunEvent(type: string, data: unknown): void {
     } else if (event.status === "error" || event.status === "stopped" || event.status === "interrupted") {
       const reason = event.error ?? (event.status === "stopped" ? "Dihentikan." : "Agen berhenti sebelum selesai.");
       db.update(taskRuns).set({ state: "failed", error: reason, endedAt: now, updatedAt: now }).where(eq(taskRuns.id, run.id)).run();
+      void promoteQueued(run.projectId).catch((err) => console.error("[task-runs] promote failed:", err));
     }
   }
 }

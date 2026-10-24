@@ -19,11 +19,14 @@ interface TaskBoardCardProps {
 }
 
 const RUN_BADGE: Record<RunSummary["state"], { label: string; cls: string }> = {
+  queued: { label: "Antri", cls: "bg-kumo-elevated text-kumo-subtle" },
   running: { label: "Berjalan", cls: "bg-sky-500/10 text-sky-400" },
   waiting_input: { label: "Butuh jawaban", cls: "bg-amber-500/15 text-amber-400" },
   validating: { label: "Menunggu validasi", cls: "bg-violet-500/10 text-violet-400" },
   in_review: { label: "Lolos cek", cls: "bg-green-500/10 text-green-400" },
   failed: { label: "Gagal", cls: "bg-red-500/10 text-red-400" },
+  approved: { label: "Disetujui", cls: "bg-green-500/10 text-green-400" },
+  discarded: { label: "Dibuang", cls: "bg-kumo-elevated text-kumo-subtle" },
 };
 
 /** Validation runs when the agent is done, or again after a failed check once it is fixed. */

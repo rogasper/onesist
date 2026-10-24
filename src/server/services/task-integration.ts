@@ -18,6 +18,7 @@ import { criterionStatus } from "~/lib/run-report";
 import { buildRunBody } from "~/lib/run-body";
 import { getExecSettings } from "./exec-settings";
 import { lastReport } from "./task-validation";
+import { promoteQueued } from "./task-runs";
 
 type Integration = "pr" | "branch" | "merge";
 
@@ -159,6 +160,7 @@ export async function approveRun(runId: string): Promise<ApproveResult> {
   if (failed.length === 0) {
     db.update(taskRuns).set({ state: "approved", error: null, endedAt: now, updatedAt: now }).where(eq(taskRuns.id, runId)).run();
     db.update(tasks).set({ status: "done", updatedAt: now }).where(eq(tasks.id, run.taskId)).run();
+    void promoteQueued(run.projectId).catch((err) => console.error("[task-integration] promote failed:", err));
     return { ok: true, state: "approved", outcomes, error: null };
   }
   const error = failed.map((f) => `${f.repo}: ${f.error}`).join(" · ");

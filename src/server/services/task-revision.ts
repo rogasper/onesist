@@ -6,6 +6,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { taskRuns, tasks } from "~/server/db/schema";
+import { promoteQueued } from "./task-runs";
 
 const MAX_ITEMS = 50;
 
@@ -91,9 +92,11 @@ export async function requestRevision(runId: string, input: { comments: unknown;
 export async function discardRun(runId: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const run = db.select().from(taskRuns).where(eq(taskRuns.id, runId)).get();
   if (!run) return { ok: false, status: 404, error: "Run tidak ditemukan." };
-  if (!REVIEWABLE.includes(run.state) && run.state !== "validating") return { ok: false, status: 409, error: "Run ini tidak bisa dibuang sekarang." };
+  const discardable = [...REVIEWABLE, "validating", "queued"];
+  if (!discardable.includes(run.state)) return { ok: false, status: 409, error: "Run ini tidak bisa dibuang sekarang." };
   const now = new Date().toISOString();
   db.update(taskRuns).set({ state: "discarded", endedAt: now, updatedAt: now }).where(eq(taskRuns.id, runId)).run();
   db.update(tasks).set({ status: "todo", updatedAt: now }).where(eq(tasks.id, run.taskId)).run();
+  void promoteQueued(run.projectId).catch((err) => console.error("[task-revision] promote failed:", err));
   return { ok: true };
 }

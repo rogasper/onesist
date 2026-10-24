@@ -97,7 +97,7 @@ test("a ready task starts a run: worktree in the run folder, a thread there, and
   const repoRows = db.all(sql`SELECT worktree_path AS p FROM task_run_repos WHERE run_id = ${run.id}`) as { p: string }[];
   expect(repoRows).toHaveLength(1);
   expect(fs.existsSync(repoRows[0].p)).toBe(true);
-  const thread = store.getThread(res.threadId)!;
+  const thread = store.getThread(res.threadId!)!;
   expect(thread.permissionMode).toBe("execute");
   expect(thread.workspacePath).toBe(run.bundlePath);
   expect(db.select().from(tasks).where(eq(tasks.id, t.id)).get()!.status).toBe("in_progress");
@@ -111,11 +111,14 @@ test("a second run of the same task is refused while the first is active", async
   if (!again.ok) expect(again.status).toBe(409);
 });
 
-test("the parallel limit refuses a run when it is reached", async () => {
+test("at the parallel limit a run is queued, not refused", async () => {
   updateExecSettings("p-run", { maxParallel: 1 });
   const res = await startTaskRun({ projectId: "p-run", root, task: task("t-parallel"), baseDir });
-  expect(res.ok).toBe(false);
-  if (!res.ok) expect(res.error).toContain("Batas paralel");
+  expect(res.ok).toBe(true);
+  if (res.ok) {
+    expect(res.queued).toBe(true);
+    expect(db.select().from(taskRuns).where(eq(taskRuns.id, res.runId)).get()!.state).toBe("queued");
+  }
   updateExecSettings("p-run", { maxParallel: 2 });
 });
 
@@ -127,7 +130,7 @@ test("runs on Claude Code, OpenCode, and Pi get execute; Codex keeps ask", async
     updateExecSettings("p-run", { execProviderId: provider });
     const res = await startTaskRun({ projectId: "p-run", root, task: task(id), baseDir });
     expect(res.ok).toBe(true);
-    if (res.ok) modes[provider] = store.getThread(res.threadId)!.permissionMode;
+    if (res.ok) modes[provider] = store.getThread(res.threadId!)!.permissionMode;
   }
   expect(modes).toEqual({ "prov-claude": "execute", "prov-cli": "execute", "prov-codex": "ask" });
   updateExecSettings("p-run", { execProviderId: "prov-cli", maxParallel: 2 });

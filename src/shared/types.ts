@@ -82,7 +82,7 @@ export interface RepoSummary {
 }
 
 /** The state of one run of a task, as the board shows it. */
-export type RunState = "running" | "waiting_input" | "validating" | "in_review" | "failed";
+export type RunState = "queued" | "running" | "waiting_input" | "validating" | "in_review" | "failed" | "approved" | "discarded";
 
 export interface RunSummary {
   id: string;
