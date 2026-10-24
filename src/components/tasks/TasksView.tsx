@@ -29,6 +29,8 @@ import { subscribe } from "~/lib/event-stream";
 import { TaskBoard } from "./TaskBoard";
 import { useExecSettings } from "~/lib/use-exec-settings";
 import { useRepos } from "~/lib/use-repos";
+import { useTaskRuns } from "~/lib/use-task-runs";
+import { openChatTask } from "~/lib/chat-task";
 
 const STATUS_FILTERS = [
   { value: "all", label: "All status" },
@@ -72,6 +74,8 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   const [view, setView] = useState<"tasks" | "timeline">("tasks");
   const execSettings = useExecSettings(id);
   const { repos } = useRepos(id);
+  const { runs, reload: reloadRuns } = useTaskRuns(id);
+  const [runError, setRunError] = useState<string | null>(null);
   const [viewMode, setViewModeState] = useState<TaskViewMode>("list");
   /** Remembered per project. Read after mount so server and client render the same first frame. */
   const setViewMode = useCallback((mode: TaskViewMode) => {
@@ -256,6 +260,23 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
     }
   }, [id]);
+
+  const handleStartRun = useCallback(async (task: Task) => {
+    setRunError(null);
+    try {
+      const res = await fetch(`/api/projects/${id}/tasks/${task.id}/runs`, { method: "POST", cache: "no-store" });
+      const body = (await res.json().catch(() => ({}))) as { threadId?: string; text?: string; error?: string };
+      if (!res.ok || !body.threadId) {
+        setRunError(body.error ?? "Gagal memulai run.");
+        return;
+      }
+      openChatTask({ threadId: body.threadId, text: body.text ?? null });
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: "in_progress" } : t)));
+      reloadRuns();
+    } catch {
+      setRunError("Gagal memulai run.");
+    }
+  }, [id, reloadRuns]);
 
   const handleSave = useCallback(async (taskId: string, data: Partial<Task>) => {
     const res = await fetch(`/api/projects/${id}/tasks/${taskId}`, {
@@ -717,6 +738,10 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
                 repoCount={repos.length}
                 projectId={id}
                 onFilled={(updated) => setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))}
+                runs={runs}
+                onStartRun={handleStartRun}
+                onOpenChat={(threadId) => openChatTask({ threadId })}
+                runError={runError}
               />
             ) : (
             <TaskList

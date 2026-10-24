@@ -3,7 +3,7 @@ import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { dependencyState, groupByStatus, orderTasks, taskKey } from "~/lib/task-board";
 import { STATUS_LABELS, TASK_STATUSES, normalizeStatus, type TaskStatus } from "~/lib/task-status";
 import { PROBLEM_LABELS, readinessProblems, type ReadinessProblem } from "~/lib/task-readiness";
-import type { Task } from "~/shared/types";
+import type { RunSummary, Task } from "~/shared/types";
 import { TaskBoardCard } from "./TaskBoardCard";
 import { TaskFillDialog } from "./TaskFillDialog";
 
@@ -26,9 +26,29 @@ interface TaskBoardProps {
   repoCount: number;
   projectId: string;
   onFilled: (task: Task) => void;
+  /** Runs by task id. A card in In Progress shows its run's state. */
+  runs: Record<string, RunSummary>;
+  /** Starts the task's run; the board does not change the status itself in execution mode. */
+  onStartRun: (task: Task) => void;
+  onOpenChat: (threadId: string) => void;
+  /** The last start error, shown above the board until the next start. */
+  runError: string | null;
 }
 
-export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask, executionEnabled, repoCount, projectId, onFilled }: TaskBoardProps) {
+export function TaskBoard({
+  tasks,
+  allTasks,
+  onStatusChange,
+  onOpenTask,
+  executionEnabled,
+  repoCount,
+  projectId,
+  onFilled,
+  runs,
+  onStartRun,
+  onOpenChat,
+  runError,
+}: TaskBoardProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ task: Task; status: TaskStatus; waitingOn: string[] } | null>(null);
   const [fill, setFill] = useState<{ task: Task; problems: ReadinessProblem[] } | null>(null);
@@ -52,12 +72,17 @@ export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask, executi
         setFill({ task, problems });
         return;
       }
+      if (executionEnabled) {
+        onStartRun(task);
+        return;
+      }
     }
     onStatusChange(task.id, status);
   };
 
   return (
     <>
+      {runError && <p className="px-3 pt-3 text-xs text-red-400">{runError}</p>}
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
         {TASK_STATUSES.map((status) => {
           const list = groups[status];
@@ -83,8 +108,10 @@ export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask, executi
                     task={task}
                     dependency={dependencyState(task, byKey)}
                     problems={executionEnabled ? readinessProblems(task, repoCount) : []}
+                    run={runs[task.id]}
                     onOpen={onOpenTask}
                     onDragStart={(t) => setDraggingId(t.id)}
+                    onOpenChat={onOpenChat}
                   />
                 ))}
                 {list.length === 0 && <p className="px-1 py-6 text-center text-[11px] text-kumo-subtle">Kosong</p>}
@@ -98,7 +125,10 @@ export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask, executi
         title="Dependensi belum selesai"
         onOpenChange={(open) => { if (!open) setPending(null); }}
         onConfirm={() => {
-          if (pending) onStatusChange(pending.task.id, pending.status);
+          if (pending) {
+            if (executionEnabled && pending.status === "in_progress") onStartRun(pending.task);
+            else onStatusChange(pending.task.id, pending.status);
+          }
           setPending(null);
         }}
         confirmLabel="Pindahkan tetap"

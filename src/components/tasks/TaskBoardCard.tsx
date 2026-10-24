@@ -1,16 +1,25 @@
 import { Lock } from "@phosphor-icons/react";
 import { PROBLEM_LABELS, type ReadinessProblem } from "~/lib/task-readiness";
 import { taskKey, type DependencyState } from "~/lib/task-board";
-import type { Task } from "~/shared/types";
+import type { RunSummary, Task } from "~/shared/types";
 
 interface TaskBoardCardProps {
   task: Task;
   dependency: DependencyState;
   /** Missing readiness data. Empty when execution is off (delivery mode) or the task is ready. */
   problems: ReadinessProblem[];
+  run?: RunSummary;
   onOpen: (task: Task) => void;
   onDragStart: (task: Task) => void;
+  onOpenChat: (threadId: string) => void;
 }
+
+const RUN_BADGE: Record<RunSummary["state"], { label: string; cls: string }> = {
+  running: { label: "Berjalan", cls: "bg-sky-500/10 text-sky-400" },
+  waiting_input: { label: "Butuh jawaban", cls: "bg-amber-500/15 text-amber-400" },
+  validating: { label: "Menunggu validasi", cls: "bg-violet-500/10 text-violet-400" },
+  failed: { label: "Gagal", cls: "bg-red-500/10 text-red-400" },
+};
 
 /** Length of a stored JSON array (file scope, acceptance criteria); anything else counts as none. */
 function countItems(json: string | null): number {
@@ -23,7 +32,7 @@ function countItems(json: string | null): number {
   }
 }
 
-export function TaskBoardCard({ task, dependency, problems, onOpen, onDragStart }: TaskBoardCardProps) {
+export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragStart, onOpenChat }: TaskBoardCardProps) {
   const key = taskKey(task);
   const title = task.code ? task.title.replace(`${task.code}:`, "").trim() : task.title;
   const criteria = countItems(task.acceptanceCriteriaJson);
@@ -56,6 +65,20 @@ export function TaskBoardCard({ task, dependency, problems, onOpen, onDragStart 
             <Lock size={10} />
             menunggu {dependency.waitingOn.join(", ")}
           </span>
+        )}
+        {run && (
+          <button
+            type="button"
+            title={run.state === "failed" ? run.error ?? undefined : undefined}
+            disabled={!run.threadId}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (run.threadId) onOpenChat(run.threadId);
+            }}
+            className={`rounded px-1 ${RUN_BADGE[run.state].cls} disabled:cursor-default`}
+          >
+            {RUN_BADGE[run.state].label}
+          </button>
         )}
         {problems.length > 0 && (
           <span className="rounded bg-amber-500/10 px-1 text-amber-400">
