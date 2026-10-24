@@ -109,6 +109,10 @@ export const tasks = sqliteTable("tasks", {
   erdRef: text("erd_ref"),
   rtmRef: text("rtm_ref"),
   acceptanceCriteriaJson: text("acceptance_criteria_json"),
+  // Execution by agents (see docs/superpowers/specs/2026-10-24-task-execution-design.md)
+  execProviderId: text("exec_provider_id"),
+  execModel: text("exec_model"),
+  reposJson: text("repos_json"),
   createdAt: text("created_at").default("datetime('now')"),
   updatedAt: text("updated_at").default("datetime('now')"),
 });
@@ -123,6 +127,19 @@ export const taskSnapshots = sqliteTable("task_snapshots", {
   assignee: text("assignee"),
   changeLogId: text("change_log_id"),
   createdAt: text("created_at").default("datetime('now')"),
+});
+
+export const projectExecSettings = sqliteTable("project_exec_settings", {
+  projectId: text("project_id").primaryKey().references(() => projects.id),
+  taskMode: text("task_mode").notNull().default("execution"),
+  execProviderId: text("exec_provider_id"),
+  execModel: text("exec_model"),
+  reviewerProviderId: text("reviewer_provider_id"),
+  reviewerModel: text("reviewer_model"),
+  maxParallel: integer("max_parallel").notNull().default(2),
+  integration: text("integration").notNull().default("pr"),
+  baseBranchesJson: text("base_branches_json"),
+  updatedAt: text("updated_at"),
 });
 
 export const fsdSessions = sqliteTable("fsd_sessions", {

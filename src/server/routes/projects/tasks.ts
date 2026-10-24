@@ -5,6 +5,7 @@ import { defaultRoot, getProject } from "../../http/route-utils";
 import { scanAllTaskFiles } from "~/lib/task-parser";
 import { db } from "~/server/db/client";
 import { tasks } from "~/server/db/schema";
+import { isTaskStatus } from "~/lib/task-status";
 
 export const router = new Router();
 
@@ -17,6 +18,7 @@ router.get("projects/:id/tasks", ({ params }) => {
 // POST /api/projects/:id/tasks
 router.post("projects/:id/tasks", async ({ params, body }) => {
   const data = await body();
+  if (data.status !== undefined && !isTaskStatus(data.status)) return badRequest("Status tidak dikenal");
   const now = new Date().toISOString();
   const task = {
     id: crypto.randomUUID(),
@@ -32,6 +34,9 @@ router.post("projects/:id/tasks", async ({ params, body }) => {
     sourcePath: (data.sourcePath as string) ?? null,
     phase: (data.phase as string) ?? null,
     archived: Boolean(data.archived) ?? false,
+    execProviderId: (data.execProviderId as string) ?? null,
+    execModel: (data.execModel as string) ?? null,
+    reposJson: (data.reposJson as string) ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -47,6 +52,7 @@ router.post("projects/:id/tasks/bulk", async ({ params, body }) => {
   if (!ids.length || !patch) {
     return badRequest("ids array and patch object are required");
   }
+  if (patch.status !== undefined && !isTaskStatus(patch.status)) return badRequest("Status tidak dikenal");
 
   const now = new Date().toISOString();
   const updates: Record<string, unknown> = { updatedAt: now };
@@ -158,6 +164,7 @@ router.get("projects/:id/tasks/:taskId", ({ params }) => {
 // PUT /api/projects/:id/tasks/:taskId
 router.put("projects/:id/tasks/:taskId", async ({ params, body }) => {
   const data = await body();
+  if (data.status !== undefined && !isTaskStatus(data.status)) return badRequest("Status tidak dikenal");
   const now = new Date().toISOString();
   const updates: Record<string, unknown> = { updatedAt: now };
   if (data.title !== undefined) updates.title = data.title;
@@ -179,6 +186,9 @@ router.put("projects/:id/tasks/:taskId", async ({ params, body }) => {
   if (data.sourcePath !== undefined) updates.sourcePath = data.sourcePath;
   if (data.phase !== undefined) updates.phase = data.phase;
   if (data.archived !== undefined) updates.archived = Boolean(data.archived);
+  if (data.execProviderId !== undefined) updates.execProviderId = data.execProviderId;
+  if (data.execModel !== undefined) updates.execModel = data.execModel;
+  if (data.reposJson !== undefined) updates.reposJson = data.reposJson;
   db.update(tasks).set(updates).where(eq(tasks.id, params.taskId)).run();
   const updated = db.select().from(tasks).where(eq(tasks.id, params.taskId)).get();
   return json(updated);

@@ -41,6 +41,9 @@ export interface Task {
   erdRef: string | null;
   rtmRef: string | null;
   acceptanceCriteriaJson: string | null;
+  execProviderId: string | null;
+  execModel: string | null;
+  reposJson: string | null;
   createdAt: string;
   updatedAt: string;
 }
