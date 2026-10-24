@@ -173,6 +173,11 @@ export const taskRunRepos = sqliteTable("task_run_repos", {
   branch: text("branch"),
   baseBranch: text("base_branch"),
   baseCommit: text("base_commit"),
+  /** Set once the repo's work is committed and integrated (see services/task-integration.ts). */
+  commitSha: text("commit_sha"),
+  integrated: text("integrated"),
+  prUrl: text("pr_url"),
+  integrationError: text("integration_error"),
 });
 
 export const fsdSessions = sqliteTable("fsd_sessions", {

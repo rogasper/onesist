@@ -65,7 +65,7 @@ async function changedFiles(worktree: string, repoId: string, baseCommit: string
   return [...new Set(files.map((f) => `${prefix}${f}`))];
 }
 
-function lastReport(threadId: string | null): RunReport | null {
+export function lastReport(threadId: string | null): RunReport | null {
   if (!threadId) return null;
   const last = listMessages(threadId).filter((m) => m.role === "assistant").at(-1);
   if (!last) return null;
