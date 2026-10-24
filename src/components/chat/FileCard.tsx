@@ -230,7 +230,10 @@ export function FileCard({ file, root, projectId }: { file: ThreadFile; root: st
   }
 
   return (
-    <div className="rounded-xl ring ring-kumo-line bg-kumo-base overflow-hidden">
+    // No overflow-hidden here: the split button's menu opens upward OUTSIDE this
+    // card (bottom-full below), and clipping it made the caret's options vanish.
+    // Rounded corners on expanding content are guarded by the panel itself.
+    <div className="rounded-xl ring ring-kumo-line bg-kumo-base">
       <div className="flex items-center gap-3 px-3 py-2.5">
         <span className={`grid place-items-center size-9 shrink-0 rounded-lg ${tone}`}>
           <Icon size={17} weight="fill" />
@@ -293,7 +296,7 @@ export function FileCard({ file, root, projectId }: { file: ThreadFile; root: st
       </div>
 
       {open ? (
-        <div className="border-t border-kumo-line/60 px-3 py-2 grid gap-2">
+        <div className="border-t border-kumo-line/60 px-3 py-2 grid gap-2 rounded-b-xl overflow-hidden">
           {/* Two views of the same file, never both at once: the panel is ~460px
               wide, and stacking a diff under a preview buries the transcript. */}
           <div className="flex rounded-lg ring ring-kumo-line p-0.5 w-fit">
