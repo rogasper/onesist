@@ -6,6 +6,7 @@ import { ListSkeleton } from "~/components/ui/Skeleton";
 const ErdView = lazy(() => import("~/components/erd/ErdView").then((m) => ({ default: m.ErdView })));
 const SpecView = lazy(() => import("~/components/spec/SpecView").then((m) => ({ default: m.SpecView })));
 const TasksView = lazy(() => import("~/components/tasks/TasksView").then((m) => ({ default: m.TasksView })));
+const ReviewView = lazy(() => import("~/components/tasks/ReviewView").then((m) => ({ default: m.ReviewView })));
 const FsdView = lazy(() => import("~/components/fsd/FsdView").then((m) => ({ default: m.FsdView })));
 
 export interface PaneBodyProps {
@@ -31,6 +32,7 @@ export function PaneBody({ tab, projectId, paneId, onDirtyChange }: PaneBodyProp
       {tab === "spec" && <SpecView projectId={projectId} />}
       {tab === "tasks" && <TasksView projectId={projectId} />}
       {tab === "fsd" && <FsdView projectId={projectId} paneId={paneId} onDirtyChange={onDirtyChange} />}
+      {tab === "review" && <ReviewView projectId={projectId} />}
     </Suspense>
   );
 }

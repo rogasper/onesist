@@ -28,17 +28,36 @@ const fullPath = (repo: string, path: string) => (repo === "." ? path : `${repo}
  * Reviews a run that is in review: its diff per file, the AI findings the user can send back,
  * and comments on single lines. Revising sends them to the run's thread; nothing is applied here.
  */
-export function TaskReviewDialog({
-  projectId,
-  run,
-  onClose,
-  onChanged,
-}: {
+export interface TaskReviewProps {
   projectId: string;
   run: RunSummary | null;
   onClose: () => void;
   onChanged: () => void;
-}) {
+}
+
+/** The review as a dialog over the board. */
+export function TaskReviewDialog(props: TaskReviewProps) {
+  return (
+    <DialogRoot open={!!props.run} onOpenChange={(open) => { if (!open) props.onClose(); }}>
+      <Dialog>
+        <div className="max-h-[85vh] w-[min(1100px,92vw)] overflow-y-auto">
+          <TaskReviewPanel {...props} />
+        </div>
+      </Dialog>
+    </DialogRoot>
+  );
+}
+
+/**
+ * The review itself: diff, comments, findings, Edit sendiri, Setujui, revisi, and discard. It
+ * has no frame, so the dialog and the review pane show the same thing.
+ */
+export function TaskReviewPanel({
+  projectId,
+  run,
+  onClose,
+  onChanged,
+}: TaskReviewProps) {
   const [repos, setRepos] = useState<RepoDiff[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -175,9 +194,7 @@ export function TaskReviewDialog({
 
   return (
     <>
-      <DialogRoot open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-        <Dialog>
-          <div className="flex max-h-[85vh] w-[min(1100px,92vw)] flex-col gap-3 p-5">
+          <div className="flex w-full flex-col gap-3 p-5">
             <DialogTitle>Tinjau · revisi {run.revision}</DialogTitle>
             <DialogDescription>Komentar dan temuan yang dipilih dikirim ke thread agen sebagai revisi berikutnya.</DialogDescription>
 
@@ -303,8 +320,6 @@ export function TaskReviewDialog({
               </Button>
             </div>
           </div>
-        </Dialog>
-      </DialogRoot>
       <ConfirmDialog
         open={confirmDiscard}
         title="Buang run ini?"
