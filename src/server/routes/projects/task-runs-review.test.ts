@@ -44,3 +44,19 @@ test("the diff, revise, and discard routes answer for a run of the project", asy
   const missing = await call("GET", "/api/projects/p-rrv/task-runs/run-none/diff");
   expect(missing.status).toBe(404);
 });
+
+test("queued runs report their place in the queue, oldest first", async () => {
+  db.insert(projects).values({ id: "p-qpos", name: "QPos", rootPath: "/tmp/none-qpos" }).run();
+  db.insert(tasks).values([
+    { id: "t-qa", projectId: "p-qpos", code: "q-a", title: "q-a: x", status: "in_progress" },
+    { id: "t-qb", projectId: "p-qpos", code: "q-b", title: "q-b: x", status: "in_progress" },
+  ]).run();
+  db.insert(taskRuns).values([
+    { id: "run-qb", taskId: "t-qb", projectId: "p-qpos", bundlePath: "/tmp/qb", state: "queued", createdAt: "2026-10-24T10:02:00.000Z" },
+    { id: "run-qa", taskId: "t-qa", projectId: "p-qpos", bundlePath: "/tmp/qa", state: "queued", createdAt: "2026-10-24T10:01:00.000Z" },
+  ]).run();
+  const list = await call("GET", "/api/projects/p-qpos/task-runs");
+  const byId = Object.fromEntries(list.body.map((r: any) => [r.id, r.queuePosition]));
+  expect(byId["run-qa"]).toBe(1);
+  expect(byId["run-qb"]).toBe(2);
+});

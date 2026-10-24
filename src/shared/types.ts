@@ -91,6 +91,8 @@ export interface RunSummary {
   state: RunState;
   /** 1 for the first attempt, then one more per revision requested. */
   revision: number;
+  /** 1-based place in the project's queue while the run is queued; null otherwise. */
+  queuePosition: number | null;
   bundlePath: string;
   repos: { repo: string; branch: string | null; worktreePath: string | null }[];
   error: string | null;

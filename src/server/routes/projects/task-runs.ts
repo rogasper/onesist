@@ -29,7 +29,7 @@ function parseJson<T>(json: string | null): T | null {
   }
 }
 
-export function summarize(run: typeof taskRuns.$inferSelect): RunSummary {
+export function summarize(run: typeof taskRuns.$inferSelect, queuePosition: number | null = null): RunSummary {
   const repos = db.select().from(taskRunRepos).where(eq(taskRunRepos.runId, run.id)).all();
   const stored = parseJson<{ threadId: string | null; findings: unknown[] }>(run.reviewJson);
   const review = run.reviewerThreadId
@@ -43,6 +43,7 @@ export function summarize(run: typeof taskRuns.$inferSelect): RunSummary {
     threadId: run.threadId,
     state: run.state as RunState,
     revision: run.revision,
+    queuePosition,
     bundlePath: run.bundlePath,
     repos: repos.map((r: typeof taskRunRepos.$inferSelect) => ({ repo: r.repo, branch: r.branch, worktreePath: r.worktreePath })),
     error: run.error,
@@ -66,10 +67,13 @@ router.post("projects/:id/tasks/:taskId/runs", async ({ params }) => {
 router.get("projects/:id/task-runs", ({ params }) => {
   const project = getProject(params.id);
   if (!project) return notFound();
-  const runs = db.select().from(taskRuns).where(eq(taskRuns.projectId, params.id)).orderBy(desc(taskRuns.createdAt)).all();
+  const runs: (typeof taskRuns.$inferSelect)[] = db.select().from(taskRuns).where(eq(taskRuns.projectId, params.id)).orderBy(desc(taskRuns.createdAt)).all();
+  // Queue places follow the order the runs were queued in (oldest first).
+  const queued = runs.filter((r) => r.state === "queued").sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+  const place = new Map(queued.map((r, i) => [r.id, i + 1]));
   const newest = new Map<string, typeof taskRuns.$inferSelect>();
   for (const run of runs) if (!newest.has(run.taskId)) newest.set(run.taskId, run);
-  return json([...newest.values()].map(summarize));
+  return json([...newest.values()].map((run) => summarize(run, place.get(run.id) ?? null)));
 });
 
 // POST /api/projects/:id/task-runs/:runId/validate — runs the checks and moves the run on

@@ -90,7 +90,7 @@ export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragS
             }}
             className={`rounded px-1 ${RUN_BADGE[run.state].cls} disabled:cursor-default`}
           >
-            {RUN_BADGE[run.state].label}
+            {run.state === "queued" && run.queuePosition ? `Antri #${run.queuePosition}` : RUN_BADGE[run.state].label}
           </button>
         )}
         {run && canValidate(run) && (

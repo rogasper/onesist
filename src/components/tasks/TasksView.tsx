@@ -29,7 +29,7 @@ import { TaskBoard } from "./TaskBoard";
 import { useExecSettings } from "~/lib/use-exec-settings";
 import { useRepos } from "~/lib/use-repos";
 import { useTaskRuns } from "~/lib/use-task-runs";
-import { dependencyState, taskKey } from "~/lib/task-board";
+import { dependencyState, orderTasks, taskKey } from "~/lib/task-board";
 import { readinessProblems } from "~/lib/task-readiness";
 import type { RunSummary } from "~/shared/types";
 import { openChatTask } from "~/lib/chat-task";
@@ -320,8 +320,9 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   /** Tasks that could start now: To Do, ready, not waiting on another task, and no run of their own. */
   const readyTasks = useMemo(() => {
     const byKey = new Map(tasks.filter((t) => !t.archived).map((t) => [taskKey(t), t]));
-    return tasks.filter((t) => {
-      if (t.archived || normalizeStatus(t.status) !== "todo") return false;
+    // Timeline order: the run that starts first is the one earliest in the plan.
+    return orderTasks(tasks.filter((t) => !t.archived)).filter((t) => {
+      if (normalizeStatus(t.status) !== "todo") return false;
       if (runs[t.id] && ["queued", "running", "waiting_input", "validating"].includes(runs[t.id].state)) return false;
       if (dependencyState(t, byKey).locked) return false;
       return readinessProblems(t, repos.length).length === 0;
