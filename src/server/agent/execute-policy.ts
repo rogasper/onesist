@@ -13,15 +13,24 @@ export const EXECUTE_POLICY_FILE = ".onesist-execute.json";
 /**
  * Self-contained on purpose: the Pi extension embeds this function's source, so it must not
  * reference anything outside its own body.
+ *
+ * A command is judged one segment at a time (split on `&&` and `;`). Each segment must be a
+ * `cd` into a relative folder, one of the allowed commands, a read-only git command, or an `echo`.
+ * A leading `rtk ` (the token-saving wrapper some setups add) is ignored. Pipes, redirects,
+ * backticks, and command substitution are never allowed.
  */
 export function shellCommandAllowed(command: string, allowed: string[]): boolean {
   const trimmed = command.trim();
-  const cd = /^cd ([^\s;&|<>`$]+) && (.+)$/.exec(trimmed);
-  if (cd && (/^[/~]/.test(cd[1]) || cd[1].split("/").includes(".."))) return false;
-  const rest = cd ? cd[2].trim() : trimmed;
-  if (/[;&|<>`\n\r]|\$\(/.test(rest)) return false;
-  const safeGit = ["git status", "git diff", "git diff --stat", "git log", "git log --oneline"];
-  return allowed.includes(rest) || safeGit.includes(rest);
+  if (/[|<>`\n\r]|\$\(/.test(trimmed)) return false;
+  const segments = trimmed.split(/&&|;/).map((seg) => seg.trim().replace(/^rtk\s+/, "").replace(/\$\?/g, ""));
+  if (segments.length === 0 || segments.some((seg) => seg === "")) return false;
+  const safeGit = ["git status", "git status --short", "git diff", "git diff --stat", "git diff --name-only", "git log", "git log --oneline"];
+  return segments.every((seg) => {
+    const cd = /^cd ([^\s]+)$/.exec(seg);
+    if (cd) return !(/^[/~]/.test(cd[1]) || cd[1].split("/").includes(".."));
+    if (/^echo( [\w=.,:\-\/"']*)?$/.test(seg)) return true;
+    return allowed.includes(seg) || safeGit.includes(seg);
+  });
 }
 
 /** The decision for an OpenCode-style permission request, or null when the user must answer. */

@@ -47,3 +47,14 @@ test("the allowed commands live in the run folder and round-trip", () => {
   expect(readAllowedCommands(folder)).toEqual(["bun test"]);
   expect(readAllowedCommands(os.tmpdir() + "/does-not-exist-onesist")).toEqual([]);
 });
+
+test("a chain of allowed segments runs; the same chain with one unknown segment asks", () => {
+  expect(shellCommandAllowed("node test.js; echo exit=$?; git status --short", ["node test.js"])).toBe(true);
+  expect(shellCommandAllowed("rtk git status --short", allowed)).toBe(true);
+  expect(shellCommandAllowed("cd api && bun test && echo ok", allowed)).toBe(true);
+  expect(shellCommandAllowed("bun test; rm -rf api", allowed)).toBe(false);
+  expect(shellCommandAllowed("bun test; echo $(id)", allowed)).toBe(false);
+  expect(shellCommandAllowed("bun test | tee out.txt", allowed)).toBe(false);
+  expect(shellCommandAllowed("echo hi > x.txt", allowed)).toBe(false);
+  expect(shellCommandAllowed("bun test;", allowed)).toBe(false);
+});
