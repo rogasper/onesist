@@ -1,17 +1,11 @@
 import { useEffect, useState } from "react";
 import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
 import { openReviewPane } from "~/lib/review-pane";
-import { FilterSelect } from "~/components/ui/FilterSelect";
+import { AgentPicker } from "./AgentPicker";
 import type { RunSummary, Task } from "~/shared/types";
 
 type Tab = "summary" | "live" | "detail";
 
-interface CliProvider {
-  id: string;
-  name: string;
-  apiStyle: string;
-  cliAgent: string | null;
-}
 
 interface LiveState {
   state: RunSummary["state"];
@@ -42,19 +36,10 @@ export function TaskRunDrawer(props: DrawerProps) {
   const { projectId, task, run, onClose, onOpenDetail, onOpenChat, onValidate, onReview, onRetry, onTaskSaved } = props;
   const [tab, setTab] = useState<Tab>("summary");
   const [maximized, setMaximized] = useState(false);
-  const [providers, setProviders] = useState<CliProvider[]>([]);
   const [agent, setAgent] = useState<string>(task.execProviderId ?? "");
   const [model, setModel] = useState<string>(task.execModel ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-
-  // The agent choices are the CLI providers configured in Settings.
-  useEffect(() => {
-    fetch("/api/providers", { cache: "no-store" })
-      .then(async (res) => (res.ok ? ((await res.json()) as { providers: CliProvider[] }) : { providers: [] }))
-      .then((data) => setProviders(data.providers.filter((p) => p.apiStyle === "cli")))
-      .catch(() => setProviders([]));
-  }, []);
 
   // Another task opened in the same drawer starts from its own agent and model.
   useEffect(() => {
@@ -132,17 +117,7 @@ export function TaskRunDrawer(props: DrawerProps) {
             <div className="space-y-2 rounded-lg border border-kumo-line/50 p-3">
               <p className="font-medium">Agen eksekusi</p>
               <p className="text-[11px] text-kumo-subtle">Kosong = ikut pengaturan proyek.</p>
-              <FilterSelect
-                value={agent}
-                onChange={(v) => { setAgent(v); setSaved(false); }}
-                options={[
-                  { value: "", label: "Ikut pengaturan proyek" },
-                  ...providers.map((p) => ({ value: p.id, label: `${p.name}${p.cliAgent ? ` (${p.cliAgent})` : ""}` })),
-                ]}
-                className="w-full"
-                containerClassName="w-full"
-              />
-              {providers.length === 0 && <p className="text-amber-400">Belum ada agen CLI. Tambahkan di Settings → Providers.</p>}
+              <AgentPicker value={agent} onChange={(v) => { setAgent(v); setSaved(false); }} />
               <input value={model} onChange={(e) => { setModel(e.target.value); setSaved(false); }} placeholder="Model (kosong = default agen)" className="h-8 w-full rounded-full border border-kumo-line/80 bg-kumo-elevated px-3 text-xs text-kumo-default placeholder:text-kumo-subtle" />
               <div className="flex items-center justify-end gap-2">
                 {saved && <span className="text-green-400">Tersimpan</span>}

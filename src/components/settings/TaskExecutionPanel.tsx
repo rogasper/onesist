@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AgentPicker } from "~/components/tasks/AgentPicker";
 import { useExecSettings } from "~/lib/use-exec-settings";
 import type { TaskMode } from "~/shared/types";
 
@@ -45,6 +46,23 @@ export function TaskExecutionPanel({ projectId }: { projectId: string }) {
           );
         })}
       </div>
+      {settings.taskMode === "execution" && (
+        <div className="space-y-2 rounded-xl border border-kumo-line/50 p-3">
+          <p className="text-sm font-medium text-kumo-default">Agen eksekusi default</p>
+          <p className="text-[11px] text-kumo-subtle">Dipakai semua task di proyek ini, kecuali task punya agen sendiri.</p>
+          <AgentPicker value={settings.execProviderId ?? ""} onChange={(id) => save({ execProviderId: id || null })} />
+          <input
+            key={settings.execModel ?? "none"}
+            defaultValue={settings.execModel ?? ""}
+            onBlur={(e) => {
+              const v = e.target.value.trim() || null;
+              if (v !== (settings.execModel ?? null)) save({ execModel: v });
+            }}
+            placeholder="Model default (kosong = default agen)"
+            className="h-8 w-full rounded-full border border-kumo-line/80 bg-kumo-elevated px-3 text-xs text-kumo-default placeholder:text-kumo-subtle"
+          />
+        </div>
+      )}
       <div className="text-xs">
         {saved && <span className="text-kumo-brand">Tersimpan</span>}
         {error && <span className="text-red-400">{error}</span>}
