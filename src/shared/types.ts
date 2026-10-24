@@ -48,6 +48,24 @@ export interface Task {
   updatedAt: string;
 }
 
+/** `execution` lets agents run tasks from the board; `delivery` only shows and manages them. */
+export type TaskMode = "execution" | "delivery";
+
+/** How a finished task reaches the repo: a pull request, a local branch, or a local merge. */
+export type Integration = "pr" | "branch" | "merge";
+
+export interface ExecSettings {
+  taskMode: TaskMode;
+  execProviderId: string | null;
+  execModel: string | null;
+  reviewerProviderId: string | null;
+  reviewerModel: string | null;
+  maxParallel: number;
+  integration: Integration;
+  /** Base branch per repo, keyed by repo path (e.g. "input/code/api"). */
+  baseBranches: Record<string, string>;
+}
+
 export interface BusinessRequirement {
   id: string;
   projectId: string;

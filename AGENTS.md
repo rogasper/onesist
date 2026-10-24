@@ -187,6 +187,7 @@ The API is split into route modules under `server/routes/`, composed by the entr
 | `/api/mcp-servers/oauth/*`, `/api/mcp-servers/gh/*` | POST, GET | Connect steps for an external server (OAuth 2.0 + PKCE, or the `gh` CLI state); see the external-MCP convention below for how a connection result is held before the user saves it |
 | `/api/providers/:id/status` | GET | CLI runtime status (installed / logged in / reachable); API providers answer `ready` |
 | `/api/providers/:id/model-options` | GET | `?model=` → option descriptors of one model (OpenCode variants) |
+| `/api/projects/:id/exec-settings` | GET, PUT | Pengaturan eksekusi task per proyek: mode (`execution \| delivery`), agen/model default dan reviewer, batas paralel, cara integrasi, base branch per repo |
 | `/api/projects/:id/agent-tasks` | POST | `{ mode: openapi\|rtm\|sit, fsd?, fds? }` → new chat thread + the prompt the chat sends in it |
 | `/api/chat/threads/:id/tool-output/:toolCallId` | GET | Whole stored output of one tool call (the transcript carries outputs over 16K shortened) |
 | `/api/chat/threads/:id/fork` | POST | `{ messageId }` → `{ threadId, mode: native\|portable }`: a branch with lineage; the OpenCode session is forked natively at the latest message |
