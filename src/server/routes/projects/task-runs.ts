@@ -14,7 +14,7 @@ import { validateRun } from "~/server/services/task-validation";
 import { readReview, startReview } from "~/server/services/task-review";
 import { runDiff } from "~/server/services/task-diff";
 import { discardRun, requestRevision } from "~/server/services/task-revision";
-import { approveRun } from "~/server/services/task-integration";
+import { approveRun, refreshPrStates } from "~/server/services/task-integration";
 import { readRunFile, writeRunFile } from "~/server/services/task-files";
 import { retryRun } from "~/server/services/task-retry";
 import type { RunState, RunSummary, RunValidation, Task } from "~/shared/types";
@@ -46,7 +46,7 @@ export function summarize(run: typeof taskRuns.$inferSelect, queuePosition: numb
     revision: run.revision,
     queuePosition,
     bundlePath: run.bundlePath,
-    repos: repos.map((r: typeof taskRunRepos.$inferSelect) => ({ repo: r.repo, branch: r.branch, worktreePath: r.worktreePath })),
+    repos: repos.map((r: typeof taskRunRepos.$inferSelect) => ({ repo: r.repo, branch: r.branch, worktreePath: r.worktreePath, prUrl: r.prUrl, prState: r.prState })),
     error: run.error,
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
@@ -65,9 +65,11 @@ router.post("projects/:id/tasks/:taskId/runs", async ({ params }) => {
 });
 
 // GET /api/projects/:id/task-runs — the newest run of each task in the project
-router.get("projects/:id/task-runs", ({ params }) => {
+router.get("projects/:id/task-runs", async ({ params, query }) => {
   const project = getProject(params.id);
   if (!project) return notFound();
+  // The board asks for a refresh once, when it opens: PR states come from GitHub, not from polling.
+  if (query.get("refresh") === "1") await refreshPrStates(project.id);
   const runs: (typeof taskRuns.$inferSelect)[] = db.select().from(taskRuns).where(eq(taskRuns.projectId, params.id)).orderBy(desc(taskRuns.createdAt)).all();
   // Queue places follow the order the runs were queued in (oldest first).
   const queued = runs.filter((r) => r.state === "queued").sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));

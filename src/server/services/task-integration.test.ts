@@ -74,3 +74,11 @@ test("merge mode: the branch is merged into the base branch of the repo", async 
   expect(fs.existsSync(path.join(api, "b.txt"))).toBe(true);
   updateExecSettings("p-int", { integration: "branch" });
 });
+
+test("a PR state is read from gh's answer, and anything else is unknown", async () => {
+  const { parsePrState } = await import("./task-integration");
+  expect(parsePrState("OPEN\n")).toBe("OPEN");
+  expect(parsePrState("merged")).toBe("MERGED");
+  expect(parsePrState("")).toBeNull();
+  expect(parsePrState("<html>")).toBeNull();
+});

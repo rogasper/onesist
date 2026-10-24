@@ -178,6 +178,8 @@ export const taskRunRepos = sqliteTable("task_run_repos", {
   integrated: text("integrated"),
   prUrl: text("pr_url"),
   integrationError: text("integration_error"),
+  /** Last known state of the PR on GitHub (OPEN, MERGED, CLOSED), refreshed when the board opens. */
+  prState: text("pr_state"),
 });
 
 export const fsdSessions = sqliteTable("fsd_sessions", {

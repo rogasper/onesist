@@ -94,7 +94,7 @@ export interface RunSummary {
   /** 1-based place in the project's queue while the run is queued; null otherwise. */
   queuePosition: number | null;
   bundlePath: string;
-  repos: { repo: string; branch: string | null; worktreePath: string | null }[];
+  repos: { repo: string; branch: string | null; worktreePath: string | null; prUrl: string | null; prState: string | null }[];
   error: string | null;
   /** Result of the last validation, or null before the first one. */
   validation: RunValidation | null;

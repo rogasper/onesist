@@ -53,6 +53,28 @@ async function commitLeftovers(worktree: string, message: string): Promise<strin
   return head.code === 0 ? head.stdout.trim() : null;
 }
 
+/** The state GitHub reports for a PR, from `gh pr view --json state`. Anything else is unknown. */
+export function parsePrState(stdout: string): "OPEN" | "MERGED" | "CLOSED" | null {
+  const state = stdout.trim().toUpperCase();
+  return state === "OPEN" || state === "MERGED" || state === "CLOSED" ? state : null;
+}
+
+/** Refreshes the state of every PR the project's runs opened. A PR that cannot be read keeps its last state. */
+export async function refreshPrStates(projectId: string): Promise<void> {
+  const rows = db
+    .select({ id: taskRunRepos.id, prUrl: taskRunRepos.prUrl, worktreePath: taskRunRepos.worktreePath })
+    .from(taskRunRepos)
+    .innerJoin(taskRuns, eq(taskRunRepos.runId, taskRuns.id))
+    .where(eq(taskRuns.projectId, projectId))
+    .all();
+  for (const row of rows) {
+    if (!row.prUrl || !row.worktreePath) continue;
+    const viewed = await exec("gh", ["pr", "view", row.prUrl, "--json", "state", "--jq", ".state"], row.worktreePath);
+    const state = viewed.code === 0 ? parsePrState(viewed.stdout) : null;
+    if (state) db.update(taskRunRepos).set({ prState: state }).where(eq(taskRunRepos.id, row.id)).run();
+  }
+}
+
 export interface ApproveOutcome {
   repo: string;
   integrated: Integration | null;

@@ -103,6 +103,20 @@ export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragS
             Validasi
           </button>
         )}
+        {run?.repos.find((r) => r.prUrl) && (() => {
+          const pr = run.repos.find((r) => r.prUrl)!;
+          return (
+            <a
+              href={pr.prUrl ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="rounded bg-violet-500/10 px-1 text-violet-400"
+            >
+              PR{pr.prState ? ` · ${pr.prState.toLowerCase()}` : ""}
+            </a>
+          );
+        })()}
         {run?.state === "failed" && run.threadId && (
           <button
             type="button"

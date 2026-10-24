@@ -1,0 +1,1 @@
+ALTER TABLE `task_run_repos` ADD `pr_state` text;
