@@ -17,6 +17,7 @@ import { router as agentTasksRouter } from "./projects/agent-tasks";
 import { router as execSettingsRouter } from "./projects/exec-settings";
 import { router as taskReposRouter } from "./projects/task-repos";
 import { router as taskFillRouter } from "./projects/task-fill";
+import { router as taskRunsRouter } from "./projects/task-runs";
 import { router as canvasRouter } from "./canvas";
 import { router as providersRouter } from "./providers";
 import { router as chatRouter } from "./chat";
@@ -40,6 +41,7 @@ export const routers = [
   execSettingsRouter,
   taskReposRouter,
   taskFillRouter,
+  taskRunsRouter,
   handoffRouter,
   fsdRouter,
   assetsRouter,

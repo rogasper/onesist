@@ -107,6 +107,7 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
   const { projectId, root, task, baseDir } = input;
   const settings = getExecSettings(projectId);
 
+  if (settings.taskMode === "delivery") return refuse(409, "Project ini mode delivery: task tidak dijalankan agen.");
   if (!settings.execProviderId) return refuse(409, "Pilih agen eksekusi dulu di Pengaturan project → Task.");
   const provider = getProvider(settings.execProviderId);
   if (!provider || !cliRuntimeFor(provider)) return refuse(409, "Agen eksekusi harus agen CLI (OpenCode, Claude Code, atau Codex).");
@@ -139,6 +140,7 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
       providerId: provider.id,
       model: settings.execModel,
       state: "running",
+      createdAt: now,
       startedAt: now,
       updatedAt: now,
     })
