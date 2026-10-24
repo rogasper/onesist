@@ -33,7 +33,8 @@ export function shellCommandAllowed(command: string, allowed: string[], folder =
     if (i > 0 && parts[i - 1] === "|" && !pipeSafe.includes(seg.split(/\s+/)[0])) return false;
     segments.push(seg);
   }
-  const safeGit = ["git status", "git status --short", "git diff", "git diff --stat", "git diff --name-only", "git log", "git log --oneline"];
+  // Read-only git: status, diff, and log, with the common display flags. None of these write a file.
+  const safeGitPattern = /^git (status( --short| -s)?|diff( --stat| --name-only| --name-status)?|log( --oneline)?( -\d+)?)$/;
   const readOnly = ["ls", "cat", "head", "tail", "wc", "pwd", "rg", "grep", "read"];
   return segments.every((seg) => {
     const cd = /^cd ([^\s]+)$/.exec(seg);
@@ -47,7 +48,7 @@ export function shellCommandAllowed(command: string, allowed: string[], folder =
     if (/^echo( [\w=.,:\-\/"']*)?$/.test(seg)) return true;
     const word = seg.split(/\s+/)[0];
     if (readOnly.includes(word) && !/(^|\s)-(exec|delete)\b/.test(seg)) return true;
-    return allowed.includes(seg) || safeGit.includes(seg);
+    return allowed.includes(seg) || safeGitPattern.test(seg);
   });
 }
 

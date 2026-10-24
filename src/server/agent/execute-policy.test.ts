@@ -78,3 +78,10 @@ test("a pipe is allowed only into a text viewer", () => {
   expect(shellCommandAllowed("cat x || rm y", allowed, folder)).toBe(false);
   expect(shellCommandAllowed("echo hi > x.txt", allowed, folder)).toBe(false);
 });
+
+test("read-only git with a count flag is allowed; git commands that write are not", () => {
+  expect(shellCommandAllowed("git log --oneline -3", allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("git log -3", allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("git diff --output=/tmp/x", allowed, folder)).toBe(false);
+  expect(shellCommandAllowed("git push origin main", allowed, folder)).toBe(false);
+});
