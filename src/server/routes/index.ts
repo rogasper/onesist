@@ -15,6 +15,7 @@ import { router as rtmRouter } from "./projects/rtm";
 import { router as sitRouter } from "./projects/sit";
 import { router as agentTasksRouter } from "./projects/agent-tasks";
 import { router as execSettingsRouter } from "./projects/exec-settings";
+import { router as taskReposRouter } from "./projects/task-repos";
 import { router as canvasRouter } from "./canvas";
 import { router as providersRouter } from "./providers";
 import { router as chatRouter } from "./chat";
@@ -36,6 +37,7 @@ export const routers = [
   docsRouter,
   tasksRouter,
   execSettingsRouter,
+  taskReposRouter,
   handoffRouter,
   fsdRouter,
   assetsRouter,
