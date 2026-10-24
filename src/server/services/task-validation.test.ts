@@ -94,6 +94,8 @@ test("a failing check fails the run and names the check", async () => {
 });
 
 test("a run in review can be validated again after the user edited it, and stays in review when it passes", async () => {
+  // The user fixed what failed: the check's file exists again.
+  fs.writeFileSync(path.join(wt, "ok.txt"), "x");
   const res = await validateRun("run-pass");
   expect(res.ok).toBe(true);
   if (res.ok) expect(res.state).toBe("in_review");
