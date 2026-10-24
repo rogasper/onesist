@@ -7,6 +7,7 @@ import type { RunSummary, Task } from "~/shared/types";
 import { TaskBoardCard } from "./TaskBoardCard";
 import { TaskFillDialog } from "./TaskFillDialog";
 import { TaskReviewDialog } from "./TaskReviewDialog";
+import { TaskRunDrawer } from "./TaskRunDrawer";
 
 const COLUMN_DOT: Record<TaskStatus, string> = {
   todo: "bg-blue-400",
@@ -62,6 +63,9 @@ export function TaskBoard({
   onRetry,
 }: TaskBoardProps) {
   const [reviewRun, setReviewRun] = useState<RunSummary | null>(null);
+  /** A card opens the drawer; the drawer opens the detail view and the review on request. */
+  const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
+  const drawerTask = allTasks.find((t) => t.id === drawerTaskId) ?? null;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ task: Task; status: TaskStatus; waitingOn: string[] } | null>(null);
   const [fill, setFill] = useState<{ task: Task; problems: ReadinessProblem[] } | null>(null);
@@ -122,7 +126,7 @@ export function TaskBoard({
                     dependency={dependencyState(task, byKey)}
                     problems={executionEnabled ? readinessProblems(task, repoCount) : []}
                     run={runs[task.id]}
-                    onOpen={onOpenTask}
+                    onOpen={(t) => setDrawerTaskId(t.id)}
                     onDragStart={(t) => setDraggingId(t.id)}
                     onOpenChat={onOpenChat}
                     onValidate={onValidate}
@@ -156,6 +160,20 @@ export function TaskBoard({
           ? `${taskKey(pending.task)} masih menunggu ${pending.waitingOn.join(", ")}. Tetap pindahkan ke In Progress?`
           : ""}
       </ConfirmDialog>
+      {drawerTask && (
+        <TaskRunDrawer
+          projectId={projectId}
+          task={drawerTask}
+          run={runs[drawerTask.id]}
+          onClose={() => setDrawerTaskId(null)}
+          onOpenDetail={(t) => { setDrawerTaskId(null); onOpenTask(t); }}
+          onOpenChat={onOpenChat}
+          onValidate={onValidate}
+          onReview={onReview}
+          onOpenReview={(r) => { setDrawerTaskId(null); setReviewRun(r); }}
+          onRetry={onRetry}
+        />
+      )}
       <TaskReviewDialog
         projectId={projectId}
         run={reviewRun}

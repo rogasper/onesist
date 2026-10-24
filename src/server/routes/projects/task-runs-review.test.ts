@@ -60,3 +60,10 @@ test("queued runs report their place in the queue, oldest first", async () => {
   expect(byId["run-qa"]).toBe(1);
   expect(byId["run-qb"]).toBe(2);
 });
+
+test("the live view answers with the state and the agent's latest words", async () => {
+  const res = await call("GET", "/api/projects/p-rrv/task-runs/run-rrv/live");
+  expect(res.status).toBe(200);
+  expect(res.body.state).toBe("running");
+  expect(res.body.lastText).toBeNull();
+});

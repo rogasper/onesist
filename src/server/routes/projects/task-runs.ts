@@ -17,6 +17,7 @@ import { discardRun, requestRevision } from "~/server/services/task-revision";
 import { approveRun, refreshPrStates } from "~/server/services/task-integration";
 import { readRunFile, writeRunFile } from "~/server/services/task-files";
 import { retryRun } from "~/server/services/task-retry";
+import { listMessages, messageText, parseParts } from "~/server/agent/store";
 import type { RunState, RunSummary, RunValidation, Task } from "~/shared/types";
 
 export const router = new Router();
@@ -179,4 +180,15 @@ router.post("projects/:id/task-runs/:runId/retry", async ({ params }) => {
   if (!run || run.projectId !== project.id) return notFound();
   const result = await retryRun(params.runId);
   return result.ok ? json({ ok: true }) : json({ error: result.error }, result.status);
+});
+
+// GET /api/projects/:id/task-runs/:runId/live — what the drawer's Live tab shows: the agent's latest words
+router.get("projects/:id/task-runs/:runId/live", ({ params }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const last = run.threadId ? listMessages(run.threadId).filter((m) => m.role === "assistant").at(-1) : undefined;
+  const text = last ? messageText(parseParts(last.contentJson)) : "";
+  return json({ state: run.state, revision: run.revision, error: run.error, lastText: text ? text.slice(-2000) : null });
 });
