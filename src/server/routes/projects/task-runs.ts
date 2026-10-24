@@ -16,6 +16,7 @@ import { runDiff } from "~/server/services/task-diff";
 import { discardRun, requestRevision } from "~/server/services/task-revision";
 import { approveRun } from "~/server/services/task-integration";
 import { readRunFile, writeRunFile } from "~/server/services/task-files";
+import { retryRun } from "~/server/services/task-retry";
 import type { RunState, RunSummary, RunValidation, Task } from "~/shared/types";
 
 export const router = new Router();
@@ -166,4 +167,14 @@ router.put("projects/:id/task-runs/:runId/file", async ({ params, query, body })
   if (typeof data.content !== "string") return json({ error: "Isi berkas harus berupa teks." }, 400);
   const result = await writeRunFile(params.runId, query.get("repo") ?? "", query.get("path") ?? "", data.content);
   return result.ok ? json({ ok: true }) : json({ error: result.error }, 400);
+});
+
+// POST /api/projects/:id/task-runs/:runId/retry — Ulangi: a failed run goes back to its agent
+router.post("projects/:id/task-runs/:runId/retry", async ({ params }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const result = await retryRun(params.runId);
+  return result.ok ? json({ ok: true }) : json({ error: result.error }, result.status);
 });

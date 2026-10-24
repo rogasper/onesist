@@ -293,6 +293,16 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
     reloadRuns();
   }, [id, reloadRuns]);
 
+  /** Sends a failed run back to its agent, in the same thread and worktree. */
+  const handleRetry = useCallback(async (run: RunSummary) => {
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/retry`, { method: "POST", cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) setRunError(body.error ?? "Run gagal diulang.");
+    else if (run.threadId) openChatTask({ threadId: run.threadId });
+    reloadRuns();
+  }, [id, reloadRuns]);
+
   /** Opens the AI reviewer's read-only thread. Its findings are read once it answers. */
   const handleReview = useCallback(async (run: RunSummary) => {
     setRunError(null);
@@ -817,6 +827,7 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
                 onReview={handleReview}
                 onReadReview={handleReadReview}
                 onRunChanged={reloadRuns}
+                onRetry={handleRetry}
               />
             ) : (
             <TaskList

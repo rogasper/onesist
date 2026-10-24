@@ -39,6 +39,7 @@ interface TaskBoardProps {
   onReadReview: (run: RunSummary) => void;
   /** Called after a revision or discard, so the runs reload. */
   onRunChanged: () => void;
+  onRetry: (run: RunSummary) => void;
 }
 
 export function TaskBoard({
@@ -58,6 +59,7 @@ export function TaskBoard({
   onReview,
   onReadReview,
   onRunChanged,
+  onRetry,
 }: TaskBoardProps) {
   const [reviewRun, setReviewRun] = useState<RunSummary | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -127,6 +129,7 @@ export function TaskBoard({
                     onReview={onReview}
                     onReadReview={onReadReview}
                     onOpenReview={setReviewRun}
+                    onRetry={onRetry}
                   />
                 ))}
                 {list.length === 0 && <p className="px-1 py-6 text-center text-[11px] text-kumo-subtle">Kosong</p>}

@@ -16,6 +16,7 @@ interface TaskBoardCardProps {
   onReview: (run: RunSummary) => void;
   onReadReview: (run: RunSummary) => void;
   onOpenReview: (run: RunSummary) => void;
+  onRetry: (run: RunSummary) => void;
 }
 
 const RUN_BADGE: Record<RunSummary["state"], { label: string; cls: string }> = {
@@ -45,7 +46,7 @@ function countItems(json: string | null): number {
   }
 }
 
-export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragStart, onOpenChat, onValidate, onReview, onReadReview, onOpenReview }: TaskBoardCardProps) {
+export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragStart, onOpenChat, onValidate, onReview, onReadReview, onOpenReview, onRetry }: TaskBoardCardProps) {
   const key = taskKey(task);
   const title = task.code ? task.title.replace(`${task.code}:`, "").trim() : task.title;
   const criteria = countItems(task.acceptanceCriteriaJson);
@@ -100,6 +101,15 @@ export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragS
             className="rounded bg-violet-500/10 px-1 text-violet-400"
           >
             Validasi
+          </button>
+        )}
+        {run?.state === "failed" && run.threadId && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRetry(run); }}
+            className="rounded bg-kumo-elevated px-1 text-kumo-subtle"
+          >
+            Ulangi
           </button>
         )}
         {run?.state === "in_review" && (
