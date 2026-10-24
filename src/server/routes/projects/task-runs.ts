@@ -27,7 +27,10 @@ function parseJson<T>(json: string | null): T | null {
 
 export function summarize(run: typeof taskRuns.$inferSelect): RunSummary {
   const repos = db.select().from(taskRunRepos).where(eq(taskRunRepos.runId, run.id)).all();
-  const review = parseJson<{ threadId: string | null; findings: unknown[] }>(run.reviewJson);
+  const stored = parseJson<{ threadId: string | null; findings: unknown[] }>(run.reviewJson);
+  const review = run.reviewerThreadId
+    ? { threadId: run.reviewerThreadId, findings: stored?.findings ?? [], read: stored !== null }
+    : null;
   return {
     validation: parseJson<RunValidation>(run.validationJson),
     review,

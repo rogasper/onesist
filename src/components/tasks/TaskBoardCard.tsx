@@ -12,14 +12,23 @@ interface TaskBoardCardProps {
   onOpen: (task: Task) => void;
   onDragStart: (task: Task) => void;
   onOpenChat: (threadId: string) => void;
+  onValidate: (run: RunSummary) => void;
+  onReview: (run: RunSummary) => void;
+  onReadReview: (run: RunSummary) => void;
 }
 
 const RUN_BADGE: Record<RunSummary["state"], { label: string; cls: string }> = {
   running: { label: "Berjalan", cls: "bg-sky-500/10 text-sky-400" },
   waiting_input: { label: "Butuh jawaban", cls: "bg-amber-500/15 text-amber-400" },
   validating: { label: "Menunggu validasi", cls: "bg-violet-500/10 text-violet-400" },
+  in_review: { label: "Lolos cek", cls: "bg-green-500/10 text-green-400" },
   failed: { label: "Gagal", cls: "bg-red-500/10 text-red-400" },
 };
+
+/** Validation runs when the agent is done, or again after a failed check once it is fixed. */
+function canValidate(run: RunSummary): boolean {
+  return run.state === "validating" || (run.state === "failed" && (run.error ?? "").startsWith("Cek gagal"));
+}
 
 /** Length of a stored JSON array (file scope, acceptance criteria); anything else counts as none. */
 function countItems(json: string | null): number {
@@ -32,7 +41,7 @@ function countItems(json: string | null): number {
   }
 }
 
-export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragStart, onOpenChat }: TaskBoardCardProps) {
+export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragStart, onOpenChat, onValidate, onReview, onReadReview }: TaskBoardCardProps) {
   const key = taskKey(task);
   const title = task.code ? task.title.replace(`${task.code}:`, "").trim() : task.title;
   const criteria = countItems(task.acceptanceCriteriaJson);
@@ -78,6 +87,33 @@ export function TaskBoardCard({ task, dependency, problems, run, onOpen, onDragS
             className={`rounded px-1 ${RUN_BADGE[run.state].cls} disabled:cursor-default`}
           >
             {RUN_BADGE[run.state].label}
+          </button>
+        )}
+        {run && canValidate(run) && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onValidate(run); }}
+            className="rounded bg-violet-500/10 px-1 text-violet-400"
+          >
+            Validasi
+          </button>
+        )}
+        {run?.state === "in_review" && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onReview(run); }}
+            className="rounded bg-kumo-elevated px-1 text-kumo-subtle"
+          >
+            Tinjau AI
+          </button>
+        )}
+        {run?.review?.threadId && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onReadReview(run); }}
+            className="rounded bg-kumo-elevated px-1 text-kumo-subtle"
+          >
+            {run.review.read ? `Temuan AI: ${run.review.findings.length}` : "Baca temuan AI"}
           </button>
         )}
         {problems.length > 0 && (

@@ -33,6 +33,9 @@ interface TaskBoardProps {
   onOpenChat: (threadId: string) => void;
   /** The last start error, shown above the board until the next start. */
   runError: string | null;
+  onValidate: (run: RunSummary) => void;
+  onReview: (run: RunSummary) => void;
+  onReadReview: (run: RunSummary) => void;
 }
 
 export function TaskBoard({
@@ -48,6 +51,9 @@ export function TaskBoard({
   onStartRun,
   onOpenChat,
   runError,
+  onValidate,
+  onReview,
+  onReadReview,
 }: TaskBoardProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ task: Task; status: TaskStatus; waitingOn: string[] } | null>(null);
@@ -112,6 +118,9 @@ export function TaskBoard({
                     onOpen={onOpenTask}
                     onDragStart={(t) => setDraggingId(t.id)}
                     onOpenChat={onOpenChat}
+                    onValidate={onValidate}
+                    onReview={onReview}
+                    onReadReview={onReadReview}
                   />
                 ))}
                 {list.length === 0 && <p className="px-1 py-6 text-center text-[11px] text-kumo-subtle">Kosong</p>}

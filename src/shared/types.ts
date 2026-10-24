@@ -82,7 +82,7 @@ export interface RepoSummary {
 }
 
 /** The state of one run of a task, as the board shows it. */
-export type RunState = "running" | "waiting_input" | "validating" | "failed";
+export type RunState = "running" | "waiting_input" | "validating" | "in_review" | "failed";
 
 export interface RunSummary {
   id: string;
@@ -94,8 +94,8 @@ export interface RunSummary {
   error: string | null;
   /** Result of the last validation, or null before the first one. */
   validation: RunValidation | null;
-  /** The AI reviewer's findings, or null before a review. */
-  review: { threadId: string | null; findings: unknown[] } | null;
+  /** The AI reviewer: its thread, and the findings once they have been read (`read`). Null before a review. */
+  review: { threadId: string | null; findings: unknown[]; read: boolean } | null;
   createdAt: string | null;
   updatedAt: string | null;
 }

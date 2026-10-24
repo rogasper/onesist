@@ -30,6 +30,7 @@ import { TaskBoard } from "./TaskBoard";
 import { useExecSettings } from "~/lib/use-exec-settings";
 import { useRepos } from "~/lib/use-repos";
 import { useTaskRuns } from "~/lib/use-task-runs";
+import type { RunSummary } from "~/shared/types";
 import { openChatTask } from "~/lib/chat-task";
 
 const STATUS_FILTERS = [
@@ -276,6 +277,39 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
     } catch {
       setRunError("Gagal memulai run.");
     }
+  }, [id, reloadRuns]);
+
+  /** Runs the checks of a finished run. A failed check shows its name above the board. */
+  const handleValidate = useCallback(async (run: RunSummary) => {
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/validate`, { method: "POST", cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { error?: string; state?: string };
+    if (!res.ok) setRunError(body.error ?? "Validasi gagal dijalankan.");
+    if (body.state === "in_review") setTasks((prev) => prev.map((t) => (t.id === run.taskId ? { ...t, status: "in_review" } : t)));
+    reloadRuns();
+  }, [id, reloadRuns]);
+
+  /** Opens the AI reviewer's read-only thread. Its findings are read once it answers. */
+  const handleReview = useCallback(async (run: RunSummary) => {
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/review`, { method: "POST", cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { threadId?: string; text?: string; error?: string };
+    if (!res.ok || !body.threadId) {
+      setRunError(body.error ?? "Tinjauan AI gagal dimulai.");
+      return;
+    }
+    openChatTask({ threadId: body.threadId, text: body.text ?? null });
+    reloadRuns();
+  }, [id, reloadRuns]);
+
+  /** Reads the reviewer's findings from its answer, and stores them on the run. */
+  const handleReadReview = useCallback(async (run: RunSummary) => {
+    if (!run.review?.threadId) return;
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/review?threadId=${encodeURIComponent(run.review.threadId)}`, { cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) setRunError(body.error ?? "Temuan AI belum bisa dibaca.");
+    reloadRuns();
   }, [id, reloadRuns]);
 
   const handleSave = useCallback(async (taskId: string, data: Partial<Task>) => {
@@ -742,6 +776,9 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
                 onStartRun={handleStartRun}
                 onOpenChat={(threadId) => openChatTask({ threadId })}
                 runError={runError}
+                onValidate={handleValidate}
+                onReview={handleReview}
+                onReadReview={handleReadReview}
               />
             ) : (
             <TaskList
