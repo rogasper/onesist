@@ -93,7 +93,8 @@ test("a failing check fails the run and names the check", async () => {
   expect(run.error).toBe("Cek gagal: marker (input/code/api)");
 });
 
-test("a run that is already in review is not validated again", async () => {
+test("a run in review can be validated again after the user edited it, and stays in review when it passes", async () => {
   const res = await validateRun("run-pass");
-  expect(res.ok).toBe(false);
+  expect(res.ok).toBe(true);
+  if (res.ok) expect(res.state).toBe("in_review");
 });

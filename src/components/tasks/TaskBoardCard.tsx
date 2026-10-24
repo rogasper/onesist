@@ -28,7 +28,7 @@ const RUN_BADGE: Record<RunSummary["state"], { label: string; cls: string }> = {
 
 /** Validation runs when the agent is done, or again after a failed check once it is fixed. */
 function canValidate(run: RunSummary): boolean {
-  return run.state === "validating" || (run.state === "failed" && (run.error ?? "").startsWith("Cek gagal"));
+  return run.state === "validating" || run.state === "in_review" || (run.state === "failed" && (run.error ?? "").startsWith("Cek gagal"));
 }
 
 /** Length of a stored JSON array (file scope, acceptance criteria); anything else counts as none. */

@@ -87,9 +87,12 @@ export type ValidateResult =
   | { ok: true; state: "in_review" | "failed"; validation: RunValidation }
   | { ok: false; status: number; error: string };
 
-/** A run can be validated while it is validating, or after a failed check (once it is fixed). */
+/**
+ * A run can be validated when the agent is done, after a failed check (once it is fixed), or
+ * again while in review after the user edited files themselves.
+ */
 function canValidate(state: string, error: string | null): boolean {
-  return state === "validating" || (state === "failed" && (error ?? "").startsWith("Cek gagal"));
+  return state === "validating" || state === "in_review" || (state === "failed" && (error ?? "").startsWith("Cek gagal"));
 }
 
 export async function validateRun(runId: string): Promise<ValidateResult> {

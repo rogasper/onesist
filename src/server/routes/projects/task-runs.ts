@@ -14,6 +14,8 @@ import { validateRun } from "~/server/services/task-validation";
 import { readReview, startReview } from "~/server/services/task-review";
 import { runDiff } from "~/server/services/task-diff";
 import { discardRun, requestRevision } from "~/server/services/task-revision";
+import { approveRun } from "~/server/services/task-integration";
+import { readRunFile, writeRunFile } from "~/server/services/task-files";
 import type { RunState, RunSummary, RunValidation, Task } from "~/shared/types";
 
 export const router = new Router();
@@ -131,4 +133,33 @@ router.post("projects/:id/task-runs/:runId/discard", async ({ params }) => {
   if (!run || run.projectId !== project.id) return notFound();
   const result = await discardRun(params.runId);
   return result.ok ? json({ ok: true }) : json({ error: result.error }, result.status);
+});
+
+// POST /api/projects/:id/task-runs/:runId/approve — Setujui: commit, then branch, PR, or merge
+router.post("projects/:id/task-runs/:runId/approve", async ({ params }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const result = await approveRun(params.runId);
+  return result.ok ? json({ state: result.state, outcomes: result.outcomes, error: result.error }) : json({ error: result.error }, result.status);
+});
+
+// GET / PUT /api/projects/:id/task-runs/:runId/file?repo=&path= — Edit sendiri, inside the worktree only
+router.get("projects/:id/task-runs/:runId/file", async ({ params, query }) => {
+  const project = getProject(params.id);
+  const run = project ? db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get() : undefined;
+  if (!project || !run || run.projectId !== project.id) return notFound();
+  const result = await readRunFile(params.runId, query.get("repo") ?? "", query.get("path") ?? "");
+  return result.ok ? json({ content: result.content }) : json({ error: result.error }, 400);
+});
+
+router.put("projects/:id/task-runs/:runId/file", async ({ params, query, body }) => {
+  const project = getProject(params.id);
+  const run = project ? db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get() : undefined;
+  if (!project || !run || run.projectId !== project.id) return notFound();
+  const data = (await body()) as { content?: unknown };
+  if (typeof data.content !== "string") return json({ error: "Isi berkas harus berupa teks." }, 400);
+  const result = await writeRunFile(params.runId, query.get("repo") ?? "", query.get("path") ?? "", data.content);
+  return result.ok ? json({ ok: true }) : json({ error: result.error }, 400);
 });
