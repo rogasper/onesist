@@ -98,7 +98,7 @@ test("a ready task starts a run: worktree in the run folder, a thread there, and
   expect(repoRows).toHaveLength(1);
   expect(fs.existsSync(repoRows[0].p)).toBe(true);
   const thread = store.getThread(res.threadId)!;
-  expect(thread.permissionMode).toBe("ask");
+  expect(thread.permissionMode).toBe("execute");
   expect(thread.workspacePath).toBe(run.bundlePath);
   expect(db.select().from(tasks).where(eq(tasks.id, t.id)).get()!.status).toBe("in_progress");
 });
@@ -119,10 +119,32 @@ test("the parallel limit refuses a run when it is reached", async () => {
   updateExecSettings("p-run", { maxParallel: 2 });
 });
 
-test("a Claude Code run gets execute; other CLIs keep ask", async () => {
-  updateExecSettings("p-run", { execProviderId: "prov-claude", maxParallel: 5 });
-  const res = await startTaskRun({ projectId: "p-run", root, task: task("t-claude"), baseDir });
-  expect(res.ok).toBe(true);
-  if (res.ok) expect(store.getThread(res.threadId)!.permissionMode).toBe("execute");
+test("runs on Claude Code, OpenCode, and Pi get execute; Codex keeps ask", async () => {
+  db.insert(llmProviders).values({ id: "prov-codex", name: "Codex CLI", apiStyle: "cli", cliAgent: "codex" }).run();
+  updateExecSettings("p-run", { maxParallel: 5 });
+  const modes: Record<string, string> = {};
+  for (const [provider, id] of [["prov-claude", "t-claude"], ["prov-cli", "t-oc"], ["prov-codex", "t-codex"]] as const) {
+    updateExecSettings("p-run", { execProviderId: provider });
+    const res = await startTaskRun({ projectId: "p-run", root, task: task(id), baseDir });
+    expect(res.ok).toBe(true);
+    if (res.ok) modes[provider] = store.getThread(res.threadId)!.permissionMode;
+  }
+  expect(modes).toEqual({ "prov-claude": "execute", "prov-cli": "execute", "prov-codex": "ask" });
   updateExecSettings("p-run", { execProviderId: "prov-cli", maxParallel: 2 });
+});
+
+test("a run writes the repo's configured checks as its shell rules", async () => {
+  fs.mkdirSync(path.join(root, ".agents"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".agents", "onesist-worktree.json"), JSON.stringify({ checks: { "input/code/api": [{ name: "test", command: "bun test" }] } }));
+  // Earlier tests left runs active; this test is about the rules, not the limit.
+  updateExecSettings("p-run", { execProviderId: "prov-cli", maxParallel: 8 });
+  const res = await startTaskRun({ projectId: "p-run", root, task: task("t-rules"), baseDir });
+  expect(res.ok).toBe(true);
+  if (res.ok) {
+    const { readAllowedCommands } = await import("~/server/agent/execute-policy");
+    const run = db.select().from(taskRuns).where(eq(taskRuns.id, res.runId)).get()!;
+    expect(readAllowedCommands(run.bundlePath)).toEqual(["bun test"]);
+  }
+  fs.rmSync(path.join(root, ".agents"), { recursive: true, force: true });
+  updateExecSettings("p-run", { maxParallel: 2 });
 });

@@ -99,6 +99,19 @@ test("execute: reads are allowed, and shell still asks", async () => {
   const can = makeCanUseTool({ runId: "r", policy: "execute", cwd: folder, ask: answering("Izinkan sekali") });
   expect((await can("Read", { file_path: "/etc/hosts" }, { signal: signal() } as any))?.behavior).toBe("allow");
   asked.length = 0;
+  // Nothing is configured for this folder, so a test command still asks.
   expect((await can("Bash", { command: "bun test" }, { signal: signal() } as any))?.behavior).toBe("allow");
+  expect(asked).toHaveLength(1);
+});
+
+test("execute: a configured check runs without a question, anything else asks", async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "onesist-run-folder-"));
+  const { writeExecutePolicy } = await import("../../execute-policy");
+  writeExecutePolicy(folder, ["bun test"]);
+  asked.length = 0;
+  const can = makeCanUseTool({ runId: "r", policy: "execute", cwd: folder, ask: answering("Tolak") });
+  expect((await can("Bash", { command: "bun test" }, { signal: signal() } as any))?.behavior).toBe("allow");
+  expect(asked).toHaveLength(0);
+  expect((await can("Bash", { command: "rm -rf api" }, { signal: signal() } as any))?.behavior).toBe("deny");
   expect(asked).toHaveLength(1);
 });

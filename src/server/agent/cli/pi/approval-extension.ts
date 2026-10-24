@@ -6,17 +6,48 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { EXECUTE_POLICY_FILE, shellCommandAllowed } from "~/server/agent/execute-policy";
 
-export const APPROVAL_EXTENSION_SOURCE = `import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+/**
+ * The rules `execute` applies, from the shared module. Its source is embedded so the extension
+ * (which Pi loads on its own) runs exactly the same check.
+ */
+const EXECUTE_RULES = [shellCommandAllowed.toString(), `const EXECUTE_POLICY_FILE = ${JSON.stringify(EXECUTE_POLICY_FILE)};`].join("\n");
+
+export const APPROVAL_EXTENSION_SOURCE = `import fs from "node:fs";
+import path from "node:path";
+${EXECUTE_RULES}
 
 const WRITE_TOOLS = ["write", "edit", "bash"];
 
-export default function (pi: ExtensionAPI) {
+function insideRun(file, cwd) {
+  const rel = path.relative(cwd, path.resolve(cwd, file));
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+function allowedCommands(cwd) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(cwd, EXECUTE_POLICY_FILE), "utf-8"));
+    return Array.isArray(parsed?.allowedCommands) ? parsed.allowedCommands : [];
+  } catch {
+    return [];
+  }
+}
+
+// \`execute\`: writes inside the run folder and checked shell commands run without a question.
+function executeAllows(event, cwd) {
+  if (event.toolName === "bash") return typeof event.input?.command === "string" && shellCommandAllowed(event.input.command, allowedCommands(cwd));
+  const file = event.input?.path;
+  return typeof file === "string" && insideRun(file, cwd);
+}
+
+export default function (pi) {
   const policy = process.env.ONESIST_PI_POLICY ?? "ask";
   pi.on("tool_call", async (event, ctx) => {
     if (!WRITE_TOOLS.includes(event.toolName)) return;
     if (policy === "auto") return;
     if (policy === "readonly") return { block: true, reason: "Mode hanya-baca: perubahan tidak diizinkan." };
+    if (policy === "execute" && executeAllows(event, ctx.cwd)) return;
     const ok = await ctx.ui.confirm("Izinkan Pi memakai " + event.toolName + "?", JSON.stringify(event.input).slice(0, 500));
     if (!ok) return { block: true, reason: "Ditolak oleh pengguna." };
   });

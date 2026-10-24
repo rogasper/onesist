@@ -5,11 +5,12 @@
  */
 import type { PermissionMode, ThreadMode } from "~/server/agent/types";
 
-export type PiPolicy = "ask" | "auto" | "readonly";
+export type PiPolicy = "ask" | "auto" | "readonly" | "execute";
 
 export function piPolicy(mode: PermissionMode, threadMode: ThreadMode): PiPolicy {
   if (threadMode !== "agent" || mode === "readonly" || mode === "no-shell") return "readonly";
   if (mode === "auto") return "auto";
+  if (mode === "execute") return "execute";
   return "ask";
 }
 

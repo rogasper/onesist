@@ -10,6 +10,7 @@ import type { CanUseTool, PermissionResult } from "@anthropic-ai/claude-agent-sd
 import { awaitQuestion } from "~/server/agent/run-registry";
 import type { PermissionMode, ThreadMode } from "~/server/agent/types";
 import { isInside } from "~/server/agent/workspace/location";
+import { readAllowedCommands, shellCommandAllowed } from "~/server/agent/execute-policy";
 
 export type ClaudePolicy = "ask" | "auto" | "readonly" | "no-shell" | "execute";
 
@@ -60,6 +61,10 @@ export function makeCanUseTool(opts: { runId: string; policy: ClaudePolicy; cwd?
       // Writes inside the run folder need no question; everything else falls through to the question.
       const file = targetOf(input);
       if (WRITE_TOOLS.includes(toolName) && file && opts.cwd && isInside(path.resolve(opts.cwd, file), opts.cwd)) return allow(input);
+      // A shell command is allowed only when the run's rules name it (checks, read-only git).
+      if (toolName === "Bash" && opts.cwd && typeof input.command === "string" && shellCommandAllowed(input.command, readAllowedCommands(opts.cwd))) {
+        return allow(input);
+      }
     }
     if (opts.policy === "readonly") return READ_ONLY_TOOLS.includes(toolName) ? allow(input) : deny("Mode hanya-baca: tindakan ini tidak diizinkan.");
     if (opts.policy === "no-shell" && SHELL_TOOLS.includes(toolName)) return deny("Perintah shell tidak diizinkan di mode ini.");

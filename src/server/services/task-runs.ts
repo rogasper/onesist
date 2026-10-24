@@ -13,6 +13,8 @@ import { getSetting, normalizeAgentMaxSteps } from "~/server/agent/settings";
 import { createWorktree, findRepo, listProjectRepos } from "~/server/agent/workspace/worktrees";
 import { runGit } from "~/server/agent/workspace/git";
 import { slug } from "~/server/agent/workspace/location";
+import { writeExecutePolicy } from "~/server/agent/execute-policy";
+import { readWorktreeConfig } from "./task-checks";
 import { db } from "~/server/db/client";
 import { taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
 import { eventBus } from "~/server/realtime/events";
@@ -23,6 +25,9 @@ import type { RunState, Task } from "~/shared/types";
 import { getExecSettings } from "./exec-settings";
 
 export const ACTIVE_STATES: RunState[] = ["running", "waiting_input", "validating"];
+
+/** CLI runtimes whose `execute` mode checks every shell command against the run rules. */
+const EXECUTE_RUNTIMES = ["claude", "opencode", "pi"];
 
 export interface RunPromptInput {
   title: string;
@@ -146,6 +151,10 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
     })
     .run();
 
+  // The run's shell rules: the checks each repo configured, and nothing else (see execute-policy).
+  const config = readWorktreeConfig(root);
+  writeExecutePolicy(bundlePath, resolved.flatMap((id) => (config.checks[id] ?? []).map((c) => c.command)));
+
   const branch = `onesist/${slug(task.code ?? task.title, 32)}-${runId.replace(/-/g, "").slice(-6)}`;
   const worktrees: { id: string; worktreePath: string; branch: string }[] = [];
   for (const repo of repoInfos.filter((r): r is NonNullable<typeof r> => r !== null)) {
@@ -185,8 +194,9 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
     mode: "agent",
     providerId: provider.id,
     model: settings.execModel,
-    // Claude Code enforces the run folder for `execute`; other CLIs treat it as `ask`.
-    permissionMode: provider.cliAgent === "claude" ? "execute" : "ask",
+    // `execute` where the run's rules reach every shell command (Claude Code, OpenCode, Pi). Codex
+    // runs its own shell inside the sandbox without asking, so its runs keep `ask`.
+    permissionMode: EXECUTE_RUNTIMES.includes(provider.cliAgent ?? "") ? "execute" : "ask",
     maxSteps: normalizeAgentMaxSteps(getSetting("agentMaxSteps")),
   });
   updateThread(thread.id, {
