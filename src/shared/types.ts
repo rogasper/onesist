@@ -66,6 +66,21 @@ export interface ExecSettings {
   baseBranches: Record<string, string>;
 }
 
+export interface CheckCommandSummary {
+  name: string;
+  command: string;
+}
+
+/** A git repo a task can target, with the check commands configured for it. */
+export interface RepoSummary {
+  id: string;
+  path: string;
+  isGit: boolean;
+  baseBranch: string | null;
+  checks: CheckCommandSummary[];
+  suggestedChecks: CheckCommandSummary[];
+}
+
 export interface BusinessRequirement {
   id: string;
   projectId: string;

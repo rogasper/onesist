@@ -2,8 +2,10 @@ import { useMemo, useState, type DragEvent } from "react";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { dependencyState, groupByStatus, orderTasks, taskKey } from "~/lib/task-board";
 import { STATUS_LABELS, TASK_STATUSES, normalizeStatus, type TaskStatus } from "~/lib/task-status";
+import { PROBLEM_LABELS, readinessProblems, type ReadinessProblem } from "~/lib/task-readiness";
 import type { Task } from "~/shared/types";
 import { TaskBoardCard } from "./TaskBoardCard";
+import { TaskFillDialog } from "./TaskFillDialog";
 
 const COLUMN_DOT: Record<TaskStatus, string> = {
   todo: "bg-blue-400",
@@ -19,11 +21,17 @@ interface TaskBoardProps {
   allTasks: Task[];
   onStatusChange: (taskId: string, status: TaskStatus) => void;
   onOpenTask: (task: Task) => void;
+  /** Off in delivery mode: no readiness chips, no blocked drags, no fill. */
+  executionEnabled: boolean;
+  repoCount: number;
+  projectId: string;
+  onFilled: (task: Task) => void;
 }
 
-export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask }: TaskBoardProps) {
+export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask, executionEnabled, repoCount, projectId, onFilled }: TaskBoardProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ task: Task; status: TaskStatus; waitingOn: string[] } | null>(null);
+  const [fill, setFill] = useState<{ task: Task; problems: ReadinessProblem[] } | null>(null);
   const byKey = useMemo(() => new Map(allTasks.map((t) => [taskKey(t), t])), [allTasks]);
   const groups = useMemo(() => groupByStatus(orderTasks(tasks)), [tasks]);
 
@@ -37,6 +45,11 @@ export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask }: TaskB
       const dependency = dependencyState(task, byKey);
       if (dependency.locked) {
         setPending({ task, status, waitingOn: dependency.waitingOn });
+        return;
+      }
+      const problems = executionEnabled ? readinessProblems(task, repoCount) : [];
+      if (problems.length > 0) {
+        setFill({ task, problems });
         return;
       }
     }
@@ -69,6 +82,7 @@ export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask }: TaskB
                     key={task.id}
                     task={task}
                     dependency={dependencyState(task, byKey)}
+                    problems={executionEnabled ? readinessProblems(task, repoCount) : []}
                     onOpen={onOpenTask}
                     onDragStart={(t) => setDraggingId(t.id)}
                   />
@@ -94,6 +108,13 @@ export function TaskBoard({ tasks, allTasks, onStatusChange, onOpenTask }: TaskB
           ? `${taskKey(pending.task)} masih menunggu ${pending.waitingOn.join(", ")}. Tetap pindahkan ke In Progress?`
           : ""}
       </ConfirmDialog>
+      <TaskFillDialog
+        projectId={projectId}
+        task={fill?.task ?? null}
+        reason={fill ? `Belum ada ${fill.problems.map((p) => PROBLEM_LABELS[p]).join(", ")}. Geseran dibatalkan.` : undefined}
+        onClose={() => setFill(null)}
+        onSaved={onFilled}
+      />
     </>
   );
 }

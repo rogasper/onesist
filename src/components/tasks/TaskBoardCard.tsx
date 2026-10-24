@@ -1,10 +1,13 @@
 import { Lock } from "@phosphor-icons/react";
+import { PROBLEM_LABELS, type ReadinessProblem } from "~/lib/task-readiness";
 import { taskKey, type DependencyState } from "~/lib/task-board";
 import type { Task } from "~/shared/types";
 
 interface TaskBoardCardProps {
   task: Task;
   dependency: DependencyState;
+  /** Missing readiness data. Empty when execution is off (delivery mode) or the task is ready. */
+  problems: ReadinessProblem[];
   onOpen: (task: Task) => void;
   onDragStart: (task: Task) => void;
 }
@@ -20,7 +23,7 @@ function countItems(json: string | null): number {
   }
 }
 
-export function TaskBoardCard({ task, dependency, onOpen, onDragStart }: TaskBoardCardProps) {
+export function TaskBoardCard({ task, dependency, problems, onOpen, onDragStart }: TaskBoardCardProps) {
   const key = taskKey(task);
   const title = task.code ? task.title.replace(`${task.code}:`, "").trim() : task.title;
   const criteria = countItems(task.acceptanceCriteriaJson);
@@ -52,6 +55,11 @@ export function TaskBoardCard({ task, dependency, onOpen, onDragStart }: TaskBoa
           <span className="inline-flex items-center gap-1 rounded bg-kumo-elevated px-1">
             <Lock size={10} />
             menunggu {dependency.waitingOn.join(", ")}
+          </span>
+        )}
+        {problems.length > 0 && (
+          <span className="rounded bg-amber-500/10 px-1 text-amber-400">
+            Data kurang: {problems.map((p) => PROBLEM_LABELS[p]).join(", ")}
           </span>
         )}
         {dependency.missing.length > 0 && (

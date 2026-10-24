@@ -27,6 +27,8 @@ import { SearchInput } from "~/components/ui/SearchInput";
 import { FilterSelect } from "~/components/ui/FilterSelect";
 import { subscribe } from "~/lib/event-stream";
 import { TaskBoard } from "./TaskBoard";
+import { useExecSettings } from "~/lib/use-exec-settings";
+import { useRepos } from "~/lib/use-repos";
 
 const STATUS_FILTERS = [
   { value: "all", label: "All status" },
@@ -68,6 +70,8 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [view, setView] = useState<"tasks" | "timeline">("tasks");
+  const execSettings = useExecSettings(id);
+  const { repos } = useRepos(id);
   const [viewMode, setViewModeState] = useState<TaskViewMode>("list");
   /** Remembered per project. Read after mount so server and client render the same first frame. */
   const setViewMode = useCallback((mode: TaskViewMode) => {
@@ -709,6 +713,10 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
                 allTasks={tasks.filter((t) => !t.archived)}
                 onStatusChange={handleStatusChange}
                 onOpenTask={(t) => setSelectedId(t.id)}
+                executionEnabled={execSettings.settings?.taskMode !== "delivery"}
+                repoCount={repos.length}
+                projectId={id}
+                onFilled={(updated) => setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))}
               />
             ) : (
             <TaskList
