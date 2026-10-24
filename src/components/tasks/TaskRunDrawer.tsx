@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
 import { openReviewPane } from "~/lib/review-pane";
+import { FilterSelect } from "~/components/ui/FilterSelect";
 import type { RunSummary, Task } from "~/shared/types";
 
 type Tab = "summary" | "live" | "detail";
@@ -131,14 +132,18 @@ export function TaskRunDrawer(props: DrawerProps) {
             <div className="space-y-2 rounded-lg border border-kumo-line/50 p-3">
               <p className="font-medium">Agen eksekusi</p>
               <p className="text-[11px] text-kumo-subtle">Kosong = ikut pengaturan proyek.</p>
-              <select value={agent} onChange={(e) => { setAgent(e.target.value); setSaved(false); }} className="w-full rounded border border-kumo-line/50 bg-kumo-base p-1.5">
-                <option value="">Ikut pengaturan proyek</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}{p.cliAgent ? ` (${p.cliAgent})` : ""}</option>
-                ))}
-              </select>
+              <FilterSelect
+                value={agent}
+                onChange={(v) => { setAgent(v); setSaved(false); }}
+                options={[
+                  { value: "", label: "Ikut pengaturan proyek" },
+                  ...providers.map((p) => ({ value: p.id, label: `${p.name}${p.cliAgent ? ` (${p.cliAgent})` : ""}` })),
+                ]}
+                className="w-full"
+                containerClassName="w-full"
+              />
               {providers.length === 0 && <p className="text-amber-400">Belum ada agen CLI. Tambahkan di Settings → Providers.</p>}
-              <input value={model} onChange={(e) => { setModel(e.target.value); setSaved(false); }} placeholder="Model (kosong = default agen)" className="w-full rounded border border-kumo-line/50 bg-kumo-base p-1.5" />
+              <input value={model} onChange={(e) => { setModel(e.target.value); setSaved(false); }} placeholder="Model (kosong = default agen)" className="h-8 w-full rounded-full border border-kumo-line/80 bg-kumo-elevated px-3 text-xs text-kumo-default placeholder:text-kumo-subtle" />
               <div className="flex items-center justify-end gap-2">
                 {saved && <span className="text-green-400">Tersimpan</span>}
                 <button type="button" onClick={saveAgent} disabled={saving} className="rounded-full bg-kumo-elevated px-3 py-1">Simpan</button>
