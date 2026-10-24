@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
+import { openReviewPane } from "~/lib/review-pane";
 import type { RunSummary, Task } from "~/shared/types";
 
 type Tab = "summary" | "live";
@@ -20,7 +21,6 @@ interface DrawerProps {
   onOpenChat: (threadId: string) => void;
   onValidate: (run: RunSummary) => void;
   onReview: (run: RunSummary) => void;
-  onOpenReview: (run: RunSummary) => void;
   onRetry: (run: RunSummary) => void;
 }
 
@@ -29,7 +29,7 @@ interface DrawerProps {
  * questions and edits still go through the chat and the detail view, which is where they live.
  */
 export function TaskRunDrawer(props: DrawerProps) {
-  const { projectId, task, run, onClose, onOpenDetail, onOpenChat, onValidate, onReview, onOpenReview, onRetry } = props;
+  const { projectId, task, run, onClose, onOpenDetail, onOpenChat, onValidate, onReview, onRetry } = props;
   const [tab, setTab] = useState<Tab>("summary");
   const [live, setLive] = useState<LiveState | null>(null);
 
@@ -47,14 +47,21 @@ export function TaskRunDrawer(props: DrawerProps) {
   const canValidate = run && (run.state === "validating" || run.state === "in_review" || (run.state === "failed" && (run.error ?? "").startsWith("Cek gagal")));
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(440px,100vw)] flex-col border-l border-kumo-line/50 bg-kumo-base shadow-xl">
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-[46%] min-w-[360px] max-w-full flex-col border-l border-kumo-line/50 bg-kumo-base shadow-xl">
       <div className="flex items-start justify-between gap-2 border-b border-kumo-line/50 p-4">
         <div className="min-w-0">
           <p className="font-mono text-[10px] text-kumo-subtle">{task.code}</p>
           <p className="truncate text-sm font-medium text-kumo-default">{task.title.replace(`${task.code ?? ""}:`, "").trim()}</p>
           <p className="text-[11px] text-kumo-subtle">Kolom: {STATUS_LABELS[normalizeStatus(task.status)]}{run ? ` · revisi ${run.revision}` : ""}</p>
         </div>
-        <button type="button" onClick={onClose} className="text-kumo-subtle hover:text-kumo-default" aria-label="Tutup">✕</button>
+        <div className="flex shrink-0 items-center gap-2">
+          {run && (
+            <button type="button" onClick={() => { openReviewPane(run.id); onClose(); }} className="rounded-full bg-kumo-elevated px-2 py-0.5 text-[11px] text-kumo-default" title="Tampilkan tinjauan di split view">
+              ⤢ Buka penuh
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="text-kumo-subtle hover:text-kumo-default" aria-label="Tutup">✕</button>
+        </div>
       </div>
 
       <div className="flex gap-1 border-b border-kumo-line/50 px-4 py-2 text-xs">
@@ -101,7 +108,7 @@ export function TaskRunDrawer(props: DrawerProps) {
             <div className="flex flex-wrap gap-2 pt-2">
               {run.threadId && <button type="button" onClick={() => onOpenChat(run.threadId!)} className="rounded-full bg-kumo-elevated px-3 py-1">Buka chat</button>}
               {canValidate && <button type="button" onClick={() => onValidate(run)} className="rounded-full bg-kumo-elevated px-3 py-1">Validasi</button>}
-              {run.state === "in_review" && <button type="button" onClick={() => onOpenReview(run)} className="rounded-full bg-kumo-elevated px-3 py-1">Tinjau diff</button>}
+              {run.state === "in_review" && <button type="button" onClick={() => { openReviewPane(run.id); onClose(); }} className="rounded-full bg-kumo-elevated px-3 py-1">Tinjau diff</button>}
               {run.state === "in_review" && <button type="button" onClick={() => onReview(run)} className="rounded-full bg-kumo-elevated px-3 py-1">Tinjau AI</button>}
               {run.state === "failed" && run.threadId && <button type="button" onClick={() => onRetry(run)} className="rounded-full bg-kumo-elevated px-3 py-1">Ulangi</button>}
               <button type="button" onClick={() => onOpenDetail(task)} className="rounded-full bg-kumo-elevated px-3 py-1">Detail task</button>

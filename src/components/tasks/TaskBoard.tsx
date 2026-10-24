@@ -170,7 +170,6 @@ export function TaskBoard({
           onOpenChat={onOpenChat}
           onValidate={onValidate}
           onReview={onReview}
-          onOpenReview={(r) => { setDrawerTaskId(null); setReviewRun(r); }}
           onRetry={onRetry}
         />
       )}

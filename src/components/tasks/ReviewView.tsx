@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTaskRuns } from "~/lib/use-task-runs";
+import { subscribeReviewPane, takePendingReviewRun } from "~/lib/review-pane";
 import { TaskReviewPanel } from "./TaskReviewDialog";
 import type { RunSummary } from "~/shared/types";
 
@@ -14,6 +15,12 @@ export function ReviewView({ projectId }: { projectId: string }) {
   const { runs, reload } = useTaskRuns(projectId);
   const waiting = Object.values(runs).filter((r) => WAITING.includes(r.state));
   const [picked, setPicked] = useState<string | null>(null);
+  // A card's "Buka penuh" picks the run here, whether the pane was already open or opens now.
+  useEffect(() => {
+    const requested = takePendingReviewRun();
+    if (requested) setPicked(requested);
+    return subscribeReviewPane((runId) => setPicked(runId));
+  }, []);
   const selected = waiting.find((r) => r.id === picked) ?? waiting[0] ?? null;
 
   if (waiting.length === 0) {
