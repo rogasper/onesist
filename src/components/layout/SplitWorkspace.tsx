@@ -171,7 +171,7 @@ function ExtraPane({ index, tab, projectId, onTabChange, onClose, onSwap, onDirt
         <select
           value={tab}
           onChange={(e) => onTabChange(e.target.value as SplitTab)}
-          className="text-xs bg-transparent text-kumo-default border border-kumo-line rounded px-1.5 py-0.5"
+          className="h-7 appearance-none rounded-full border border-kumo-line/80 bg-kumo-elevated px-3 text-xs font-medium text-kumo-default"
           aria-label="Tab di pane ini"
         >
           {SPLIT_TABS.map((t) => (

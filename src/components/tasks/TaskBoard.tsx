@@ -9,11 +9,19 @@ import { TaskFillDialog } from "./TaskFillDialog";
 import { TaskReviewDialog } from "./TaskReviewDialog";
 import { TaskRunDrawer } from "./TaskRunDrawer";
 
+// The board's colors follow the agreed design: each column has its own tint, cards stay white.
 const COLUMN_DOT: Record<TaskStatus, string> = {
-  todo: "bg-blue-400",
-  in_progress: "bg-amber-400",
-  in_review: "bg-sky-400",
-  done: "bg-green-400",
+  todo: "bg-pink-400",
+  in_progress: "bg-orange-400",
+  in_review: "bg-cyan-400",
+  done: "bg-violet-400",
+};
+
+const COLUMN_TINT: Record<TaskStatus, string> = {
+  todo: "bg-pink-100 dark:bg-pink-950/50",
+  in_progress: "bg-orange-100 dark:bg-orange-950/50",
+  in_review: "bg-cyan-100 dark:bg-cyan-950/50",
+  done: "bg-violet-100 dark:bg-violet-950/50",
 };
 
 interface TaskBoardProps {
@@ -109,7 +117,7 @@ export function TaskBoard({
               aria-label={STATUS_LABELS[status]}
               onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
               onDrop={(e) => drop(status, e)}
-              className="flex min-w-[240px] flex-1 flex-col rounded-2xl bg-kumo-elevated/40 p-2.5"
+              className={`flex min-w-[240px] flex-1 flex-col rounded-2xl p-2.5 ${COLUMN_TINT[status]}`}
             >
               <header className="mb-2 flex items-center justify-between px-1 text-xs font-medium text-kumo-default">
                 <span className="flex items-center gap-1.5">
