@@ -154,6 +154,11 @@ export const taskRuns = sqliteTable("task_runs", {
   revision: integer("revision").notNull().default(1),
   integration: text("integration").notNull().default("pr"),
   error: text("error"),
+  /** Result of the last validation: checks, scope, acceptance (see services/task-validation.ts). */
+  validationJson: text("validation_json"),
+  /** The AI reviewer's findings for the run's work (see services/task-review.ts). */
+  reviewJson: text("review_json"),
+  reviewerThreadId: text("reviewer_thread_id"),
   createdAt: text("created_at").default("datetime('now')"),
   startedAt: text("started_at"),
   endedAt: text("ended_at"),

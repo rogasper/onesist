@@ -92,8 +92,22 @@ export interface RunSummary {
   bundlePath: string;
   repos: { repo: string; branch: string | null; worktreePath: string | null }[];
   error: string | null;
+  /** Result of the last validation, or null before the first one. */
+  validation: RunValidation | null;
+  /** The AI reviewer's findings, or null before a review. */
+  review: { threadId: string | null; findings: unknown[] } | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+export interface RunValidation {
+  ranAt: string;
+  /** False when a mechanical check failed. Scope and acceptance never block. */
+  passed: boolean;
+  checks: { repo: string; name: string; command: string; ok: boolean; exitCode: number | null; tail: string }[];
+  outsideScope: string[];
+  acceptance: { criterion: string; status: "met" | "no-evidence" | "not-met" | "missing" }[];
+  reportFound: boolean;
 }
 
 export interface BusinessRequirement {

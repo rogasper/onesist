@@ -10,13 +10,27 @@ import { worktreesBaseDir } from "~/server/agent/workspace/location";
 import { db } from "~/server/db/client";
 import { taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
 import { startTaskRun } from "~/server/services/task-runs";
-import type { RunState, RunSummary, Task } from "~/shared/types";
+import { validateRun } from "~/server/services/task-validation";
+import { readReview, startReview } from "~/server/services/task-review";
+import type { RunState, RunSummary, RunValidation, Task } from "~/shared/types";
 
 export const router = new Router();
 
-function summarize(run: typeof taskRuns.$inferSelect): RunSummary {
+function parseJson<T>(json: string | null): T | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function summarize(run: typeof taskRuns.$inferSelect): RunSummary {
   const repos = db.select().from(taskRunRepos).where(eq(taskRunRepos.runId, run.id)).all();
+  const review = parseJson<{ threadId: string | null; findings: unknown[] }>(run.reviewJson);
   return {
+    validation: parseJson<RunValidation>(run.validationJson),
+    review,
     id: run.id,
     taskId: run.taskId,
     threadId: run.threadId,
@@ -48,4 +62,36 @@ router.get("projects/:id/task-runs", ({ params }) => {
   const newest = new Map<string, typeof taskRuns.$inferSelect>();
   for (const run of runs) if (!newest.has(run.taskId)) newest.set(run.taskId, run);
   return json([...newest.values()].map(summarize));
+});
+
+// POST /api/projects/:id/task-runs/:runId/validate — runs the checks and moves the run on
+router.post("projects/:id/task-runs/:runId/validate", async ({ params }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const result = await validateRun(params.runId);
+  if (!result.ok) return json({ error: result.error }, result.status);
+  return json({ state: result.state, validation: result.validation });
+});
+
+// POST /api/projects/:id/task-runs/:runId/review — opens the read-only AI reviewer's thread
+router.post("projects/:id/task-runs/:runId/review", async ({ params }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const result = await startReview(params.runId);
+  if (!result.ok) return json({ error: result.error }, result.status);
+  return json({ threadId: result.threadId, title: result.title, text: result.text }, 201);
+});
+
+// GET /api/projects/:id/task-runs/:runId/review?threadId= — reads the reviewer's findings
+router.get("projects/:id/task-runs/:runId/review", async ({ params, query }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const result = await readReview(params.runId, query.get("threadId") ?? "");
+  return result.ok ? json({ findings: result.findings }) : json({ error: result.error }, result.status);
 });
