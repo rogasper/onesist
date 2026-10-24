@@ -223,7 +223,9 @@ function RootComponent() {
         </div>
         <InstanceWatch />
         <QuickOpenModal />
-        {!sidebarOpen && (
+        {/* Hidden while the peek is open too: the peeking sidebar's own header logo
+            takes over, and keeping this button drawn would stack two logos. */}
+        {!sidebarOpen && !sidebarPeek && (
           <button
             type="button"
             onMouseEnter={() => setSidebarPeek(true)}
