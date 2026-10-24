@@ -1744,12 +1744,14 @@ function MessageBlockView({
           <CopyButton text={text} variant="icon" title="Salin pesan" className="mb-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
         ) : null}
         {onFork ? (
+          // Icon-only like the copy button beside it; the action lives in the tooltip.
           <button
             onClick={() => onFork(message.id)}
             title="Buat cabang percakapan dari pesan ini"
-            className="mb-1.5 text-xs text-kumo-subtle opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-kumo-default"
+            aria-label="Buat cabang percakapan dari pesan ini"
+            className="mb-1.5 flex items-center rounded-md p-1 text-kumo-subtle opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-kumo-tint hover:text-kumo-default"
           >
-            Cabang
+            <GitBranch size={12} />
           </button>
         ) : null}
         {onResend && !streaming ? (
@@ -1760,9 +1762,10 @@ function MessageBlockView({
               setEditing(true);
             }}
             title="Edit dan kirim ulang"
-            className="mb-1.5 text-xs text-kumo-subtle opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-kumo-default"
+            aria-label="Edit dan kirim ulang"
+            className="mb-1.5 flex items-center rounded-md p-1 text-kumo-subtle opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-kumo-tint hover:text-kumo-default"
           >
-            Edit
+            <PencilSimple size={12} />
           </button>
         ) : null}
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-kumo-tint px-4 py-3 text-sm text-kumo-default whitespace-pre-wrap [overflow-wrap:anywhere]">
