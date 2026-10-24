@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
-import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass } from "@phosphor-icons/react";
+import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass, SidebarSimple } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
 import { useGlobalDropGuard } from "~/lib/file-drop";
@@ -32,7 +32,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   component: RootComponent,
 });
 
-function AppSidebarHeader() {
+function AppSidebarHeader({ overlay }: { overlay: boolean }) {
   const { state, isMobile } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
   const isDesktop =
@@ -40,8 +40,35 @@ function AppSidebarHeader() {
 
   return (
     <Sidebar.Header>
-      <div className={`flex items-center py-2.5 ${isCollapsed ? 'justify-center' : 'px-3 gap-2'}`}>
-        <img src="/logo-icon.png" alt="Onesist" className="h-6 w-6 object-contain shrink-0" />
+      {/* One control slot, ChatGPT-style: while the sidebar is visible this square is the
+          collapse control; when it is closed the same square (same position, same size) is
+          the floating logo button below. Only on non-overlay windows — the overlay build
+          keeps its toggle in the title bar strip instead. setSidebarOpen, not the kumo
+          setter, so the click counts as the user's choice and is remembered. */}
+      <div className={`flex items-center gap-2 py-2 ${overlay ? 'px-3' : 'pl-2 pr-3'} ${isCollapsed ? 'justify-center' : ''}`}>
+        {overlay ? (
+          /* The brand mark doubles as the collapse control: hover swaps it to the panel
+             icon so it reads as clickable instead of a dead logo, click collapses. */
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            title="Sembunyikan sidebar (Ctrl/⌘B)"
+            aria-label="Sembunyikan sidebar"
+            className="group/logo relative grid size-7 shrink-0 place-items-center rounded hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
+          >
+            <img
+              src="/logo-icon.png"
+              alt="Onesist"
+              className="h-6 w-6 object-contain transition-opacity group-hover/logo:opacity-0"
+            />
+            <SidebarSimple
+              size={14}
+              className="absolute text-kumo-subtle opacity-0 transition-opacity group-hover/logo:opacity-100"
+            />
+          </button>
+        ) : (
+          <img src="/logo-icon.png" alt="Onesist" className="h-6 w-6 object-contain shrink-0" />
+        )}
         {!isCollapsed && <span className="text-sm font-semibold text-kumo-default truncate flex-1 min-w-0">ONESIST</span>}
         {isDesktop && !isCollapsed && (
           <button
@@ -89,6 +116,19 @@ function AppSidebarFooter() {
 
 const SIDEBAR_OPEN_KEY = "onesist:sidebar:open";
 const SIDEBAR_WIDTH_KEY = "onesist:sidebar:width";
+// Height of the overlay title bar strip on the macOS main window (traffic lights + toggle).
+const TITLEBAR_H = 32;
+// Which window gets the overlay title bar UI, decided once, synchronously: the macOS desktop
+// main window only. Secondary windows (win-*/pane-*) keep their native title bar, the browser
+// has none. Synchronous on purpose — an async "is this main?" state once left a gap where the
+// strip was missing while the overlay shell was already up, and the sidebar fell back to
+// hover-only behavior the user explicitly rejected.
+const IS_MAC_MAIN =
+  typeof window !== "undefined" &&
+  "__TAURI_INTERNALS__" in window &&
+  /Macintosh/.test(navigator.userAgent) &&
+  (window as unknown as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } })
+    .__TAURI_INTERNALS__?.metadata?.currentWindow?.label === "main";
 
 function readStored(key: string): string | null {
   try { return window.localStorage.getItem(key); } catch { return null; }
@@ -134,20 +174,21 @@ function RootComponent() {
     const el = bannerRef.current;
     if (!el) return;
     const root = document.documentElement;
-    const apply = () => root.style.setProperty("--update-banner-h", `${el.offsetHeight}px`);
+    // The overlay title bar strip is part of the offset: the fixed sidebar starts below
+    // strip + banner, not just below the banner.
+    const apply = () =>
+      root.style.setProperty("--update-banner-h", `calc(var(--onesist-titlebar, 0px) + ${el.offsetHeight}px)`);
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(el);
     return () => {
       observer.disconnect();
-      root.style.setProperty("--update-banner-h", "0px");
+      root.style.setProperty("--update-banner-h", "calc(var(--onesist-titlebar, 0px) + 0px)");
     };
   }, []);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   // Controlled, so the project's chat can fold it on a narrow window (P3.2).
   const sidebarOpen = useSidebarOpen();
-  // Hovering the logo while the sidebar is hidden shows it until the pointer moves away.
-  const [sidebarPeek, setSidebarPeek] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -161,13 +202,6 @@ function RootComponent() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  useEffect(() => {
-    if (!sidebarPeek) return;
-    // The sidebar is 220px wide; leaving that area ends the peek.
-    const onMove = (e: MouseEvent) => { if (e.clientX > 260) setSidebarPeek(false); };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [sidebarPeek]);
   const location = useLocation();
   const pathname = location.pathname;
   const isDashboardActive = pathname === "/";
@@ -215,20 +249,60 @@ function RootComponent() {
   }
 
   return (
-    <html suppressHydrationWarning data-mode={getStoredTheme() === "dark" ? "dark" : undefined} className="h-svh overflow-hidden">
+    <html
+      suppressHydrationWarning
+      data-mode={getStoredTheme() === "dark" ? "dark" : undefined}
+      className="h-svh overflow-hidden"
+      style={IS_MAC_MAIN ? ({ "--onesist-titlebar": `${TITLEBAR_H}px` } as React.CSSProperties) : undefined}
+    >
       <head><HeadContent /></head>
-      <body suppressHydrationWarning className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased">
+      <body
+        suppressHydrationWarning
+        className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased"
+        style={IS_MAC_MAIN ? { paddingTop: TITLEBAR_H } : undefined}
+      >
         <div ref={bannerRef} className="relative z-[60] shrink-0">
           <UpdateBanner />
         </div>
         <InstanceWatch />
         <QuickOpenModal />
-        {/* Hidden while the peek is open too: the peeking sidebar's own header logo
-            takes over, and keeping this button drawn would stack two logos. */}
-        {!sidebarOpen && !sidebarPeek && (
+        {/* The overlay title bar strip (macOS main window): dragging moves the window,
+            double-clicking zooms it. One slot next to the traffic lights switches content:
+            the toggle while the sidebar shows, the Onesist logo while it is hidden — so the
+            logo never disappears, and clicks pin or collapse; nothing closes on hover. */}
+        {IS_MAC_MAIN && (
+          <div data-tauri-drag-region className="fixed inset-x-0 top-0 z-[70]" style={{ height: TITLEBAR_H }}>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(!getSidebarChoice())}
+              title={sidebarOpen ? "Sembunyikan sidebar (Ctrl/⌘B)" : "Tampilkan sidebar (Ctrl/⌘B)"}
+              aria-label={sidebarOpen ? "Sembunyikan sidebar" : "Tampilkan sidebar"}
+              className="group/logo absolute left-[76px] top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-md text-kumo-subtle hover:bg-kumo-elevated/60 hover:text-kumo-default transition-colors cursor-pointer"
+            >
+              {sidebarOpen ? (
+                <SidebarSimple size={15} />
+              ) : (
+                <>
+                  <img
+                    src="/logo-icon.png"
+                    alt="Onesist"
+                    className="h-5 w-5 object-contain transition-opacity group-hover/logo:opacity-0"
+                  />
+                  <SidebarSimple
+                    size={15}
+                    className="absolute opacity-0 transition-opacity group-hover/logo:opacity-100"
+                  />
+                </>
+              )}
+            </button>
+          </div>
+        )}
+        {/* Floating logo, non-overlay windows only (web, Windows, secondary windows): the
+            overlay build keeps its toggle in the title bar strip instead. Click opens the
+            sidebar for good — no hover peek, the sidebar never depends on the pointer. */}
+        {!sidebarOpen && !IS_MAC_MAIN && (
           <button
             type="button"
-            onMouseEnter={() => setSidebarPeek(true)}
             onClick={() => setSidebarOpen(true)}
             title="Tampilkan sidebar (Ctrl/⌘B)"
             aria-label="Tampilkan sidebar"
@@ -238,10 +312,10 @@ function RootComponent() {
           </button>
         )}
         <div className="flex flex-1 min-h-0">
-          <Sidebar.Provider open={sidebarOpen || sidebarPeek} onOpenChange={setSidebarOpen} collapsible="offcanvas" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
+          <Sidebar.Provider open={sidebarOpen} onOpenChange={setSidebarOpen} collapsible="offcanvas" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
             <SidebarPersistence />
             <Sidebar>
-              <AppSidebarHeader />
+              <AppSidebarHeader overlay={IS_MAC_MAIN} />
               <Sidebar.Content className="overflow-y-auto scrollbar-thin">
                 <Sidebar.Group>
                   <Sidebar.GroupLabel>Navigation</Sidebar.GroupLabel>

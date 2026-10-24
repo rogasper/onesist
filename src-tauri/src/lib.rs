@@ -312,7 +312,7 @@ pub fn run() {
         let base = dev_server.unwrap_or_else(|| format!("http://127.0.0.1:{}", status.port));
         let url = format!("{}/", base.trim_end_matches('/'));
         eprintln!("[window] main webview url = {url} (sidecar port {})", status.port);
-        let window = tauri::WebviewWindowBuilder::new(
+        let builder = tauri::WebviewWindowBuilder::new(
           app,
           "main",
           WebviewUrl::External(url.parse().expect("valid url")),
@@ -329,8 +329,15 @@ pub fn run() {
         // normal HTML5 drop, and the page gets a real `File` to upload. The
         // page-side guard against a stray drop navigating the WebView lives in
         // `src/lib/file-drop.ts` (`useGlobalDropGuard`).
-        .disable_drag_drop_handler()
-        .build()?;
+        .disable_drag_drop_handler();
+        // macOS: overlay title bar — the traffic lights stay native, the rest of
+        // the strip is the web page, where the sidebar toggle lives (the page
+        // reserves --onesist-titlebar for it and marks the strip as drag region).
+        #[cfg(target_os = "macos")]
+        let builder = builder
+          .title_bar_style(tauri::TitleBarStyle::Overlay)
+          .hidden_title(true);
+        let window = builder.build()?;
         // Restore position/size/maximized, but NEVER restore a hidden
         // (visible:false) state: a hidden-but-rendering WebView at full
         // resolution leaks memory rapidly (observed 3.7 GB while idle).
