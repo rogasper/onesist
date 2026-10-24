@@ -19,7 +19,8 @@ beforeAll(() => {
 test("a run whose agent died with the app is failed, and its validating twin is left alone", () => {
   const waitThread = store.createThread({ projectId: "p-rec", title: "wait" });
   const valThread = store.createThread({ projectId: "p-rec", title: "val" });
-  db.insert(chatRuns).values({ id: "crun-wait", threadId: waitThread.id, status: "running", stepCount: 0 }).run();
+  // The chat run was already interrupted by an earlier start: only the task run is left to fix.
+  db.insert(chatRuns).values({ id: "crun-wait", threadId: waitThread.id, status: "interrupted", stepCount: 0 }).run();
   db.insert(taskRuns).values({ id: "run-rec-wait", taskId: "t-rec", projectId: "p-rec", threadId: waitThread.id, bundlePath: "/tmp/rec", state: "waiting_input" }).run();
   db.insert(chatRuns).values({ id: "crun-val", threadId: valThread.id, status: "running", stepCount: 0 }).run();
   db.insert(taskRuns).values({ id: "run-rec-val", taskId: "t-rec", projectId: "p-rec", threadId: valThread.id, bundlePath: "/tmp/rec", state: "validating" }).run();
