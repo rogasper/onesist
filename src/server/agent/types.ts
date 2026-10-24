@@ -26,11 +26,15 @@ export type AuthMethod = "bearer" | "api-key" | "none";
  * "tanpa shell" sejak awal, jadi user yang ingin agent menulis artefak tetapi
  * tidak ingin memberinya shell tidak punya pilihan.
  */
-export type PermissionMode = "ask" | "auto" | "no-shell" | "readonly";
+/**
+ * `execute` is for task runs: writes inside the run folder need no question, anything outside
+ * it asks (Claude Code enforces the folder; other runtimes treat it as `ask`).
+ */
+export type PermissionMode = "ask" | "auto" | "no-shell" | "readonly" | "execute";
 
 /** Shell hanya tersedia di mode yang mengizinkannya (FR-M7). */
 export function shellAllowed(mode: PermissionMode): boolean {
-  return mode === "ask" || mode === "auto";
+  return mode === "ask" || mode === "auto" || mode === "execute";
 }
 
 /** Tool yang mengubah state dipasang kecuali di mode baca-saja. */

@@ -29,6 +29,7 @@ beforeAll(() => {
   git(api, ["commit", "-q", "-m", "init"]);
   db.insert(llmProviders).values({ id: "prov-cli", name: "OpenCode CLI", apiStyle: "cli", cliAgent: "opencode" }).run();
   db.insert(llmProviders).values({ id: "prov-native", name: "Native", apiStyle: "completions" }).run();
+  db.insert(llmProviders).values({ id: "prov-claude", name: "Claude CLI", apiStyle: "cli", cliAgent: "claude" }).run();
   db.insert(projects).values({ id: "p-run", name: "Run", rootPath: root }).run();
   updateExecSettings("p-run", { execProviderId: "prov-cli", execModel: "m-1", maxParallel: 2 });
 });
@@ -116,4 +117,12 @@ test("the parallel limit refuses a run when it is reached", async () => {
   expect(res.ok).toBe(false);
   if (!res.ok) expect(res.error).toContain("Batas paralel");
   updateExecSettings("p-run", { maxParallel: 2 });
+});
+
+test("a Claude Code run gets execute; other CLIs keep ask", async () => {
+  updateExecSettings("p-run", { execProviderId: "prov-claude", maxParallel: 5 });
+  const res = await startTaskRun({ projectId: "p-run", root, task: task("t-claude"), baseDir });
+  expect(res.ok).toBe(true);
+  if (res.ok) expect(store.getThread(res.threadId)!.permissionMode).toBe("execute");
+  updateExecSettings("p-run", { execProviderId: "prov-cli", maxParallel: 2 });
 });

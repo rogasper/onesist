@@ -185,7 +185,8 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
     mode: "agent",
     providerId: provider.id,
     model: settings.execModel,
-    permissionMode: "ask",
+    // Claude Code enforces the run folder for `execute`; other CLIs treat it as `ask`.
+    permissionMode: provider.cliAgent === "claude" ? "execute" : "ask",
     maxSteps: normalizeAgentMaxSteps(getSetting("agentMaxSteps")),
   });
   updateThread(thread.id, {
