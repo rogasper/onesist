@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Dialog, DialogDescription, DialogRoot, DialogTitle } from "@cloudflare/kumo";
+import { Button, Dialog, DialogRoot } from "@cloudflare/kumo";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { annotateDiff } from "~/lib/diff-lines";
 import { openChatTask } from "~/lib/chat-task";
@@ -195,8 +195,9 @@ export function TaskReviewPanel({
   return (
     <>
           <div className="flex w-full flex-col gap-3 p-5">
-            <DialogTitle>Tinjau · revisi {run.revision}</DialogTitle>
-            <DialogDescription>Komentar dan temuan yang dipilih dikirim ke thread agen sebagai revisi berikutnya.</DialogDescription>
+            {/* Plain elements: the same panel also renders in a pane, outside any dialog. */}
+            <h2 className="text-sm font-medium text-kumo-default">Tinjau · revisi {run.revision}</h2>
+            <p className="text-xs text-kumo-subtle">Komentar dan temuan yang dipilih dikirim ke thread agen sebagai revisi berikutnya.</p>
 
             {error && <p className="text-xs text-red-400">{error}</p>}
 
