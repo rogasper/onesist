@@ -19,9 +19,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatRuns, chatThreads, projects } from "~/server/db/schema";
+import { chatRuns, chatThreads, projects, taskRuns } from "~/server/db/schema";
 import { eventBus } from "~/server/realtime/events";
 import { rememberApproval } from "./approval-rules";
 import type { RunStatus } from "./types";
@@ -447,11 +447,20 @@ export function recoverInterruptedRuns(): number {
   try {
     const stale = db.select().from(chatRuns).where(eq(chatRuns.status, "running")).all();
     if (!stale.length) return 0;
+    const reason = "Aplikasi ditutup saat run berjalan.";
     for (const row of stale) {
       db.update(chatRuns)
-        .set({ status: "interrupted", finishedAt: new Date().toISOString(), error: "Aplikasi ditutup saat run berjalan." })
+        .set({ status: "interrupted", finishedAt: new Date().toISOString(), error: reason })
         .where(and(eq(chatRuns.id, row.id), eq(chatRuns.status, "running")))
         .run();
+      // A task run waiting on this thread can never finish now: its agent is gone. Mark it failed,
+      // so the card offers Ulangi instead of showing an agent that only looks busy.
+      if (row.threadId) {
+        db.update(taskRuns)
+          .set({ state: "failed", error: reason, endedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+          .where(and(eq(taskRuns.threadId, row.threadId), inArray(taskRuns.state, ["running", "waiting_input"])))
+          .run();
+      }
     }
     return stale.length;
   } catch {
