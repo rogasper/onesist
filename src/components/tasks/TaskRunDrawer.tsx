@@ -3,7 +3,14 @@ import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
 import { openReviewPane } from "~/lib/review-pane";
 import type { RunSummary, Task } from "~/shared/types";
 
-type Tab = "summary" | "live";
+type Tab = "summary" | "live" | "detail";
+
+interface CliProvider {
+  id: string;
+  name: string;
+  apiStyle: string;
+  cliAgent: string | null;
+}
 
 interface LiveState {
   state: RunSummary["state"];
@@ -22,6 +29,8 @@ interface DrawerProps {
   onValidate: (run: RunSummary) => void;
   onReview: (run: RunSummary) => void;
   onRetry: (run: RunSummary) => void;
+  /** Called with the saved task, so the board shows its new agent or model at once. */
+  onTaskSaved: (task: Task) => void;
 }
 
 /**
@@ -29,8 +38,44 @@ interface DrawerProps {
  * questions and edits still go through the chat and the detail view, which is where they live.
  */
 export function TaskRunDrawer(props: DrawerProps) {
-  const { projectId, task, run, onClose, onOpenDetail, onOpenChat, onValidate, onReview, onRetry } = props;
+  const { projectId, task, run, onClose, onOpenDetail, onOpenChat, onValidate, onReview, onRetry, onTaskSaved } = props;
   const [tab, setTab] = useState<Tab>("summary");
+  const [maximized, setMaximized] = useState(false);
+  const [providers, setProviders] = useState<CliProvider[]>([]);
+  const [agent, setAgent] = useState<string>(task.execProviderId ?? "");
+  const [model, setModel] = useState<string>(task.execModel ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // The agent choices are the CLI providers configured in Settings.
+  useEffect(() => {
+    fetch("/api/providers", { cache: "no-store" })
+      .then(async (res) => (res.ok ? ((await res.json()) as { providers: CliProvider[] }) : { providers: [] }))
+      .then((data) => setProviders(data.providers.filter((p) => p.apiStyle === "cli")))
+      .catch(() => setProviders([]));
+  }, []);
+
+  // Another task opened in the same drawer starts from its own agent and model.
+  useEffect(() => {
+    setAgent(task.execProviderId ?? "");
+    setModel(task.execModel ?? "");
+    setSaved(false);
+  }, [task.id, task.execProviderId, task.execModel]);
+
+  const saveAgent = async () => {
+    setSaving(true);
+    const res = await fetch(`/api/projects/${projectId}/tasks/${task.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ execProviderId: agent || null, execModel: model.trim() || null }),
+      cache: "no-store",
+    });
+    setSaving(false);
+    if (res.ok) {
+      onTaskSaved((await res.json()) as Task);
+      setSaved(true);
+    }
+  };
   const [live, setLive] = useState<LiveState | null>(null);
 
   // The Live tab reads the agent's latest words when it opens, and again when the run changes state.
@@ -47,7 +92,7 @@ export function TaskRunDrawer(props: DrawerProps) {
   const canValidate = run && (run.state === "validating" || run.state === "in_review" || (run.state === "failed" && (run.error ?? "").startsWith("Cek gagal")));
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-[46%] min-w-[360px] max-w-full flex-col border-l border-kumo-line/50 bg-kumo-base shadow-xl">
+    <aside className={`fixed inset-y-0 right-0 z-40 flex flex-col border-l border-kumo-line/50 bg-kumo-base shadow-xl ${maximized ? "w-full" : "w-[46%] min-w-[360px] max-w-full"}`}>
       <div className="flex items-start justify-between gap-2 border-b border-kumo-line/50 p-4">
         <div className="min-w-0">
           <p className="font-mono text-[10px] text-kumo-subtle">{task.code}</p>
@@ -55,6 +100,9 @@ export function TaskRunDrawer(props: DrawerProps) {
           <p className="text-[11px] text-kumo-subtle">Kolom: {STATUS_LABELS[normalizeStatus(task.status)]}{run ? ` · revisi ${run.revision}` : ""}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={() => setMaximized((m) => !m)} className="rounded-full bg-kumo-elevated px-2 py-0.5 text-[11px] text-kumo-default" title={maximized ? "Kecilkan" : "Layar penuh"}>
+            {maximized ? "⤡ Kecil" : "⛶ Layar penuh"}
+          </button>
           {run && (
             <button type="button" onClick={() => { openReviewPane(run.id); onClose(); }} className="rounded-full bg-kumo-elevated px-2 py-0.5 text-[11px] text-kumo-default" title="Tampilkan tinjauan di split view">
               ⤢ Buka penuh
@@ -65,20 +113,50 @@ export function TaskRunDrawer(props: DrawerProps) {
       </div>
 
       <div className="flex gap-1 border-b border-kumo-line/50 px-4 py-2 text-xs">
-        {(["summary", "live"] as Tab[]).map((t) => (
+        {(["summary", "live", "detail"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={`rounded-full px-3 py-1 ${tab === t ? "bg-kumo-elevated font-medium text-kumo-default" : "text-kumo-subtle"}`}
           >
-            {t === "summary" ? "Ringkasan" : "Live"}
+            {t === "summary" ? "Ringkasan" : t === "live" ? "Live" : "Detail"}
           </button>
         ))}
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-xs text-kumo-default">
-        {!run && <p className="text-kumo-subtle">Belum ada run untuk task ini.</p>}
+        {tab === "detail" && (
+          <>
+            <div className="space-y-2 rounded-lg border border-kumo-line/50 p-3">
+              <p className="font-medium">Agen eksekusi</p>
+              <p className="text-[11px] text-kumo-subtle">Kosong = ikut pengaturan proyek.</p>
+              <select value={agent} onChange={(e) => { setAgent(e.target.value); setSaved(false); }} className="w-full rounded border border-kumo-line/50 bg-kumo-base p-1.5">
+                <option value="">Ikut pengaturan proyek</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.cliAgent ? ` (${p.cliAgent})` : ""}</option>
+                ))}
+              </select>
+              {providers.length === 0 && <p className="text-amber-400">Belum ada agen CLI. Tambahkan di Settings → Providers.</p>}
+              <input value={model} onChange={(e) => { setModel(e.target.value); setSaved(false); }} placeholder="Model (kosong = default agen)" className="w-full rounded border border-kumo-line/50 bg-kumo-base p-1.5" />
+              <div className="flex items-center justify-end gap-2">
+                {saved && <span className="text-green-400">Tersimpan</span>}
+                <button type="button" onClick={saveAgent} disabled={saving} className="rounded-full bg-kumo-elevated px-3 py-1">Simpan</button>
+              </div>
+            </div>
+            <div className="space-y-1 rounded-lg border border-kumo-line/50 p-3">
+              <p><span className="text-kumo-subtle">Judul:</span> {task.title}</p>
+              {task.description && <p className="whitespace-pre-line text-kumo-subtle">{task.description.slice(0, 600)}</p>}
+              <p><span className="text-kumo-subtle">Repo:</span> {task.reposJson ?? "belum diisi"}</p>
+              <p><span className="text-kumo-subtle">File scope:</span> {task.filesScopeJson ?? "belum diisi"}</p>
+              <p><span className="text-kumo-subtle">Acceptance criteria:</span> {task.acceptanceCriteriaJson ?? "belum diisi"}</p>
+              <p><span className="text-kumo-subtle">Dependensi:</span> {task.dependenciesJson ?? "tidak ada"}</p>
+            </div>
+            <button type="button" onClick={() => onOpenDetail(task)} className="rounded-full bg-kumo-elevated px-3 py-1">Edit detail lengkap</button>
+          </>
+        )}
+
+        {!run && tab !== "detail" && <p className="text-kumo-subtle">Belum ada run untuk task ini.</p>}
 
         {run && tab === "summary" && (
           <>

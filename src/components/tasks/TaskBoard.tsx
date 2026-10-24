@@ -171,6 +171,7 @@ export function TaskBoard({
           onValidate={onValidate}
           onReview={onReview}
           onRetry={onRetry}
+          onTaskSaved={onFilled}
         />
       )}
       <TaskReviewDialog

@@ -23,11 +23,20 @@ export function ReviewView({ projectId }: { projectId: string }) {
   }, []);
   const selected = waiting.find((r) => r.id === picked) ?? waiting[0] ?? null;
 
+  const [maximized, setMaximized] = useState(false);
+
   if (waiting.length === 0) {
     return <div className="flex flex-1 items-center justify-center p-6 text-sm text-kumo-subtle">Tidak ada run yang menunggu tinjauan.</div>;
   }
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className={maximized ? "fixed inset-0 z-50 flex bg-kumo-base" : "relative flex min-h-0 flex-1"}>
+      <button
+        type="button"
+        onClick={() => setMaximized((m) => !m)}
+        className="absolute right-3 top-3 z-10 rounded-full bg-kumo-elevated px-2 py-0.5 text-[11px] text-kumo-default"
+      >
+        {maximized ? "⤡ Kecil" : "⛶ Layar penuh"}
+      </button>
       <div className="w-56 shrink-0 space-y-1 overflow-y-auto border-r border-kumo-line/50 p-2">
         {waiting.map((r) => (
           <button

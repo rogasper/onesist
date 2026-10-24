@@ -134,8 +134,11 @@ interface StartContext {
 function prepareStart(projectId: string, root: string, task: Task, baseDir: string): { ok: true; ctx: Omit<StartContext, "bundlePath"> } | { ok: false; status: number; error: string } {
   const settings = getExecSettings(projectId);
   if (settings.taskMode === "delivery") return fail(409, "Project ini mode delivery: task tidak dijalankan agen.");
-  if (!settings.execProviderId) return fail(409, "Pilih agen eksekusi dulu di Pengaturan project → Task.");
-  const provider = getProvider(settings.execProviderId);
+  // A task may name its own agent and model; otherwise the project's default applies.
+  const providerId = task.execProviderId ?? settings.execProviderId;
+  const model = task.execModel ?? settings.execModel;
+  if (!providerId) return fail(409, "Pilih agen eksekusi dulu di task atau di Pengaturan project → Task.");
+  const provider = getProvider(providerId);
   if (!provider || !cliRuntimeFor(provider)) return fail(409, "Agen eksekusi harus agen CLI (OpenCode, Claude Code, atau Codex).");
   if (provider.cliAgent === "antigravity") return fail(409, "Antigravity belum didukung untuk eksekusi task.");
 
@@ -157,7 +160,7 @@ function prepareStart(projectId: string, root: string, task: Task, baseDir: stri
       root,
       task,
       providerId: provider.id,
-      model: settings.execModel,
+      model,
       cliAgent: provider.cliAgent ?? null,
       maxSteps: normalizeAgentMaxSteps(getSetting("agentMaxSteps")),
       maxParallel: settings.maxParallel,

@@ -152,3 +152,20 @@ test("a run writes the repo's configured checks as its shell rules", async () =>
   fs.rmSync(path.join(root, ".agents"), { recursive: true, force: true });
   updateExecSettings("p-run", { maxParallel: 2 });
 });
+
+test("a task's own agent and model win over the project default", async () => {
+  updateExecSettings("p-run", { execProviderId: "prov-cli", execModel: "project-model", maxParallel: 8 });
+  db.insert(tasks).values({
+    id: "t-own-agent", projectId: "p-run", code: "api-OWN-1", title: "api-OWN-1: Agen sendiri", status: "todo",
+    reposJson: '["input/code/api"]', filesScopeJson: '["input/code/api/README.md"]', acceptanceCriteriaJson: '["Selesai"]',
+    execProviderId: "prov-claude", execModel: "task-model",
+  }).run();
+  const res = await startTaskRun({ projectId: "p-run", root, task: db.select().from(tasks).where(eq(tasks.id, "t-own-agent")).get() as any, baseDir });
+  expect(res.ok).toBe(true);
+  if (res.ok) {
+    const thread = store.getThread(res.threadId!)!;
+    expect(thread.providerId).toBe("prov-claude");
+    expect(thread.model).toBe("task-model");
+  }
+  updateExecSettings("p-run", { execProviderId: "prov-cli", execModel: null, maxParallel: 2 });
+});
