@@ -63,6 +63,7 @@ test("the run prompt names the run folder, the repos, and the acceptance criteri
     doneDependencies: ["api-AP-0"],
   });
   expect(text).toContain("/tmp/run-x");
+  expect(text).not.toContain("api-AP-1: api-AP-1");
   expect(text).toContain("Login memakai OTP");
   expect(text).toContain("api-AP-0");
   expect(text).toContain("Jangan commit");

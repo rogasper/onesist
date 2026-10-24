@@ -45,7 +45,7 @@ export interface RunPromptInput {
 export function buildRunPrompt(input: RunPromptInput): string {
   const list = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (tidak ada)");
   return [
-    `Kerjakan task ${input.code ?? input.title}: ${input.title}.`,
+    `Kerjakan task ${input.code && !input.title.startsWith(input.code) ? `${input.code}: ` : ""}${input.title}.`,
     "",
     input.description ? `Deskripsi:\n${input.description}` : "",
     "Acceptance criteria (harus terpenuhi semuanya):",
