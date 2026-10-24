@@ -12,6 +12,8 @@ import { taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
 import { startTaskRun } from "~/server/services/task-runs";
 import { validateRun } from "~/server/services/task-validation";
 import { readReview, startReview } from "~/server/services/task-review";
+import { runDiff } from "~/server/services/task-diff";
+import { discardRun, requestRevision } from "~/server/services/task-revision";
 import type { RunState, RunSummary, RunValidation, Task } from "~/shared/types";
 
 export const router = new Router();
@@ -38,6 +40,7 @@ export function summarize(run: typeof taskRuns.$inferSelect): RunSummary {
     taskId: run.taskId,
     threadId: run.threadId,
     state: run.state as RunState,
+    revision: run.revision,
     bundlePath: run.bundlePath,
     repos: repos.map((r: typeof taskRunRepos.$inferSelect) => ({ repo: r.repo, branch: r.branch, worktreePath: r.worktreePath })),
     error: run.error,
@@ -97,4 +100,35 @@ router.get("projects/:id/task-runs/:runId/review", async ({ params, query }) => 
   if (!run || run.projectId !== project.id) return notFound();
   const result = await readReview(params.runId, query.get("threadId") ?? "");
   return result.ok ? json({ findings: result.findings }) : json({ error: result.error }, result.status);
+});
+
+// GET /api/projects/:id/task-runs/:runId/diff — what the run changed, per repo and file
+router.get("projects/:id/task-runs/:runId/diff", async ({ params }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  return json({ repos: (await runDiff(params.runId)) ?? [] });
+});
+
+// POST /api/projects/:id/task-runs/:runId/revise — { comments, findings } becomes the next message
+router.post("projects/:id/task-runs/:runId/revise", async ({ params, body }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const data = (await body()) as Record<string, unknown>;
+  const result = await requestRevision(params.runId, { comments: data.comments, findings: data.findings });
+  if (!result.ok) return json({ error: result.error }, result.status);
+  return json({ revision: result.revision, threadId: run.threadId, text: result.text });
+});
+
+// POST /api/projects/:id/task-runs/:runId/discard — ends the run; its worktrees are kept
+router.post("projects/:id/task-runs/:runId/discard", async ({ params }) => {
+  const project = getProject(params.id);
+  if (!project) return notFound();
+  const run = db.select().from(taskRuns).where(eq(taskRuns.id, params.runId)).get();
+  if (!run || run.projectId !== project.id) return notFound();
+  const result = await discardRun(params.runId);
+  return result.ok ? json({ ok: true }) : json({ error: result.error }, result.status);
 });

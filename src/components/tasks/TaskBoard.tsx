@@ -6,6 +6,7 @@ import { PROBLEM_LABELS, readinessProblems, type ReadinessProblem } from "~/lib/
 import type { RunSummary, Task } from "~/shared/types";
 import { TaskBoardCard } from "./TaskBoardCard";
 import { TaskFillDialog } from "./TaskFillDialog";
+import { TaskReviewDialog } from "./TaskReviewDialog";
 
 const COLUMN_DOT: Record<TaskStatus, string> = {
   todo: "bg-blue-400",
@@ -36,6 +37,8 @@ interface TaskBoardProps {
   onValidate: (run: RunSummary) => void;
   onReview: (run: RunSummary) => void;
   onReadReview: (run: RunSummary) => void;
+  /** Called after a revision or discard, so the runs reload. */
+  onRunChanged: () => void;
 }
 
 export function TaskBoard({
@@ -54,7 +57,9 @@ export function TaskBoard({
   onValidate,
   onReview,
   onReadReview,
+  onRunChanged,
 }: TaskBoardProps) {
+  const [reviewRun, setReviewRun] = useState<RunSummary | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ task: Task; status: TaskStatus; waitingOn: string[] } | null>(null);
   const [fill, setFill] = useState<{ task: Task; problems: ReadinessProblem[] } | null>(null);
@@ -121,6 +126,7 @@ export function TaskBoard({
                     onValidate={onValidate}
                     onReview={onReview}
                     onReadReview={onReadReview}
+                    onOpenReview={setReviewRun}
                   />
                 ))}
                 {list.length === 0 && <p className="px-1 py-6 text-center text-[11px] text-kumo-subtle">Kosong</p>}
@@ -147,6 +153,12 @@ export function TaskBoard({
           ? `${taskKey(pending.task)} masih menunggu ${pending.waitingOn.join(", ")}. Tetap pindahkan ke In Progress?`
           : ""}
       </ConfirmDialog>
+      <TaskReviewDialog
+        projectId={projectId}
+        run={reviewRun}
+        onClose={() => setReviewRun(null)}
+        onChanged={onRunChanged}
+      />
       <TaskFillDialog
         projectId={projectId}
         task={fill?.task ?? null}

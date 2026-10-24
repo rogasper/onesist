@@ -89,6 +89,8 @@ export interface RunSummary {
   taskId: string;
   threadId: string | null;
   state: RunState;
+  /** 1 for the first attempt, then one more per revision requested. */
+  revision: number;
   bundlePath: string;
   repos: { repo: string; branch: string | null; worktreePath: string | null }[];
   error: string | null;

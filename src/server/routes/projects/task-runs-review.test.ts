@@ -34,3 +34,13 @@ test("a review opens a thread, and the list shows it on the run", async () => {
   expect(list.body[0].state).toBe("running");
   expect(list.body[0].validation).toBeNull();
 });
+
+test("the diff, revise, and discard routes answer for a run of the project", async () => {
+  const diff = await call("GET", "/api/projects/p-rrv/task-runs/run-rrv/diff");
+  expect(diff.status).toBe(200);
+  expect(diff.body.repos).toEqual([]);
+  const empty = await call("POST", "/api/projects/p-rrv/task-runs/run-rrv/revise");
+  expect(empty.status).toBe(409);
+  const missing = await call("GET", "/api/projects/p-rrv/task-runs/run-none/diff");
+  expect(missing.status).toBe(404);
+});

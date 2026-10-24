@@ -779,6 +779,7 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
                 onValidate={handleValidate}
                 onReview={handleReview}
                 onReadReview={handleReadReview}
+                onRunChanged={reloadRuns}
               />
             ) : (
             <TaskList
