@@ -78,6 +78,7 @@ test("a run whose checks pass moves to in_review and its task with it", async ()
   expect(res.validation.outsideScope.sort()).toEqual(["input/code/api/ok.txt", "input/code/api/stray.txt"]);
   expect(db.select().from(taskRuns).where(eq(taskRuns.id, "run-pass")).get()!.state).toBe("in_review");
   expect(db.select().from(tasks).where(eq(tasks.id, "t-val")).get()!.status).toBe("in_review");
+  expect(execFileSync("git", ["log", "-1", "--format=%s"], { cwd: wt, encoding: "utf-8" }).trim()).toBe("api-V-1: revisi 1");
 });
 
 test("a failing check fails the run and names the check", async () => {

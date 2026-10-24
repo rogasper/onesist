@@ -50,6 +50,12 @@ export function runCommand(cwd: string, command: string, timeoutMs: number): Pro
   });
 }
 
+/** Commits what the run has changed so far. Nothing to commit is fine. Onesist signs the commit, not the user. */
+async function snapshotRevision(worktree: string, message: string): Promise<void> {
+  await runGit(worktree, ["add", "-A"]);
+  await runGit(worktree, ["-c", "user.name=Onesist", "-c", "user.email=onesist@localhost", "commit", "-q", "-m", message]);
+}
+
 /** Files changed since the run's base commit, including new ones, as paths from the project root. */
 async function changedFiles(worktree: string, repoId: string, baseCommit: string | null): Promise<string[]> {
   const prefix = repoId === "." ? "" : `${repoId}/`;
@@ -125,6 +131,10 @@ export async function validateRun(runId: string): Promise<ValidateResult> {
   const now = new Date().toISOString();
   const failing = checks.find((c) => !c.ok);
   if (validation.passed) {
+    // One snapshot per passing revision, so each revision's diff can be told apart later.
+    for (const repo of repos) {
+      if (repo.worktreePath) await snapshotRevision(repo.worktreePath, `${task.code ?? task.title}: revisi ${run.revision}`);
+    }
     db.update(taskRuns).set({ state: "in_review", error: null, validationJson: JSON.stringify(validation), endedAt: now, updatedAt: now }).where(eq(taskRuns.id, runId)).run();
     db.update(tasks).set({ status: "in_review", updatedAt: now }).where(eq(tasks.id, run.taskId)).run();
     return { ok: true, state: "in_review", validation };
