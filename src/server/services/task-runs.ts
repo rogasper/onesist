@@ -15,6 +15,7 @@ import { runGit } from "~/server/agent/workspace/git";
 import { slug } from "~/server/agent/workspace/location";
 import { db } from "~/server/db/client";
 import { taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
+import { eventBus } from "~/server/realtime/events";
 import { readinessProblems, PROBLEM_LABELS } from "~/lib/task-readiness";
 import { parseDependencies, taskKey } from "~/lib/task-board";
 import { normalizeStatus } from "~/lib/task-status";
@@ -205,4 +206,36 @@ export async function startTaskRun(input: { projectId: string; root: string; tas
     doneDependencies: doneDependencyCodes(task, projectId),
   });
   return { ok: true, runId, threadId: thread.id, title, text };
+}
+
+/**
+ * A run's state follows its thread's chat events. Only threads that belong to a run count, and
+ * a run that already ended (validating, failed) is not moved back by a late event.
+ */
+export function applyRunEvent(type: string, data: unknown): void {
+  const threadId = (data as { threadId?: unknown } | null)?.threadId;
+  if (typeof threadId !== "string") return;
+  const run = db.select().from(taskRuns).where(eq(taskRuns.threadId, threadId)).get();
+  if (!run) return;
+  const now = new Date().toISOString();
+
+  if (type === "chat:question" && run.state === "running") {
+    db.update(taskRuns).set({ state: "waiting_input", updatedAt: now }).where(eq(taskRuns.id, run.id)).run();
+  } else if (type === "chat:question-resolved" && run.state === "waiting_input") {
+    db.update(taskRuns).set({ state: "running", updatedAt: now }).where(eq(taskRuns.id, run.id)).run();
+  } else if (type === "chat:run" && ACTIVE_STATES.includes(run.state as RunState)) {
+    const event = data as { status?: string; error?: string | null };
+    if (event.status === "done") {
+      db.update(taskRuns).set({ state: "validating", updatedAt: now }).where(eq(taskRuns.id, run.id)).run();
+    } else if (event.status === "error" || event.status === "stopped" || event.status === "interrupted") {
+      const reason = event.error ?? (event.status === "stopped" ? "Dihentikan." : "Agen berhenti sebelum selesai.");
+      db.update(taskRuns).set({ state: "failed", error: reason, endedAt: now, updatedAt: now }).where(eq(taskRuns.id, run.id)).run();
+    }
+  }
+}
+
+// Registered once when the module loads (the server loads it through the task-runs route),
+// the same way the chat queue listens to its own events.
+for (const type of ["chat:question", "chat:question-resolved", "chat:run"]) {
+  eventBus.on(type, (event: { type: string; data: unknown }) => applyRunEvent(event.type, event.data));
 }
