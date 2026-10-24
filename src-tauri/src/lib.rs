@@ -45,6 +45,7 @@ fn app_origin(app: &tauri::AppHandle) -> String {
         .try_state::<sidecar::SidecarState>()
         .and_then(|s| s.get_port())
         .unwrap_or(4321);
+    log::warn!("[window] app_origin fell back to sidecar port {port} (main window url unavailable)");
     format!("http://127.0.0.1:{}", port)
 }
 
@@ -63,26 +64,45 @@ fn pane_window_url(origin: &str, project_id: &str, tab: &str) -> Result<String, 
     Ok(format!("{}/pane/{}/{}", origin, project_id, tab))
 }
 
+/// Async on purpose: on Windows, building a webview window inside a synchronous
+/// command deadlocks the main thread (WebviewWindowBuilder "Known issues",
+/// wry#583, tauri#13092) — the new window stays blank white and the frozen
+/// event loop ignores the close button. An async command runs off the main
+/// thread, so build() can dispatch to it and wait safely.
 #[tauri::command]
-fn open_pane_window(app: tauri::AppHandle, project_id: String, tab: String) -> Result<String, String> {
+async fn open_pane_window(
+    app: tauri::AppHandle,
+    project_id: String,
+    tab: String,
+) -> Result<String, String> {
     if app.webview_windows().len() >= MAX_WINDOWS {
         return Err(format!("Limit {} window tercapai", MAX_WINDOWS));
     }
     let url = pane_window_url(&app_origin(&app), &project_id, &tab)?;
     let label = format!("pane-{}", uuid::Uuid::new_v4().simple());
-    tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?))
-        .title("Onesist")
-        .inner_size(1100.0, 800.0)
-        .min_inner_size(600.0, 400.0)
-        // HTML5 file drops, not Tauri's — same as the other windows.
-        .disable_drag_drop_handler()
-        .build()
-        .map_err(|e| e.to_string())?;
+    let built = tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?),
+    )
+    .title("Onesist")
+    .inner_size(1100.0, 800.0)
+    .min_inner_size(600.0, 400.0)
+    // HTML5 file drops, not Tauri's — same as the other windows.
+    .disable_drag_drop_handler()
+    .build();
+    match &built {
+        Ok(_) => log::info!("[window] pane window {label} opened -> {url}"),
+        Err(e) => log::error!("[window] pane window {label} FAILED ({url}): {e}"),
+    }
+    built.map_err(|e| e.to_string())?;
     Ok(label)
 }
 
+/// Async for the same Windows reason as open_pane_window: a synchronous
+/// command building a webview window deadlocks the main thread there.
 #[tauri::command]
-fn open_project_window(
+async fn open_project_window(
     app: tauri::AppHandle,
     path: Option<String>,
 ) -> Result<String, String> {
@@ -96,15 +116,19 @@ fn open_project_window(
     }
     let url = format!("{}{}", app_origin(&app), target);
     let label = format!("win-{}", uuid::Uuid::new_v4().simple());
-    let window = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?))
+    let built = tauri::WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url.parse::<url::Url>().map_err(|e| e.to_string())?))
         .title("Onesist")
         .inner_size(1440.0, 900.0)
         .min_inner_size(800.0, 600.0)
         // HTML5 file drops (composer attachments) instead of Tauri's own
         // drag-drop events — see the note on the main window.
         .disable_drag_drop_handler()
-        .build()
-        .map_err(|e| e.to_string())?;
+        .build();
+    match &built {
+        Ok(_) => log::info!("[window] project window {label} opened -> {url}"),
+        Err(e) => log::error!("[window] project window {label} FAILED ({url}): {e}"),
+    }
+    let window = built.map_err(|e| e.to_string())?;
     // Only main window uses close-to-tray; other windows close normally
     let label_clone = label.clone();
     window.on_window_event(move |event| {
@@ -139,13 +163,25 @@ pub fn run() {
       }
     }))
     .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
+      // Log plugin on ALL builds: a release build has no console to catch
+      // eprintln!/log output, so a Windows-only bug we cannot reproduce on
+      // macOS can still be diagnosed from the shipped app's log dir
+      // (Windows: %APPDATA%/com.rogasper.onesist/logs, macOS: ~/Library/Logs/
+      // com.rogasper.onesist). Stdout keeps dev behavior unchanged; the file
+      // is capped and rotated so it cannot grow without bound.
+      app.handle().plugin(
+        tauri_plugin_log::Builder::default()
+          .level(log::LevelFilter::Info)
+          .targets([
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+              file_name: Some("shell".into()),
+            }),
+          ])
+          .max_file_size(512_000)
+          .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+          .build(),
+      )?;
 
       // On Windows, cap WebView2 (Chromium) V8 heap and enable timer throttling when hidden
       // to keep RAM consumption low under intense TUI ANSI streams (xterm.js).
@@ -168,50 +204,69 @@ pub fn run() {
       #[cfg(target_os = "macos")]
       quit_observer::install();
 
-      // First-open splash (pure CSS, centered logo + ONESIST + by rogasper.com) — show until sidecar healthy, then close
-      // Marker file in app_data so it only shows on very first launch (sampai selesai wait_healthy)
-      let mut is_first_run = false;
-      let mut splash_marker: Option<std::path::PathBuf> = None;
+      // Launch splash (pure CSS, centered logo + ONESIST + by rogasper.com) — shown on
+      // EVERY launch: it covers the wait for the sidecar to become healthy and closes
+      // once the main window is ready (with a minimum display time so a fast start
+      // doesn't just flash it). It is created before the sidecar on purpose.
+      // The splash keeps Tauri's drag-drop handler on purpose: it has no
+      // page-side drop target, so swallowing a stray drop is safer there
+      // than letting WebKit navigate the window to a dropped file.
+      // App URLs resolve differently per build: against the Vite dev server in dev,
+      // where the splash lives at the public root (/splash.html), and against
+      // dist/client in production builds (dist/client/splash.html). One hard-coded
+      // path 404'd the other side — the dev splash rendered as a blank white window.
       let mut splash_window: Option<tauri::WebviewWindow> = None;
-      let splash_start = std::time::Instant::now();
-      if let Ok(app_data) = app.path().app_data_dir() {
-        let _ = std::fs::create_dir_all(&app_data);
-        let marker = app_data.join(".first_run_done");
-        splash_marker = Some(marker.clone());
-        // Show splash if marker doesn't exist (first open) — for debugging, also log
-        if !marker.exists() {
-          is_first_run = true;
-          eprintln!("[splash] first run detected, showing splash");
-          // Create splash before sidecar so user sees animation during wait_healthy (sampai selesai)
-          // The splash keeps Tauri's drag-drop handler on purpose: it has no
-          // page-side drop target, so swallowing a stray drop is safer there
-          // than letting WebKit navigate the window to a dropped file.
-          match tauri::WebviewWindowBuilder::new(
-            app,
-            "splash",
-            WebviewUrl::App("client/splash.html".into()),
-          )
-          .title("Onesist")
-          .inner_size(480.0, 320.0)
-          .min_inner_size(480.0, 320.0)
-          .max_inner_size(480.0, 320.0)
-          .decorations(false)
-          .center()
-          .resizable(false)
-          .visible(true)
-          .always_on_top(true)
-          .build() {
-            Ok(win) => {
-              eprintln!("[splash] window created");
-              splash_window = Some(win);
-            }
-            Err(e) => eprintln!("[splash] failed to create window: {}", e),
-          }
-        } else {
-          eprintln!("[splash] not first run, skipping splash");
-        }
+      // The setup closure blocks the event loop while the sidecar boots, so the splash's
+      // webview can only actually load its page AFTER setup returns — a close timer
+      // started at creation would fire first and the user would only ever see the
+      // webview's default white. The close is therefore gated on the page-load-finished
+      // signal (with a hard timeout fallback), plus a beat of visible content.
+      let (page_loaded_tx, page_loaded_rx) = std::sync::mpsc::channel::<()>();
+      // In dev, build the splash URL explicitly against the dev server, exactly the way
+      // the main window builds its URL — that External path is the proven-working one.
+      // In production the bundled asset path applies (dist/client/splash.html).
+      let splash_url = if cfg!(debug_assertions) {
+        let dev = std::env::var("SA_DEV_SERVER_URL")
+          .unwrap_or_else(|_| "http://localhost:4321".to_string());
+        let base = match dev.parse::<url::Url>() {
+          Ok(u) if u.scheme() == "http" || u.scheme() == "https" => u,
+          _ => url::Url::parse("http://localhost:4321").expect("static fallback url"),
+        };
+        WebviewUrl::External(base.join("splash.html").map_err(|e| e.to_string())?)
       } else {
-        eprintln!("[splash] could not get app_data_dir");
+        WebviewUrl::App("client/splash.html".into())
+      };
+      match tauri::WebviewWindowBuilder::new(app, "splash", splash_url)
+        .title("Onesist")
+        .inner_size(480.0, 320.0)
+        .min_inner_size(480.0, 320.0)
+        .max_inner_size(480.0, 320.0)
+        .decorations(false)
+        .center()
+        .resizable(false)
+        .visible(true)
+        .always_on_top(true)
+        // Pre-paint matches the app's light background (#fcfcfa, WINDOW_BG.light): the
+        // splash page reads the stored theme and repaints dark users within its first
+        // frame, and the app's own default is light. The webview's pre-page background
+        // must never be the white of an unloaded document.
+        .background_color(tauri::webview::Color(252, 252, 250, 255))
+        .on_page_load(move |_webview, payload| match payload.event() {
+          tauri::webview::PageLoadEvent::Started => {
+            log::info!("[splash] page load started: {}", payload.url());
+          }
+          tauri::webview::PageLoadEvent::Finished => {
+            log::info!("[splash] page load finished: {}", payload.url());
+            let _ = page_loaded_tx.send(());
+          }
+        })
+        .build() {
+        Ok(win) => {
+          let url = win.url().map(|u| u.to_string()).unwrap_or_else(|_| "<unknown>".into());
+          log::info!("[splash] window created, navigating to {url}");
+          splash_window = Some(win);
+        }
+        Err(e) => eprintln!("[splash] failed to create window: {}", e),
       }
 
       // Start the sidecar and wait for the web server to become healthy.
@@ -257,7 +312,7 @@ pub fn run() {
         let base = dev_server.unwrap_or_else(|| format!("http://127.0.0.1:{}", status.port));
         let url = format!("{}/", base.trim_end_matches('/'));
         eprintln!("[window] main webview url = {url} (sidecar port {})", status.port);
-        let window = tauri::WebviewWindowBuilder::new(
+        let builder = tauri::WebviewWindowBuilder::new(
           app,
           "main",
           WebviewUrl::External(url.parse().expect("valid url")),
@@ -274,8 +329,15 @@ pub fn run() {
         // normal HTML5 drop, and the page gets a real `File` to upload. The
         // page-side guard against a stray drop navigating the WebView lives in
         // `src/lib/file-drop.ts` (`useGlobalDropGuard`).
-        .disable_drag_drop_handler()
-        .build()?;
+        .disable_drag_drop_handler();
+        // macOS: overlay title bar — the traffic lights stay native, the rest of
+        // the strip is the web page, where the sidebar toggle lives (the page
+        // reserves --onesist-titlebar for it and marks the strip as drag region).
+        #[cfg(target_os = "macos")]
+        let builder = builder
+          .title_bar_style(tauri::TitleBarStyle::Overlay)
+          .hidden_title(true);
+        let window = builder.build()?;
         // Restore position/size/maximized, but NEVER restore a hidden
         // (visible:false) state: a hidden-but-rendering WebView at full
         // resolution leaks memory rapidly (observed 3.7 GB while idle).
@@ -284,14 +346,15 @@ pub fn run() {
         );
         let _ = window.show();
         let _ = window.set_focus();
-        // Close splash after main is ready (sampai selesai) and mark first run done
+        // Close the splash once its page has actually loaded (see the channel above),
+        // then keep it on screen one more beat so the logo animation is seen.
         if let Some(splash) = splash_window {
-          let _ = splash.close();
-        }
-        if is_first_run {
-          if let Some(marker) = splash_marker {
-            let _ = std::fs::write(marker, "1");
-          }
+          std::thread::spawn(move || {
+            // Hard timeout: if the page never loads, the splash must not stick around.
+            let _ = page_loaded_rx.recv_timeout(std::time::Duration::from_secs(15));
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            let _ = splash.close();
+          });
         }
       } else if let Some(splash) = splash_window {
         // Sidecar failed — keep splash briefly then close to avoid stuck screen
@@ -483,19 +546,29 @@ fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
                 .show(|_| {});
         }
         "new-window" => {
-            if app.webview_windows().len() >= MAX_WINDOWS {
-                let _ = app.dialog().message(format!("Limit {} window tercapai", MAX_WINDOWS)).title("Onesist").kind(tauri_plugin_dialog::MessageDialogKind::Info).show(|_| {});
-                return;
-            }
-            let url = format!("{}/", app_origin(app));
-            let label = format!("win-{}", uuid::Uuid::new_v4().simple());
-            let _ = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(url.parse().unwrap()))
-                .title("Onesist")
-                .inner_size(1440.0, 900.0)
-                .min_inner_size(800.0, 600.0)
-                // Same reason as the main window: HTML5 drops, not Tauri's.
-                .disable_drag_drop_handler()
-                .build();
+            let app = app.clone();
+            // Never build the window inside the menu event handler: on Windows
+            // that deadlocks the main thread the same way a synchronous command
+            // does (wry#583) — blank window, close button ignored.
+            std::thread::spawn(move || {
+                if app.webview_windows().len() >= MAX_WINDOWS {
+                    let _ = app.dialog().message(format!("Limit {} window tercapai", MAX_WINDOWS)).title("Onesist").kind(tauri_plugin_dialog::MessageDialogKind::Info).show(|_| {});
+                    return;
+                }
+                let url = format!("{}/", app_origin(&app));
+                let label = format!("win-{}", uuid::Uuid::new_v4().simple());
+                let built = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(url.parse().unwrap()))
+                    .title("Onesist")
+                    .inner_size(1440.0, 900.0)
+                    .min_inner_size(800.0, 600.0)
+                    // Same reason as the main window: HTML5 drops, not Tauri's.
+                    .disable_drag_drop_handler()
+                    .build();
+                match &built {
+                    Ok(_) => log::info!("[window] menu window {label} opened -> {url}"),
+                    Err(e) => log::error!("[window] menu window {label} FAILED ({url}): {e}"),
+                }
+            });
         }
         _ => {}
     });

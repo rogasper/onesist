@@ -4,16 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Onesist</title>
+<script>
+  // Follow the app's stored theme (onesist:theme, same key as src/lib/theme.ts; the
+  // splash webview shares the origin's localStorage). The app defaults to light, so
+  // dark is the explicit override.
+  try {
+    if (localStorage.getItem("onesist:theme") === "dark") {
+      document.documentElement.setAttribute("data-splash", "dark");
+    }
+  } catch (e) {}
+</script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; }
   body {
     font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0a0a0a;
+    background: #fcfcfa;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #e0e0e0;
+    color: #18181b;
   }
   .container {
     display: flex;
@@ -28,12 +38,12 @@
     height: 72px;
     border-radius: 20px;
     background: #fff;
-    border: 1px solid rgba(255,255,255,0.12);
+    border: 1px solid rgba(0,0,0,0.1);
     display: flex;
     align-items: center;
     justify-content: center;
-    animation: logoIn 700ms cubic-bezier(0.16, 1, 0.3, 1) both, logoPulse 2.2s ease-in-out 800ms infinite;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06) inset;
+    animation: logoIn 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.12);
     overflow: hidden;
     padding: 6px;
   }
@@ -43,18 +53,18 @@
     font-size: 26px;
     font-weight: 800;
     letter-spacing: 0.22em;
-    color: #ffffff;
+    color: #18181b;
     animation: fadeUp 500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both;
   }
   .subtitle {
     font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.12em;
-    color: #888;
+    color: #71717a;
     font-family: 'Geist Mono', monospace;
     animation: fadeUp 500ms cubic-bezier(0.16, 1, 0.3, 1) 350ms both;
   }
-  .subtitle a { color: #888; text-decoration: none; }
+  .subtitle a { color: #71717a; text-decoration: none; }
   .loader {
     margin-top: 8px;
     display: flex;
@@ -74,7 +84,7 @@
     position: absolute;
     bottom: 0; left: 0; right: 0;
     height: 2px;
-    background: rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.06);
     overflow: hidden;
   }
   .progress-bar {
@@ -83,6 +93,18 @@
     background: linear-gradient(90deg, #4ade80, #22c55e);
     animation: progress 1.4s ease-in-out infinite;
   }
+  /* Dark theme — explicit "onesist:theme: dark" only, the app does not follow the OS. */
+  html[data-splash="dark"] body { background: #0d0d0d; color: #e0e0e0; }
+  html[data-splash="dark"] .logo-wrap {
+    background: #fff;
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06) inset;
+    animation: logoIn 700ms cubic-bezier(0.16, 1, 0.3, 1) both, logoPulse 2.2s ease-in-out 800ms infinite;
+  }
+  html[data-splash="dark"] .title { color: #ffffff; }
+  html[data-splash="dark"] .subtitle { color: #888; }
+  html[data-splash="dark"] .subtitle a { color: #888; }
+  html[data-splash="dark"] .progress { background: rgba(255,255,255,0.06); }
   @keyframes logoIn {
     from { opacity: 0; transform: scale(0.88) translateY(8px); }
     to { opacity: 1; transform: scale(1) translateY(0); }
