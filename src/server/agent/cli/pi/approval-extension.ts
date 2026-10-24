@@ -36,7 +36,7 @@ function allowedCommands(cwd) {
 
 // \`execute\`: writes inside the run folder and checked shell commands run without a question.
 function executeAllows(event, cwd) {
-  if (event.toolName === "bash") return typeof event.input?.command === "string" && shellCommandAllowed(event.input.command, allowedCommands(cwd));
+  if (event.toolName === "bash") return typeof event.input?.command === "string" && shellCommandAllowed(event.input.command, allowedCommands(cwd), cwd);
   const file = event.input?.path;
   return typeof file === "string" && insideRun(file, cwd);
 }

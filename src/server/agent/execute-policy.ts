@@ -15,20 +15,30 @@ export const EXECUTE_POLICY_FILE = ".onesist-execute.json";
  * reference anything outside its own body.
  *
  * A command is judged one segment at a time (split on `&&` and `;`). Each segment must be a
- * `cd` into a relative folder, one of the allowed commands, a read-only git command, or an `echo`.
- * A leading `rtk ` (the token-saving wrapper some setups add) is ignored. Pipes, redirects,
- * backticks, and command substitution are never allowed.
+ * `cd` into the run folder, one of the allowed commands, a read-only git command, an `echo`, or a
+ * read-only file command (the same reads the Read, Glob, and Grep tools already allow). A leading
+ * `rtk ` (the token-saving wrapper some setups add) and a trailing `2>/dev/null` are ignored. Pipes,
+ * redirects, backticks, and command substitution are never allowed.
  */
-export function shellCommandAllowed(command: string, allowed: string[]): boolean {
-  const trimmed = command.trim();
+export function shellCommandAllowed(command: string, allowed: string[], folder = ""): boolean {
+  const trimmed = command.trim().replace(/\s*2>\/dev\/null/g, "");
   if (/[|<>`\n\r]|\$\(/.test(trimmed)) return false;
   const segments = trimmed.split(/&&|;/).map((seg) => seg.trim().replace(/^rtk\s+/, "").replace(/\$\?/g, ""));
   if (segments.length === 0 || segments.some((seg) => seg === "")) return false;
   const safeGit = ["git status", "git status --short", "git diff", "git diff --stat", "git diff --name-only", "git log", "git log --oneline"];
+  const readOnly = ["ls", "cat", "head", "tail", "wc", "pwd", "rg", "grep", "read"];
   return segments.every((seg) => {
     const cd = /^cd ([^\s]+)$/.exec(seg);
-    if (cd) return !(/^[/~]/.test(cd[1]) || cd[1].split("/").includes(".."));
+    if (cd) {
+      const target = cd[1];
+      if (target.split("/").includes("..")) return false;
+      if (!/^[/~]/.test(target)) return true;
+      // An absolute folder is fine only when it is the run folder itself or inside it.
+      return folder !== "" && (target === folder || target.startsWith(folder.endsWith("/") ? folder : folder + "/"));
+    }
     if (/^echo( [\w=.,:\-\/"']*)?$/.test(seg)) return true;
+    const word = seg.split(/\s+/)[0];
+    if (readOnly.includes(word) && !/(^|\s)-(exec|delete)\b/.test(seg)) return true;
     return allowed.includes(seg) || safeGit.includes(seg);
   });
 }
@@ -40,7 +50,7 @@ export function executeAutoDecision(action: string, resources: string[], folder:
     return resources.every((r) => isInside(path.resolve(folder, r), folder)) ? "once" : null;
   }
   if (action === "shell") {
-    return resources.every((r) => shellCommandAllowed(r, allowed)) ? "once" : null;
+    return resources.every((r) => shellCommandAllowed(r, allowed, folder)) ? "once" : null;
   }
   return null;
 }

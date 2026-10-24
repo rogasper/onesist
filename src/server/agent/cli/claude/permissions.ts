@@ -62,7 +62,7 @@ export function makeCanUseTool(opts: { runId: string; policy: ClaudePolicy; cwd?
       const file = targetOf(input);
       if (WRITE_TOOLS.includes(toolName) && file && opts.cwd && isInside(path.resolve(opts.cwd, file), opts.cwd)) return allow(input);
       // A shell command is allowed only when the run's rules name it (checks, read-only git).
-      if (toolName === "Bash" && opts.cwd && typeof input.command === "string" && shellCommandAllowed(input.command, readAllowedCommands(opts.cwd))) {
+      if (toolName === "Bash" && opts.cwd && typeof input.command === "string" && shellCommandAllowed(input.command, readAllowedCommands(opts.cwd), opts.cwd)) {
         return allow(input);
       }
     }

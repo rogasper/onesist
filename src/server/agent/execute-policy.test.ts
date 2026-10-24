@@ -58,3 +58,13 @@ test("a chain of allowed segments runs; the same chain with one unknown segment 
   expect(shellCommandAllowed("echo hi > x.txt", allowed)).toBe(false);
   expect(shellCommandAllowed("bun test;", allowed)).toBe(false);
 });
+
+test("read-only file commands, an absolute cd into the run folder, and 2>/dev/null are allowed", () => {
+  expect(shellCommandAllowed(`cd ${folder}/api && rtk ls -a && rtk read src/sum.js test.js`, allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("rtk ls AGENTS.md CLAUDE.md 2>/dev/null", allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("cat src/sum.js", allowed, folder)).toBe(true);
+  expect(shellCommandAllowed("cd /etc && cat hosts", allowed, folder)).toBe(false);
+  expect(shellCommandAllowed("cd /private/tmp/elsewhere && cat x", allowed, folder)).toBe(false);
+  expect(shellCommandAllowed("find . -exec rm {} ;", allowed, folder)).toBe(false);
+  expect(shellCommandAllowed("grep -r foo . -exec x", allowed, folder)).toBe(false);
+});
