@@ -84,6 +84,8 @@ const TAB_ITEMS = [
 function ProjectLayout({ project }: { project: any }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const chatStorageKey = project?.id ? `onesist:project:${project.id}:chat-open` : null;
   const [chatOpen, setChatOpen] = useState(() => {
@@ -459,7 +461,7 @@ function ProjectLayout({ project }: { project: any }) {
               key={t.value}
               variant="chip"
               size="sm"
-              active={activeTab === t.value}
+              active={mounted ? activeTab === t.value : t.value === "overview"}
               onClick={() => {
                 // Keep the split panes open while the main tab changes.
                 if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id }, from: "/", search: (prev: any) => prev } as any);
