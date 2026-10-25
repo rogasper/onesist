@@ -3,9 +3,10 @@ import {
   createRootRouteWithContext,
   HeadContent,
   Scripts,
-  Link,
   useLocation,
+  useNavigate,
 } from "@tanstack/react-router";
+import { openProjectWindow } from "~/lib/window";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass, SidebarSimple } from "@phosphor-icons/react";
@@ -167,8 +168,8 @@ function SidebarPersistence() {
 }
 
 function RootComponent() {
+  const navigate = useNavigate();
   // The update banner's height. kumo fixes the desktop sidebar to the top of the window, so the
-  // sidebar starts below the banner through `--update-banner-h` (see styles.css).
   const bannerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = bannerRef.current;
@@ -320,8 +321,26 @@ function RootComponent() {
                 <Sidebar.Group>
                   <Sidebar.GroupLabel>Navigation</Sidebar.GroupLabel>
                   <Sidebar.Menu>
-                    <Sidebar.MenuButton active={isDashboardActive} icon={House} tooltip="Dashboard">
-                      <Link to="/" className="no-underline text-inherit">Dashboard</Link>
+                    <Sidebar.MenuButton
+                      active={isDashboardActive}
+                      icon={House}
+                      tooltip="Dashboard"
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.metaKey || e.button === 1) {
+                          e.preventDefault();
+                          void openProjectWindow("/");
+                        } else {
+                          navigate({ to: "/" });
+                        }
+                      }}
+                      onAuxClick={(e) => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          void openProjectWindow("/");
+                        }
+                      }}
+                    >
+                      Dashboard
                     </Sidebar.MenuButton>
                     <Sidebar.MenuButton
                       onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
@@ -341,11 +360,29 @@ function RootComponent() {
                     {projects.length === 0 ? (
                       <Sidebar.MenuButton disabled icon={Folder} tooltip="No projects">No projects</Sidebar.MenuButton>
                     ) : projects.map((p) => (
-                      <Sidebar.MenuButton key={p.id} active={pathname.startsWith(`/projects/${p.id}`)} icon={Folder} tooltip={p.name}>
-                        <Link to="/projects/$id" params={{ id: p.id }} className="no-underline text-inherit">{p.name}</Link>
+                      <Sidebar.MenuButton
+                        key={p.id}
+                        active={pathname.startsWith(`/projects/${p.id}`)}
+                        icon={Folder}
+                        tooltip={p.name}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.metaKey || e.button === 1) {
+                            e.preventDefault();
+                            void openProjectWindow(`/projects/${p.id}`);
+                          } else {
+                            navigate({ to: "/projects/$id", params: { id: p.id } });
+                          }
+                        }}
+                        onAuxClick={(e) => {
+                          if (e.button === 1) {
+                            e.preventDefault();
+                            void openProjectWindow(`/projects/${p.id}`);
+                          }
+                        }}
+                      >
+                        {p.name}
                       </Sidebar.MenuButton>
                     ))}
-                  </Sidebar.Menu>
                 </Sidebar.Group>
               </Sidebar.Content>
               <AppSidebarFooter />
