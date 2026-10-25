@@ -167,12 +167,14 @@ export function QuickOpenModal() {
         void navigate({
           to: "/projects/$id",
           params: { id: currentProjectId },
+          from: "/",
         } as any);
       } else {
         // Navigate to dedicated module tab
         void navigate({
           to: `/projects/$id/${typeConfig.route}` as any,
           params: { id: currentProjectId },
+          from: "/",
         } as any);
       }
     },

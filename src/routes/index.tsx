@@ -53,7 +53,7 @@ function DashboardPage() {
     skill.reset();
     setModalOpen(false);
     fetchProjects();
-    navigate({ to: "/projects/$id", params: { id: projectId } });
+    navigate({ to: "/projects/$id", params: { id: projectId }, from: "/" });
   }, [skill.reset, fetchProjects, navigate]);
 
   // Navigate to the project once skill setup completes.
@@ -162,7 +162,7 @@ function DashboardPage() {
                     e.preventDefault();
                     void openProjectWindow(`/projects/${p.id}`);
                   } else {
-                    navigate({ to: "/projects/$id", params: { id: p.id } });
+                    navigate({ to: "/projects/$id", params: { id: p.id }, from: "/" });
                   }
                 }}
                 onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); void openProjectWindow(`/projects/${p.id}`); } }}
@@ -195,7 +195,7 @@ function DashboardPage() {
                 </div>
                 {/* Footer actions */}
                 <div className="mt-3 flex items-center gap-1.5 shrink-0">
-                  <AppButton variant="primary" size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); navigate({ to: "/projects/$id", params: { id: p.id } }); }}>Open</AppButton>
+                  <AppButton variant="primary" size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); navigate({ to: "/projects/$id", params: { id: p.id }, from: "/" }); }}>Open</AppButton>
                   <AppButton
                     variant="secondary"
                     size="sm"

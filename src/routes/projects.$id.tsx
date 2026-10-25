@@ -205,7 +205,7 @@ function ProjectLayout() {
     const paneTab = split.panes[index];
     const next = setPaneTab(split, index, activeTab);
     setPaneDirty((prev) => clearDirty(prev, index));
-    navigate({ to: `/projects/$id/${paneTab}`, params: { id: project.id }, search: (prev: any) => ({ ...prev, ...serializeSplit(next) }) } as any);
+    navigate({ to: `/projects/$id/${paneTab}`, params: { id: project.id }, from: "/", search: (prev: any) => ({ ...prev, ...serializeSplit(next) }) } as any);
   }, [activeTab, split, navigate, project?.id]);
   // Swapping replaces the pane's content, so unsaved edits there are lost like on a tab change: ask first.
   const swapPane = useCallback((index: number) => {
@@ -341,8 +341,8 @@ function ProjectLayout() {
               active={activeTab === t.value}
               onClick={() => {
                 // Keep the split panes open while the main tab changes.
-                if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id }, search: (prev: any) => prev } as any);
-                else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id }, search: (prev: any) => prev } as any);
+                if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id }, from: "/", search: (prev: any) => prev } as any);
+                else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id }, from: "/", search: (prev: any) => prev } as any);
               }}
               className="px-3 shrink-0 whitespace-nowrap"
             >

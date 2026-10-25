@@ -18,6 +18,7 @@ import { useClientErrorReporting } from "~/lib/use-client-error-report";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
+import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
 import { getSidebarChoice, isSidebarToggleKey, setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
 import "~/styles.css";
@@ -31,8 +32,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
   }),
   component: RootComponent,
+  notFoundComponent: ProjectNotFound,
 });
-
 function AppSidebarHeader({ overlay }: { overlay: boolean }) {
   const { state, isMobile } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
@@ -89,7 +90,13 @@ function AppSidebarHeader({ overlay }: { overlay: boolean }) {
 function AppSidebarFooter() {
   const { state, isMobile } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
-  const [theme, setTheme] = useState<AppTheme>(() => getStoredTheme());
+  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<AppTheme>("dark");
+
+  useEffect(() => {
+    setMounted(true);
+    setTheme(getStoredTheme());
+  }, []);
 
   const onToggleTheme = () => {
     void toggleTheme().then(setTheme);
@@ -102,11 +109,11 @@ function AppSidebarFooter() {
           <button
             type="button"
             onClick={onToggleTheme}
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={mounted ? (theme === "dark" ? "Switch to light mode" : "Switch to dark mode") : "Toggle theme"}
             className="flex items-center gap-2 px-2 py-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
           >
-            {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-            <span className="text-xs">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+            {mounted && theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+            <span className="text-xs">{mounted ? (theme === "dark" ? "Light mode" : "Dark mode") : "Theme"}</span>
           </button>
         )}
         <Sidebar.Trigger />
@@ -114,7 +121,6 @@ function AppSidebarFooter() {
     </Sidebar.Footer>
   );
 }
-
 const SIDEBAR_OPEN_KEY = "onesist:sidebar:open";
 const SIDEBAR_WIDTH_KEY = "onesist:sidebar:width";
 // Height of the overlay title bar strip on the macOS main window (traffic lights + toggle).
@@ -330,7 +336,7 @@ function RootComponent() {
                           e.preventDefault();
                           void openProjectWindow("/");
                         } else {
-                          navigate({ to: "/" });
+                          navigate({ to: "/", from: "/" });
                         }
                       }}
                       onAuxClick={(e) => {
@@ -370,7 +376,7 @@ function RootComponent() {
                             e.preventDefault();
                             void openProjectWindow(`/projects/${p.id}`);
                           } else {
-                            navigate({ to: "/projects/$id", params: { id: p.id } });
+                            navigate({ to: "/projects/$id", params: { id: p.id }, from: "/" });
                           }
                         }}
                         onAuxClick={(e) => {
@@ -383,6 +389,7 @@ function RootComponent() {
                         {p.name}
                       </Sidebar.MenuButton>
                     ))}
+                  </Sidebar.Menu>
                 </Sidebar.Group>
               </Sidebar.Content>
               <AppSidebarFooter />

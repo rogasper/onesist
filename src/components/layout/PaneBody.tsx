@@ -3,11 +3,22 @@ import type { SplitTab } from "~/lib/split-layout";
 import { ListSkeleton } from "~/components/ui/Skeleton";
 
 // Each view is heavy (ReactFlow, MDXEditor, Swagger UI): load it only when a pane opens it.
-const ErdView = lazy(() => import("~/components/erd/ErdView").then((m) => ({ default: m.ErdView })));
-const SpecView = lazy(() => import("~/components/spec/SpecView").then((m) => ({ default: m.SpecView })));
-const TasksView = lazy(() => import("~/components/tasks/TasksView").then((m) => ({ default: m.TasksView })));
-const FsdView = lazy(() => import("~/components/fsd/FsdView").then((m) => ({ default: m.FsdView })));
-
+const ErdView = lazy(async () => {
+  const m = await import("~/components/erd/ErdView");
+  return { default: m.ErdView };
+});
+const SpecView = lazy(async () => {
+  const m = await import("~/components/spec/SpecView");
+  return { default: m.SpecView };
+});
+const TasksView = lazy(async () => {
+  const m = await import("~/components/tasks/TasksView");
+  return { default: m.TasksView };
+});
+const FsdView = lazy(async () => {
+  const m = await import("~/components/fsd/FsdView");
+  return { default: m.FsdView };
+});
 export interface PaneBodyProps {
   tab: SplitTab;
   projectId: string;
