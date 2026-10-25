@@ -51,7 +51,17 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
     // initialTasks is the first render's value only; later changes come through SSE.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdKey = `onesist:project:${id}:tasks-selected-id`;
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return window.localStorage.getItem(`onesist:project:${id}:tasks-selected-id`); } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (selectedId) window.localStorage.setItem(selectedIdKey, selectedId);
+      else window.localStorage.removeItem(selectedIdKey);
+    } catch {}
+  }, [selectedId, selectedIdKey]);
   /** The open task is being edited: an outside click must not discard the edits (U5). */
   const [detailEditing, setDetailEditing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -64,8 +74,31 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const [view, setView] = useState<"tasks" | "timeline">("tasks");
-  const [viewMode, setViewMode] = useState<TaskViewMode>("list");
+  const viewKey = `onesist:project:${id}:tasks-view`;
+  const [view, setView] = useState<"tasks" | "timeline">(() => {
+    if (typeof window === "undefined") return "tasks";
+    try {
+      const saved = window.localStorage.getItem(`onesist:project:${id}:tasks-view`);
+      if (saved === "tasks" || saved === "timeline") return saved;
+    } catch {}
+    return "tasks";
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(viewKey, view); } catch {}
+  }, [view, viewKey]);
+
+  const viewModeKey = `onesist:project:${id}:tasks-view-mode`;
+  const [viewMode, setViewMode] = useState<TaskViewMode>(() => {
+    if (typeof window === "undefined") return "list";
+    try {
+      const saved = window.localStorage.getItem(`onesist:project:${id}:tasks-view-mode`);
+      if (saved === "list" || saved === "board" || saved === "cards") return saved as TaskViewMode;
+    } catch {}
+    return "list";
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(viewModeKey, viewMode); } catch {}
+  }, [viewMode, viewModeKey]);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [missingDialog, setMissingDialog] = useState<{ missing: string[]; prompt: string } | null>(null);

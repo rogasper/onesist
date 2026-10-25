@@ -22,8 +22,31 @@ import { subscribe } from "~/lib/event-stream";
 /** The API Spec tab's content. Used by its route and by split panes. */
 export function SpecView({ projectId }: { projectId: string }) {
   const id = projectId;
-  const [viewMode, setViewMode] = useState<"cards" | "document" | "openapi">("cards");
-  const [activeModule, setActiveModule] = useState<string | null>(null);
+  const viewModeKey = `onesist:project:${id}:spec-view-mode`;
+  const [viewMode, setViewMode] = useState<"cards" | "document" | "openapi">(() => {
+    if (typeof window === "undefined") return "cards";
+    try {
+      const saved = window.localStorage.getItem(`onesist:project:${id}:spec-view-mode`);
+      if (saved === "cards" || saved === "document" || saved === "openapi") return saved;
+    } catch {}
+    return "cards";
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(viewModeKey, viewMode); } catch {}
+  }, [viewMode, viewModeKey]);
+
+  const activeModuleKey = `onesist:project:${id}:spec-active-module`;
+  const [activeModule, setActiveModule] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return window.localStorage.getItem(`onesist:project:${id}:spec-active-module`); } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (activeModule) window.localStorage.setItem(activeModuleKey, activeModule);
+      else window.localStorage.removeItem(activeModuleKey);
+    } catch {}
+  }, [activeModule, activeModuleKey]);
+
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
@@ -45,9 +68,18 @@ export function SpecView({ projectId }: { projectId: string }) {
   // Try MASTER_SPEC_API.md first, then output/spec/ files
   const { files, refresh: refreshFiles } = useFileList("output", id);
   const { content: masterContent } = useFileContent("MASTER_SPEC_API.md", id);
-  const [selectedSpec, setSelectedSpec] = useState<string | null>(null);
+  const selectedSpecKey = `onesist:project:${id}:spec-selected-file`;
+  const [selectedSpec, setSelectedSpec] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return window.localStorage.getItem(`onesist:project:${id}:spec-selected-file`); } catch { return null; }
+  });
+  useEffect(() => {
+    try {
+      if (selectedSpec) window.localStorage.setItem(selectedSpecKey, selectedSpec);
+      else window.localStorage.removeItem(selectedSpecKey);
+    } catch {}
+  }, [selectedSpec, selectedSpecKey]);
   const { content: specContent, refresh: refreshSpec } = useFileContent(selectedSpec, id);
-
   const openapiFiles = useMemo(() => files.filter((f) => f.ext === ".yaml" || f.ext === ".yml"), [files]);
   const [selectedOpenapi, setSelectedOpenapi] = useState<string | null>(null);
   const { content: openapiContent, refresh: refreshOpenapi } = useFileContent(selectedOpenapi, id);

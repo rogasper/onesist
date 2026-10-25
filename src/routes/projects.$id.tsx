@@ -133,8 +133,47 @@ function ProjectLayout() {
       }),
     [startTerminalLaunch],
   );
-  const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
-  const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
+  const overviewTabsKey = project?.id ? `onesist:project:${project.id}:overview-tabs` : null;
+  const overviewActiveTabKey = project?.id ? `onesist:project:${project.id}:overview-active-tab` : null;
+
+  const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>(() => {
+    if (typeof window === "undefined" || !project?.id) return [];
+    try {
+      const saved = window.localStorage.getItem(`onesist:project:${project.id}:overview-tabs`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [activeTabPath, setActiveTabPath] = useState<string | null>(() => {
+    if (typeof window === "undefined" || !project?.id) return null;
+    try {
+      return window.localStorage.getItem(`onesist:project:${project.id}:overview-active-tab`);
+    } catch {
+      return null;
+    }
+  });
+
+  // Save openTabs to localStorage
+  useEffect(() => {
+    if (!overviewTabsKey) return;
+    try {
+      window.localStorage.setItem(overviewTabsKey, JSON.stringify(openTabs));
+    } catch {}
+  }, [openTabs, overviewTabsKey]);
+
+  // Save activeTabPath to localStorage
+  useEffect(() => {
+    if (!overviewActiveTabKey) return;
+    try {
+      if (activeTabPath) {
+        window.localStorage.setItem(overviewActiveTabKey, activeTabPath);
+      } else {
+        window.localStorage.removeItem(overviewActiveTabKey);
+      }
+    } catch {}
+  }, [activeTabPath, overviewActiveTabKey]);
   /** Why the last "Window baru" did not open a window (for example the window limit). */
   const [windowError, setWindowError] = useState<string | null>(null);
   const skill = useSkillInstall();
