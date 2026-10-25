@@ -57,8 +57,15 @@ import { PageHelpButton } from "~/components/ui/PageHelpButton";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: async ({ params }) => loadProjectRouteData(params.id),
-  component: ProjectLayout,
+  component: ProjectRouteEntry,
 });
+
+function ProjectRouteEntry() {
+  const data = Route.useLoaderData() as any;
+  const project = data?.project;
+  if (!project?.id) return <ProjectNotFound />;
+  return <ProjectLayout key={project.id} project={project} />;
+}
 
 const TAB_ITEMS = [
   { value: "overview", label: "Overview" },
@@ -74,10 +81,9 @@ const TAB_ITEMS = [
   { value: "settings", label: "Settings" },
 ];
 
-function ProjectLayout() {
+function ProjectLayout({ project }: { project: any }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { project } = Route.useLoaderData() as any;
   const [terminalOpen, setTerminalOpen] = useState(false);
   const chatStorageKey = project?.id ? `onesist:project:${project.id}:chat-open` : null;
   const [chatOpen, setChatOpen] = useState(() => {
@@ -243,18 +249,11 @@ function ProjectLayout() {
 
   // ── Persist and restore last active tab per project ──
   const lastTabKey = project?.id ? `onesist:project:${project.id}:last-tab` : null;
-  useEffect(() => {
-    if (!lastTabKey || !activeTab) return;
-    try {
-      window.localStorage.setItem(lastTabKey, activeTab);
-    } catch {}
-  }, [activeTab, lastTabKey]);
-
   const restoredTabFor = useRef<string | null>(null);
+
   useEffect(() => {
     if (!project?.id || !lastTabKey) return;
     if (restoredTabFor.current === project.id) return;
-    restoredTabFor.current = project.id;
 
     // Only redirect if user landed on the base /projects/$id route without child tab in pathname
     const isBaseProjectRoute = !location.pathname.includes("/erd")
@@ -269,20 +268,34 @@ function ProjectLayout() {
       && !location.pathname.includes("/settings");
 
     if (isBaseProjectRoute) {
+      let savedTab: string | null = null;
       try {
-        const savedTab = window.localStorage.getItem(lastTabKey);
-        if (savedTab && savedTab !== "overview" && TAB_ITEMS.some((t) => t.value === savedTab)) {
-          navigate({
-            to: `/projects/$id/${savedTab}` as any,
-            params: { id: project.id },
-            from: "/",
-            search: (prev: any) => prev,
-            replace: true,
-          });
-        }
+        savedTab = window.localStorage.getItem(lastTabKey);
       } catch {}
+
+      if (savedTab && savedTab !== "overview" && TAB_ITEMS.some((t) => t.value === savedTab)) {
+        restoredTabFor.current = project.id;
+        navigate({
+          to: `/projects/$id/${savedTab}` as any,
+          params: { id: project.id },
+          from: "/",
+          search: (prev: any) => prev,
+          replace: true,
+        });
+        return;
+      }
     }
+    restoredTabFor.current = project.id;
   }, [project?.id, lastTabKey, location.pathname, navigate]);
+
+  // Save activeTab ONLY after restoration check has run
+  useEffect(() => {
+    if (!lastTabKey || !activeTab) return;
+    if (restoredTabFor.current !== project?.id) return;
+    try {
+      window.localStorage.setItem(lastTabKey, activeTab);
+    } catch {}
+  }, [activeTab, lastTabKey, project?.id]);
 
   const [paneDirty, setPaneDirty] = useState<Record<number, boolean>>({});
   const handlePaneDirtyChange = useCallback((index: number, dirty: boolean) => {

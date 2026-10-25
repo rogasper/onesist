@@ -15,5 +15,5 @@ export const Route = createFileRoute("/projects/$id/tasks")({
 function TasksPage() {
   const { id } = Route.useParams();
   const loaderData = Route.useLoaderData() as { project: any; tasks: Task[] };
-  return <TasksView projectId={id} initialTasks={loaderData?.tasks ?? []} />;
+  return <TasksView key={id} projectId={id} initialTasks={loaderData?.tasks ?? []} />;
 }

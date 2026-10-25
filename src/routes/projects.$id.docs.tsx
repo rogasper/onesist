@@ -15,9 +15,13 @@ import { InlineAlert } from "~/components/ui/InlineAlert";
 
 export const Route = createFileRoute("/projects/$id/docs")({
   loader: async ({ params }) => loadProjectRouteData(params.id),
-  component: DocsPage,
+  component: DocsPageRoute,
 });
 
+function DocsPageRoute() {
+  const { id } = Route.useParams();
+  return <DocsPage key={id} />;
+}
 const INPUT_CLS =
   "w-full bg-kumo-elevated/60 border border-kumo-line rounded px-2.5 py-1.5 text-sm text-kumo-default placeholder:text-kumo-subtle focus:border-kumo-brand focus:outline-none";
 

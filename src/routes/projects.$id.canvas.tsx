@@ -11,11 +11,15 @@ import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
 
 export const Route = createFileRoute("/projects/$id/canvas")({
-  component: CanvasPage,
+  component: CanvasPageRoute,
 });
 
-function CanvasPage() {
+function CanvasPageRoute() {
   const { id } = Route.useParams();
+  return <CanvasPage key={id} id={id} />;
+}
+
+function CanvasPage({ id }: { id: string }) {
   const { files, loading: filesLoading, refresh: refreshFileList } = useFileList("output/sketches", id);
   const storageKey = `onesist:project:${id}:canvas-selected-file`;
   const [selectedFile, setSelectedFile] = useState<string | null>(() => {

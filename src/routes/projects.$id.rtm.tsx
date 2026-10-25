@@ -16,8 +16,13 @@ import type { RtmDataset } from "~/shared/types";
 import { summarizeTrace } from "~/lib/rtm-trace";
 
 export const Route = createFileRoute("/projects/$id/rtm")({
-  component: RtmPage,
+  component: RtmPageRoute,
 });
+
+function RtmPageRoute() {
+  const { id } = Route.useParams();
+  return <RtmPage key={id} />;
+}
 
 function RtmPage() {
   const { id } = Route.useParams();

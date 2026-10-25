@@ -7,5 +7,5 @@ export const Route = createFileRoute("/projects/$id/erd")({
 
 function ErdPage() {
   const { id } = Route.useParams();
-  return <ErdView projectId={id} />;
+  return <ErdView key={id} projectId={id} />;
 }
