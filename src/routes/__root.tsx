@@ -376,7 +376,12 @@ function RootComponent() {
                             e.preventDefault();
                             void openProjectWindow(`/projects/${p.id}`);
                           } else {
-                            navigate({ to: "/projects/$id", params: { id: p.id }, from: "/" });
+                            let tabRoute: string = "/projects/$id";
+                            try {
+                              const savedTab = window.localStorage.getItem(`onesist:project:${p.id}:last-tab`);
+                              if (savedTab && savedTab !== "overview") tabRoute = `/projects/$id/${savedTab}`;
+                            } catch {}
+                            navigate({ to: tabRoute as any, params: { id: p.id }, from: "/" });
                           }
                         }}
                         onAuxClick={(e) => {

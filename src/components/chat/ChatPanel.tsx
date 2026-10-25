@@ -69,21 +69,49 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
     setSide(null);
   }, [activeId]);
 
-  // NO auto-select on open (changed 2026-09-18, UJI-MANUAL C10). It used to jump
-  // straight into the most recently updated thread, so reopening the app
-  // dropped the user back into yesterday's conversation when what they wanted
-  // was an empty chat. Now the panel starts on the start state (new conversation
-  // button + the three most recent threads) and the active thread is only ever
-  // set by an explicit choice. Within one app session, closing and reopening the
-  // panel keeps whatever was chosen, because the panel stays mounted (`hidden`).
+  // Persist and restore active thread per project:
+  // When opening or switching to a project, restore the last opened thread
+  // or automatically select the most recent thread if available.
+  const threadStorageKey = `onesist:project:${projectId}:chat-thread`;
+  const restoredProjectRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (loading || threads.length === 0) return;
+    if (restoredProjectRef.current === projectId) return;
+    restoredProjectRef.current = projectId;
+
+    let savedId: string | null = null;
+    try {
+      savedId = window.localStorage.getItem(threadStorageKey);
+    } catch {}
+
+    if (savedId && threads.some((t) => t.id === savedId)) {
+      setActiveId(savedId);
+    } else if (!activeId && threads.length > 0) {
+      // Select the latest thread of the project
+      setActiveId(threads[0].id);
+    }
+  }, [projectId, threads, loading, threadStorageKey, activeId]);
+
+  // Save activeId to localStorage whenever it changes
+  useEffect(() => {
+    if (!activeId) return;
+    try {
+      window.localStorage.setItem(threadStorageKey, activeId);
+    } catch {}
+  }, [activeId, threadStorageKey]);
 
   // The selection must not outlive its thread: after a delete, or after
-  // switching to another project (whose thread list does not contain it), the
-  // panel goes back to the start state instead of showing a stale thread.
+  // switching to another project (whose thread list does not contain it),
+  // clear activeId and stored reference.
   useEffect(() => {
-    if (activeId && !loading && !threads.some((t) => t.id === activeId)) setActiveId(null);
-  }, [threads, activeId, loading]);
-
+    if (activeId && !loading && !threads.some((t) => t.id === activeId)) {
+      setActiveId(null);
+      try {
+        window.localStorage.removeItem(threadStorageKey);
+      } catch {}
+    }
+  }, [threads, activeId, loading, threadStorageKey]);
   const active = useMemo(() => threads.find((t) => t.id === activeId) ?? null, [threads, activeId]);
 
   // "Lanjutkan di terminal": only for a thread that runs in an OpenCode or Antigravity session, and not mid-run.

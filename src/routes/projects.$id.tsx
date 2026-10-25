@@ -79,8 +79,34 @@ function ProjectLayout() {
   const location = useLocation();
   const { project } = Route.useLoaderData() as any;
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  // A quote sent from a viewer opens the chat, so the reader sees where it went.
+  const chatStorageKey = project?.id ? `onesist:project:${project.id}:chat-open` : null;
+  const [chatOpen, setChatOpen] = useState(() => {
+    if (typeof window === "undefined" || !project?.id) return false;
+    try {
+      return window.localStorage.getItem(`onesist:project:${project.id}:chat-open`) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  // Keep chatOpen in sync when switching projects
+  useEffect(() => {
+    if (!project?.id) return;
+    try {
+      const saved = window.localStorage.getItem(`onesist:project:${project.id}:chat-open`);
+      if (saved !== null) {
+        setChatOpen(saved === "true");
+      }
+    } catch {}
+  }, [project?.id]);
+
+  // Persist chatOpen state
+  useEffect(() => {
+    if (!chatStorageKey) return;
+    try {
+      window.localStorage.setItem(chatStorageKey, chatOpen ? "true" : "false");
+    } catch {}
+  }, [chatOpen, chatStorageKey]);
   useEffect(() => subscribeQuotes(() => setChatOpen(true)), []);
   useEffect(() => subscribeChatTasks(() => setChatOpen(true)), []);
   // The chat folds the app sidebar on a narrow window and gives it back when it closes (P3.2).
@@ -175,6 +201,49 @@ function ProjectLayout() {
     }
     try { window.localStorage.setItem(key, JSON.stringify(serializeSplit(split))); } catch {}
   }, [project?.id, split, setSplit]);
+
+  // ── Persist and restore last active tab per project ──
+  const lastTabKey = project?.id ? `onesist:project:${project.id}:last-tab` : null;
+  useEffect(() => {
+    if (!lastTabKey || !activeTab) return;
+    try {
+      window.localStorage.setItem(lastTabKey, activeTab);
+    } catch {}
+  }, [activeTab, lastTabKey]);
+
+  const restoredTabFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!project?.id || !lastTabKey) return;
+    if (restoredTabFor.current === project.id) return;
+    restoredTabFor.current = project.id;
+
+    // Only redirect if user landed on the base /projects/$id route without child tab in pathname
+    const isBaseProjectRoute = !location.pathname.includes("/erd")
+      && !location.pathname.includes("/canvas")
+      && !location.pathname.includes("/spec")
+      && !location.pathname.includes("/wiki")
+      && !location.pathname.includes("/tasks")
+      && !location.pathname.includes("/fsd")
+      && !location.pathname.includes("/rtm")
+      && !location.pathname.includes("/sit")
+      && !location.pathname.includes("/docs")
+      && !location.pathname.includes("/settings");
+
+    if (isBaseProjectRoute) {
+      try {
+        const savedTab = window.localStorage.getItem(lastTabKey);
+        if (savedTab && savedTab !== "overview" && TAB_ITEMS.some((t) => t.value === savedTab)) {
+          navigate({
+            to: `/projects/$id/${savedTab}` as any,
+            params: { id: project.id },
+            from: "/",
+            search: (prev: any) => prev,
+            replace: true,
+          });
+        }
+      } catch {}
+    }
+  }, [project?.id, lastTabKey, location.pathname, navigate]);
 
   const [paneDirty, setPaneDirty] = useState<Record<number, boolean>>({});
   const handlePaneDirtyChange = useCallback((index: number, dirty: boolean) => {
