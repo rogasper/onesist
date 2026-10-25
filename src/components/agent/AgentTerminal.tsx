@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { X, Square, Play } from "@phosphor-icons/react";
-import xtermPkg from "@xterm/xterm";
-const Terminal = xtermPkg.Terminal;
+import * as xtermModule from "@xterm/xterm";
+const defaultExport: unknown = "default" in xtermModule ? xtermModule.default : undefined;
+const defaultTerminal = defaultExport && typeof defaultExport === "object" && "Terminal" in defaultExport ? defaultExport.Terminal : undefined;
+const Terminal = (xtermModule.Terminal ?? defaultTerminal) as typeof xtermModule.Terminal;
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
