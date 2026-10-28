@@ -6,6 +6,7 @@ import { windowErrorText } from "~/lib/window-error";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { loadProjectRouteData } from "~/lib/project-queries";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { subscribeReviewPane } from "~/lib/review-pane";
 // NOTE: AgentTerminal is imported EAGERLY (not lazy + Suspense). xterm is
 // ~700KB, but mounting the terminal panel through <Suspense> on first open
 // inserts a large subtree into a DOM whose React bookkeeping can desync —
@@ -155,6 +156,11 @@ function ProjectLayout() {
   const setSplit = useCallback((next: SplitState) => {
     navigate({ to: location.pathname, search: (prev: any) => ({ ...prev, ...serializeSplit(next) }), replace: true } as any);
   }, [navigate, location.pathname]);
+
+  // "Buka penuh" from a card's drawer: show the review pane beside the page, once.
+  useEffect(() => subscribeReviewPane(() => {
+    if (!split.panes.includes("review")) setSplit(addPane(split, "review", "h"));
+  }), [split, setSplit]);
 
   // Remember the layout per project; restore it when the URL brings none.
   const restoredFor = useRef<string | null>(null);

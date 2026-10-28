@@ -23,7 +23,7 @@ export interface ThreadSummary {
   mode: "ask" | "agent" | "plan";
   providerId: string | null;
   model: string | null;
-  permissionMode: "ask" | "auto" | "no-shell" | "readonly";
+  permissionMode: "ask" | "auto" | "no-shell" | "readonly" | "execute";
   maxSteps: number;
   tokensUsed: number;
   archived: boolean;

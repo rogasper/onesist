@@ -7,7 +7,7 @@
  * Pure functions only — no React, no DOM — so every rule here is unit-tested.
  */
 
-export const SPLIT_TABS = ["erd", "spec", "tasks", "fsd"] as const;
+export const SPLIT_TABS = ["erd", "spec", "tasks", "fsd", "review"] as const;
 export type SplitTab = (typeof SPLIT_TABS)[number];
 
 export const SPLIT_TAB_LABELS: Record<SplitTab, string> = {
@@ -15,6 +15,7 @@ export const SPLIT_TAB_LABELS: Record<SplitTab, string> = {
   spec: "API Spec",
   tasks: "Tasks",
   fsd: "FSD Analyzer",
+  review: "Tinjauan",
 };
 
 export const MAX_EXTRA_PANES = 3;

@@ -23,6 +23,9 @@ import {
   testCases,
   wikiPages,
   wikiSnapshots,
+  projectExecSettings,
+  taskRuns,
+  taskRunRepos,
 } from "~/server/db/schema";
 
 export const router = new Router();
@@ -157,6 +160,11 @@ router.delete("projects/:id", async ({ params }) => {
   db.delete(erds).where(eq(erds.projectId, id)).run();
   db.delete(apiSpecs).where(eq(apiSpecs.projectId, id)).run();
   db.delete(wikiPages).where(eq(wikiPages.projectId, id)).run();
+  db.delete(projectExecSettings).where(eq(projectExecSettings.projectId, id)).run();
+  // Runs reference both the project and its tasks; their repo rows reference the runs.
+  const projectRunIds = db.select({ id: taskRuns.id }).from(taskRuns).where(eq(taskRuns.projectId, id)).all();
+  for (const run of projectRunIds) db.delete(taskRunRepos).where(eq(taskRunRepos.runId, run.id)).run();
+  db.delete(taskRuns).where(eq(taskRuns.projectId, id)).run();
   db.delete(tasks).where(eq(tasks.projectId, id)).run();
   db.delete(changeLog).where(eq(changeLog.projectId, id)).run();
   db.delete(fsdSessions).where(eq(fsdSessions.projectId, id)).run();

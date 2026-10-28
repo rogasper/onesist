@@ -86,7 +86,7 @@ export async function startClaudeTurn(input: ClaudeTurnInput, queryFn: ClaudeQue
   installHooks();
   const run = createRun({ runId: input.runId, threadId: input.threadId, projectId: input.projectId });
   const mapper = createClaudeMapper(input.model ?? "claude");
-  const canUseTool = makeCanUseTool({ runId: input.runId, policy: claudePolicy(input.permissionMode, input.threadMode) });
+  const canUseTool = makeCanUseTool({ runId: input.runId, policy: claudePolicy(input.permissionMode, input.threadMode), cwd: input.root });
   let resolveUsage: (u: Usage) => void = () => {};
   const usage = new Promise<Usage>((resolve) => {
     resolveUsage = resolve;

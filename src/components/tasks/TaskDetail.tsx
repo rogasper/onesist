@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, PencilSimple, Check, CopySimple } from "@phosphor-icons/react";
 import { DialogTitle } from "@cloudflare/kumo";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
 import { copyRich, escapeHtml, htmlToPlainText, markdownToHtml } from "~/lib/rich-copy";
 import type { Task } from "~/shared/types";
 
@@ -17,13 +18,15 @@ interface TaskDetailProps {
 }
 
 const STATUS_OPTIONS = [
-  { value: "todo", label: "To Do", color: "text-blue-400/70 bg-blue-500/10" },
-  { value: "in_progress", label: "In Progress", color: "text-amber-400/70 bg-amber-500/10" },
-  { value: "done", label: "Done", color: "text-green-400/70 bg-green-500/10" },
-];
+  { value: "todo", color: "text-blue-400/70 bg-blue-500/10" },
+  { value: "in_progress", color: "text-amber-400/70 bg-amber-500/10" },
+  { value: "in_review", color: "text-sky-400/70 bg-sky-500/10" },
+  { value: "done", color: "text-green-400/70 bg-green-500/10" },
+].map((o) => ({ ...o, label: STATUS_LABELS[o.value as keyof typeof STATUS_LABELS] }));
 
 function statusBadge(status: string) {
-  const opt = STATUS_OPTIONS.find((s) => s.value === status) ?? STATUS_OPTIONS[0];
+  const s = normalizeStatus(status);
+  const opt = STATUS_OPTIONS.find((o) => o.value === s)!;
   return <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${opt.color}`}>{opt.label}</span>;
 }
 
