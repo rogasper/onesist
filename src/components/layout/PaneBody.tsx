@@ -15,6 +15,10 @@ const TasksView = lazy(async () => {
   const m = await import("~/components/tasks/TasksView");
   return { default: m.TasksView };
 });
+const ReviewView = lazy(async () => {
+  const m = await import("~/components/tasks/ReviewView");
+  return { default: m.ReviewView };
+});
 const FsdView = lazy(async () => {
   const m = await import("~/components/fsd/FsdView");
   return { default: m.FsdView };
@@ -42,6 +46,7 @@ export function PaneBody({ tab, projectId, paneId, onDirtyChange }: PaneBodyProp
       {tab === "spec" && <SpecView projectId={projectId} />}
       {tab === "tasks" && <TasksView projectId={projectId} />}
       {tab === "fsd" && <FsdView projectId={projectId} paneId={paneId} onDirtyChange={onDirtyChange} />}
+      {tab === "review" && <ReviewView projectId={projectId} />}
     </Suspense>
   );
 }

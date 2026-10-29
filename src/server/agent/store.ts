@@ -193,7 +193,7 @@ export function messageText(parts: unknown): string {
     .trim();
 }
 
-function parseParts(contentJson: string | null): unknown {
+export function parseParts(contentJson: string | null): unknown {
   if (!contentJson) return [];
   try {
     const parsed = JSON.parse(contentJson);

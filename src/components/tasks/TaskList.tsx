@@ -1,7 +1,8 @@
 import { CaretDown, CaretRight, Archive, CheckSquare, Square } from "@phosphor-icons/react";
+import { STATUS_LABELS, normalizeStatus, type TaskStatus } from "~/lib/task-status";
 import type { Task } from "~/shared/types";
 
-export type TaskViewMode = "list" | "cards";
+export type TaskViewMode = "list" | "cards" | "board";
 
 export interface TaskGroup {
   phase: string | null;
@@ -23,17 +24,18 @@ interface TaskListProps {
   onSelectPhase?: (phase: string | null) => void;
 }
 
-const STATUS_STYLES: Record<string, { label: string; color: string }> = {
-  todo: { label: "To Do", color: "text-blue-400/80 bg-blue-500/10 border-blue-500/30" },
-  in_progress: { label: "In Progress", color: "text-amber-400/80 bg-amber-500/10 border-amber-500/30" },
-  done: { label: "Done", color: "text-green-400/80 bg-green-500/10 border-green-500/30" },
+const STATUS_STYLES: Record<TaskStatus, string> = {
+  todo: "text-blue-400/80 bg-blue-500/10 border-blue-500/30",
+  in_progress: "text-amber-400/80 bg-amber-500/10 border-amber-500/30",
+  in_review: "text-sky-400/80 bg-sky-500/10 border-sky-500/30",
+  done: "text-green-400/80 bg-green-500/10 border-green-500/30",
 };
 
 function statusBadge(status: string) {
-  const opt = STATUS_STYLES[status] ?? STATUS_STYLES.todo;
+  const s = normalizeStatus(status);
   return (
-    <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium border leading-none ${opt.color}`}>
-      {opt.label}
+    <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium border leading-none ${STATUS_STYLES[s]}`}>
+      {STATUS_LABELS[s]}
     </span>
   );
 }

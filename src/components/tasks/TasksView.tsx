@@ -5,6 +5,7 @@ import {
   ListDashes,
   ArrowsClockwise,
   CalendarDots,
+  Kanban,
   SquaresFour,
   CheckSquare,
   Archive,
@@ -20,17 +21,27 @@ import { TaskList, type TaskViewMode, type TaskGroup } from "~/components/tasks/
 import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
 import type { Task } from "~/shared/types";
-import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { SearchInput } from "~/components/ui/SearchInput";
 import { FilterSelect } from "~/components/ui/FilterSelect";
 import { subscribe } from "~/lib/event-stream";
+import { TaskBoard } from "./TaskBoard";
+import { useExecSettings } from "~/lib/use-exec-settings";
+import { useRepos } from "~/lib/use-repos";
+import { useTaskRuns } from "~/lib/use-task-runs";
+import { dependencyState, orderTasks, taskKey } from "~/lib/task-board";
+import { readinessProblems } from "~/lib/task-readiness";
+import type { RunSummary } from "~/shared/types";
+import { openChatTask } from "~/lib/chat-task";
+import { normalizeStatus } from "~/lib/task-status";
+import { AppButton } from "~/components/ui/AppButton";
 
 const STATUS_FILTERS = [
   { value: "all", label: "All status" },
   { value: "todo", label: "To Do" },
   { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Done" },
+  { value: "in_review", label: "In Review" },
+  { value: "done", label: "Completed" },
 ];
 
 /**
@@ -75,30 +86,35 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const viewKey = `onesist:project:${id}:tasks-view`;
-  const [view, setView] = useState<"tasks" | "timeline">(() => {
-    if (typeof window === "undefined") return "tasks";
-    try {
-      const saved = window.localStorage.getItem(`onesist:project:${id}:tasks-view`);
-      if (saved === "tasks" || saved === "timeline") return saved;
-    } catch {}
-    return "tasks";
-  });
+  const [view, setViewState] = useState<"tasks" | "timeline">("tasks");
+  const setView = useCallback((v: "tasks" | "timeline") => {
+    setViewState(v);
+    try { window.localStorage.setItem(viewKey, v); } catch {}
+  }, [viewKey]);
   useEffect(() => {
-    try { window.localStorage.setItem(viewKey, view); } catch {}
-  }, [view, viewKey]);
+    try {
+      const saved = window.localStorage.getItem(viewKey);
+      if (saved === "tasks" || saved === "timeline") setViewState(saved);
+    } catch {}
+  }, [viewKey]);
+
+  const execSettings = useExecSettings(id);
+  const { repos } = useRepos(id);
+  const { runs, reload: reloadRuns } = useTaskRuns(id);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const viewModeKey = `onesist:project:${id}:tasks-view-mode`;
-  const [viewMode, setViewMode] = useState<TaskViewMode>(() => {
-    if (typeof window === "undefined") return "list";
-    try {
-      const saved = window.localStorage.getItem(`onesist:project:${id}:tasks-view-mode`);
-      if (saved === "list" || saved === "board" || saved === "cards") return saved as TaskViewMode;
-    } catch {}
-    return "list";
-  });
+  const [viewMode, setViewModeState] = useState<TaskViewMode>("list");
+  const setViewMode = useCallback((mode: TaskViewMode) => {
+    setViewModeState(mode);
+    try { window.localStorage.setItem(viewModeKey, mode); } catch {}
+  }, [viewModeKey]);
   useEffect(() => {
-    try { window.localStorage.setItem(viewModeKey, viewMode); } catch {}
-  }, [viewMode, viewModeKey]);
+    try {
+      const saved = window.localStorage.getItem(viewModeKey);
+      if (saved === "list" || saved === "board" || saved === "cards") setViewModeState(saved as TaskViewMode);
+    } catch {}
+  }, [viewModeKey]);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [missingDialog, setMissingDialog] = useState<{ missing: string[]; prompt: string } | null>(null);
@@ -265,6 +281,87 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
     }
   }, [id]);
+
+  const handleStartRun = useCallback(async (task: Task) => {
+    setRunError(null);
+    try {
+      const res = await fetch(`/api/projects/${id}/tasks/${task.id}/runs`, { method: "POST", cache: "no-store" });
+      const body = (await res.json().catch(() => ({}))) as { threadId?: string; text?: string; error?: string };
+      if (!res.ok) {
+        setRunError(body.error ?? "Gagal memulai run.");
+        return;
+      }
+      // The server queues the prompt on the thread; the chat only has to show it.
+      if (body.threadId) openChatTask({ threadId: body.threadId });
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: "in_progress" } : t)));
+      reloadRuns();
+    } catch {
+      setRunError("Gagal memulai run.");
+    }
+  }, [id, reloadRuns]);
+
+  /** Runs the checks of a finished run. A failed check shows its name above the board. */
+  const handleValidate = useCallback(async (run: RunSummary) => {
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/validate`, { method: "POST", cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { error?: string; state?: string };
+    if (!res.ok) setRunError(body.error ?? "Validasi gagal dijalankan.");
+    if (body.state === "in_review") setTasks((prev) => prev.map((t) => (t.id === run.taskId ? { ...t, status: "in_review" } : t)));
+    reloadRuns();
+  }, [id, reloadRuns]);
+
+  /** Sends a failed run back to its agent, in the same thread and worktree. */
+  const handleRetry = useCallback(async (run: RunSummary) => {
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/retry`, { method: "POST", cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) setRunError(body.error ?? "Run gagal diulang.");
+    else if (run.threadId) openChatTask({ threadId: run.threadId });
+    reloadRuns();
+  }, [id, reloadRuns]);
+
+  /** Opens the AI reviewer's read-only thread. Its findings are read once it answers. */
+  const handleReview = useCallback(async (run: RunSummary) => {
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/review`, { method: "POST", cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { threadId?: string; text?: string; error?: string };
+    if (!res.ok || !body.threadId) {
+      setRunError(body.error ?? "Tinjauan AI gagal dimulai.");
+      return;
+    }
+    openChatTask({ threadId: body.threadId, text: body.text ?? null });
+    reloadRuns();
+  }, [id, reloadRuns]);
+
+  /** Reads the reviewer's findings from its answer, and stores them on the run. */
+  const handleReadReview = useCallback(async (run: RunSummary) => {
+    if (!run.review?.threadId) return;
+    setRunError(null);
+    const res = await fetch(`/api/projects/${id}/task-runs/${run.id}/review?threadId=${encodeURIComponent(run.review.threadId)}`, { cache: "no-store" });
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) setRunError(body.error ?? "Temuan AI belum bisa dibaca.");
+    reloadRuns();
+  }, [id, reloadRuns]);
+
+  const [startingAll, setStartingAll] = useState(false);
+  /** Tasks that could start now: To Do, ready, not waiting on another task, and no run of their own. */
+  const readyTasks = useMemo(() => {
+    const byKey = new Map(tasks.filter((t) => !t.archived).map((t) => [taskKey(t), t]));
+    // Timeline order: the run that starts first is the one earliest in the plan.
+    return orderTasks(tasks.filter((t) => !t.archived)).filter((t) => {
+      if (normalizeStatus(t.status) !== "todo") return false;
+      if (runs[t.id] && ["queued", "running", "waiting_input", "validating"].includes(runs[t.id].state)) return false;
+      if (dependencyState(t, byKey).locked) return false;
+      return readinessProblems(t, repos.length).length === 0;
+    });
+  }, [tasks, runs, repos.length]);
+
+  /** Starts the ready tasks one after another; the server decides who runs now and who queues. */
+  const startAllReady = useCallback(async () => {
+    setStartingAll(true);
+    for (const task of readyTasks) await handleStartRun(task);
+    setStartingAll(false);
+  }, [readyTasks, handleStartRun]);
 
   const handleSave = useCallback(async (taskId: string, data: Partial<Task>) => {
     const res = await fetch(`/api/projects/${id}/tasks/${taskId}`, {
@@ -536,6 +633,17 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
                   >
                     Cards
                   </AppButton>
+                  <AppButton
+                    onClick={() => setViewMode("board")}
+                    variant="chip"
+                    size="xs"
+                    active={viewMode === "board"}
+                    icon={<Kanban size={11} />}
+                    className="px-2.5"
+                    title="Board view"
+                  >
+                    Board
+                  </AppButton>
                 </div>
                 <SearchInput
                   value={search}
@@ -705,6 +813,40 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       ) : (
         <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
           <div className="flex-1 flex flex-col min-w-0">
+            {viewMode === "board" && execSettings.settings?.taskMode !== "delivery" && (
+              <div className="flex items-center gap-2 px-3 pt-3 text-xs">
+                <AppButton
+                  variant="primary"
+                  size="sm"
+                  disabled={readyTasks.length === 0 || startingAll}
+                  onClick={startAllReady}
+                >
+                  {startingAll ? "Memulai…" : `Jalankan yang siap (${readyTasks.length})`}
+                </AppButton>
+                <span className="text-kumo-subtle">Batas paralel dijaga server; sisanya masuk antrian.</span>
+              </div>
+            )}
+            {viewMode === "board" ? (
+              <TaskBoard
+                tasks={filteredTasks}
+                allTasks={tasks.filter((t) => !t.archived)}
+                onStatusChange={handleStatusChange}
+                onOpenTask={(t) => setSelectedId(t.id)}
+                executionEnabled={execSettings.settings?.taskMode !== "delivery"}
+                repoCount={repos.length}
+                projectId={id}
+                onFilled={(updated) => setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))}
+                runs={runs}
+                onStartRun={handleStartRun}
+                onOpenChat={(threadId) => openChatTask({ threadId })}
+                runError={runError}
+                onValidate={handleValidate}
+                onReview={handleReview}
+                onReadReview={handleReadReview}
+                onRunChanged={reloadRuns}
+                onRetry={handleRetry}
+              />
+            ) : (
             <TaskList
               groups={groupedTasks}
               selectedId={selectedId}
@@ -718,6 +860,7 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
               onArchivePhase={handleArchivePhase}
               onSelectPhase={handleSelectPhase}
             />
+            )}
           </div>
         </div>
       )}

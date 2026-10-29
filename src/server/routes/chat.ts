@@ -326,7 +326,8 @@ router.put("chat/threads/:id", async (ctx) => {
     body.permissionMode === "ask" ||
     body.permissionMode === "auto" ||
     body.permissionMode === "no-shell" ||
-    body.permissionMode === "readonly"
+    body.permissionMode === "readonly" ||
+    body.permissionMode === "execute"
   ) {
     patch.permissionMode = body.permissionMode;
   }

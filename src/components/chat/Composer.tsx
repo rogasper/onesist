@@ -217,6 +217,7 @@ export function Composer(props: Props) {
       { value: "auto", label: "Otomatis", hint: "Boleh menulis, kecuali path terproteksi" },
       { value: "no-shell", label: "Tanpa shell", hint: "Boleh menulis berkas, tapi tidak diberi akses shell" },
       { value: "readonly", label: "Hanya baca", hint: "Tidak boleh mengubah apa pun" },
+      { value: "execute", label: "Eksekusi task", hint: "Menulis di folder kerja tanpa bertanya; bertanya untuk di luar folder" },
     ],
     [],
   );

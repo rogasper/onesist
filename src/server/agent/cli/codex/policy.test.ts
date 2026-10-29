@@ -20,3 +20,7 @@ test("the dialog's answers become Codex decisions; anything unanswered declines"
   expect(decisionFor("Tolak", "command")).toBe("decline");
   expect(decisionFor(null, "file")).toBe("decline");
 });
+
+test("execute keeps Codex's workspace sandbox and asks only outside it", () => {
+  expect(codexPolicy("execute", "agent")).toEqual({ approvalPolicy: "on-request", sandbox: "workspace-write", ask: true });
+});

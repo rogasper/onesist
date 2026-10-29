@@ -3,6 +3,7 @@ import { IndexPanel } from "~/components/settings/IndexPanel";
 import { McpPanel } from "~/components/settings/McpPanel";
 import { McpServersPanel } from "~/components/settings/McpServersPanel";
 import { SubagentsPanel } from "~/components/settings/SubagentsPanel";
+import { TaskExecutionPanel } from "~/components/settings/TaskExecutionPanel";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadProjectRouteData } from "~/lib/project-queries";
@@ -46,7 +47,7 @@ interface DetectedAgent {
   path: string | null;
 }
 
-type SettingsTab = "umum" | "mcp" | "subagent" | "terminal";
+type SettingsTab = "umum" | "mcp" | "subagent" | "task" | "terminal";
 
 function SettingsPage() {
   const { id } = Route.useParams();
@@ -103,6 +104,7 @@ function SettingsPage() {
     { id: "umum", label: "Umum & Agent" },
     { id: "mcp", label: "MCP" },
     { id: "subagent", label: "Subagent" },
+    { id: "task", label: "Task" },
     { id: "terminal", label: "Terminal & Index" },
   ];
 
@@ -241,6 +243,14 @@ function SettingsPage() {
         <div className="space-y-5">
           <Section title="Subagent">
             <SubagentsPanel projectId={id} />
+          </Section>
+        </div>
+      )}
+
+      {activeTab === "task" && (
+        <div className="space-y-5">
+          <Section title="Mode task">
+            <TaskExecutionPanel projectId={id} />
           </Section>
         </div>
       )}

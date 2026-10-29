@@ -19,9 +19,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "~/server/db/client";
-import { chatRuns, chatThreads, projects } from "~/server/db/schema";
+import { chatRuns, chatThreads, projects, taskRuns } from "~/server/db/schema";
 import { eventBus } from "~/server/realtime/events";
 import { rememberApproval } from "./approval-rules";
 import type { RunStatus } from "./types";
@@ -445,12 +445,23 @@ export function listPendingApprovals(runId: string) {
  */
 export function recoverInterruptedRuns(): number {
   try {
+    const reason = "Aplikasi ditutup saat run berjalan.";
     const stale = db.select().from(chatRuns).where(eq(chatRuns.status, "running")).all();
-    if (!stale.length) return 0;
     for (const row of stale) {
       db.update(chatRuns)
-        .set({ status: "interrupted", finishedAt: new Date().toISOString(), error: "Aplikasi ditutup saat run berjalan." })
+        .set({ status: "interrupted", finishedAt: new Date().toISOString(), error: reason })
         .where(and(eq(chatRuns.id, row.id), eq(chatRuns.status, "running")))
+        .run();
+    }
+    // A task run still waiting on an agent that is no longer in this process can never finish. That
+    // includes runs whose chat run was already interrupted by an earlier start. Failing them lets the
+    // card offer Ulangi, instead of showing an agent that only looks busy.
+    const orphaned = db.select().from(taskRuns).where(inArray(taskRuns.state, ["running", "waiting_input"])).all();
+    for (const run of orphaned) {
+      if (run.threadId && getRunForThread(run.threadId)) continue;
+      db.update(taskRuns)
+        .set({ state: "failed", error: reason, endedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+        .where(eq(taskRuns.id, run.id))
         .run();
     }
     return stale.length;

@@ -15,6 +15,7 @@ import {
   ocCancelForm, ocCreateSession, ocInterrupt, ocOpenEvents, ocPrompt, ocReplyForm, ocReplyPermission, ocSetModel, ocUpdatePermissions, parseModelRef,
 } from "./client";
 import { PERMISSION_OPTIONS, autoDecision, decisionFromAnswer, permissionQuestion, permissionRules } from "./rules";
+import { executeAutoDecision, readAllowedCommands } from "~/server/agent/execute-policy";
 import { ensureOnesistMcp, type OnesistMcp } from "./mcp";
 import { getOpenCodeConnection } from "./server";
 import { createOpenCodeMapper } from "./stream-mapper";
@@ -117,6 +118,13 @@ export async function startOpenCodeTurn(input: OpenCodeTurnInput): Promise<OpenC
         kind: "permissionRefused",
         parts: [{ type: "data-notice", data: { kind: "refusal", tool: "shell", reason: input.permissionMode === "no-shell" ? "shell-disabled" : "shell-readonly" } }],
       });
+    }
+    if (!decision) {
+      const resources = Array.isArray(d.resources) ? d.resources.map(String) : [];
+      // A task run answers writes inside its folder and checks the run allows by itself.
+      if (input.permissionMode === "execute") {
+        decision = executeAutoDecision(action, resources, input.root, readAllowedCommands(input.root));
+      }
     }
     if (!decision) {
       const resources = Array.isArray(d.resources) ? d.resources.map(String) : [];

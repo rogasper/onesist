@@ -109,6 +109,10 @@ export const tasks = sqliteTable("tasks", {
   erdRef: text("erd_ref"),
   rtmRef: text("rtm_ref"),
   acceptanceCriteriaJson: text("acceptance_criteria_json"),
+  // Execution by agents (see docs/superpowers/specs/2026-10-24-task-execution-design.md)
+  execProviderId: text("exec_provider_id"),
+  execModel: text("exec_model"),
+  reposJson: text("repos_json"),
   createdAt: text("created_at").default("datetime('now')"),
   updatedAt: text("updated_at").default("datetime('now')"),
 });
@@ -123,6 +127,59 @@ export const taskSnapshots = sqliteTable("task_snapshots", {
   assignee: text("assignee"),
   changeLogId: text("change_log_id"),
   createdAt: text("created_at").default("datetime('now')"),
+});
+
+export const projectExecSettings = sqliteTable("project_exec_settings", {
+  projectId: text("project_id").primaryKey().references(() => projects.id),
+  taskMode: text("task_mode").notNull().default("execution"),
+  execProviderId: text("exec_provider_id"),
+  execModel: text("exec_model"),
+  reviewerProviderId: text("reviewer_provider_id"),
+  reviewerModel: text("reviewer_model"),
+  maxParallel: integer("max_parallel").notNull().default(2),
+  integration: text("integration").notNull().default("pr"),
+  baseBranchesJson: text("base_branches_json"),
+  updatedAt: text("updated_at"),
+});
+
+export const taskRuns = sqliteTable("task_runs", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id").notNull().references(() => tasks.id),
+  projectId: text("project_id").notNull().references(() => projects.id),
+  threadId: text("thread_id"),
+  bundlePath: text("bundle_path").notNull(),
+  providerId: text("provider_id"),
+  model: text("model"),
+  state: text("state").notNull().default("running"),
+  revision: integer("revision").notNull().default(1),
+  integration: text("integration").notNull().default("pr"),
+  error: text("error"),
+  /** Result of the last validation: checks, scope, acceptance (see services/task-validation.ts). */
+  validationJson: text("validation_json"),
+  /** The AI reviewer's findings for the run's work (see services/task-review.ts). */
+  reviewJson: text("review_json"),
+  reviewerThreadId: text("reviewer_thread_id"),
+  createdAt: text("created_at").default("datetime('now')"),
+  startedAt: text("started_at"),
+  endedAt: text("ended_at"),
+  updatedAt: text("updated_at"),
+});
+
+export const taskRunRepos = sqliteTable("task_run_repos", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull().references(() => taskRuns.id),
+  repo: text("repo").notNull(),
+  worktreePath: text("worktree_path"),
+  branch: text("branch"),
+  baseBranch: text("base_branch"),
+  baseCommit: text("base_commit"),
+  /** Set once the repo's work is committed and integrated (see services/task-integration.ts). */
+  commitSha: text("commit_sha"),
+  integrated: text("integrated"),
+  prUrl: text("pr_url"),
+  integrationError: text("integration_error"),
+  /** Last known state of the PR on GitHub (OPEN, MERGED, CLOSED), refreshed when the board opens. */
+  prState: text("pr_state"),
 });
 
 export const fsdSessions = sqliteTable("fsd_sessions", {

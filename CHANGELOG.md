@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.5.0 — Eksekusi task oleh agen dari board kanban
+
+Task yang sudah tergenerate dari FSD kini bisa dikerjakan agen CLI langsung dari board: satu run per task di folder kerja sendiri, dipantau live, divalidasi, direview di panel diff, lalu diintegrasikan sebagai PR, branch, atau merge setelah user menekan Setujui.
+
+### Feat — Board
+- **Board empat kolom**: To Do, In Progress, In Review, dan Completed. Urut timeline, kunci dependensi, drag & drop, dan status baru `in_review`. List, Timeline, filter, serta ekspor handoff lama tetap bekerja; status `done` tidak di-rename.
+- **Kesiapan task** tampil di card: Siap, menunggu dependensi, atau data kurang (repo/scope/AC). Task yang belum siap tidak bisa dijalankan; dependensi yang belum selesai meminta konfirmasi dulu.
+- **Lengkapi dengan AI** mengusulkan repo target, file scope, dan acceptance criteria dari FSD/spec/ERD. Usulan baru disimpan setelah user menekan Simpan.
+- **Mode proyek** `Eksekusi oleh agen` atau `Delivery saja`. Di mode delivery seluruh kontrol eksekusi disembunyikan, dan board tetap bisa dipakai manual.
+- **Agen dan model** default per proyek, bisa di-override per task. Agent picker menampilkan CLI yang terdeteksi dan bisa dipilih dalam satu klik.
+- **"Jalankan yang siap (n)"** memulai semua task siap menurut urutan timeline; server yang memutuskan jalan atau antri.
+
+### Feat — Run
+- **Satu run, satu folder kerja**: `<worktrees>/runs/<run-id>/<repo>` dengan worktree dan branch `onesist/<kode>-<slug>` per repo. Task multi-repo (mis. backend + frontend) berjalan dalam satu run.
+- **Thread chat sendiri per run**, dengan prompt dikirim dari server sehingga run tetap berjalan walau tidak ada view yang terbuka.
+- **Drawer Ringkasan / Live / Detail**: langkah agen, pertanyaan yang menunggu jawaban, ringkasan laporan, Stop, dan Ulangi. "Buka penuh" dan "Tinjau diff" membuka task yang sama sebagai pane split view atau window terpisah.
+- **Mode izin `execute`**: menulis di dalam folder run tidak bertanya; perintah shell hanya lolos otomatis bila disebut aturan run (repo checks atau git read-only), selain itu bertanya. Berlaku di Claude Code, OpenCode, dan Pi. Codex tetap `ask`; Antigravity belum didukung untuk eksekusi.
+- **Antrian paralel**: batas dari setting, badge "Antri #n", scheduler berbasis event, dan urutan mengikuti timeline.
+
+### Feat — Validasi dan review
+- **Validasi dijalankan lewat tombol** setelah agen selesai (run berstatus "Menunggu validasi"): perintah cek per repo (diusulkan dari `package.json`, `Cargo.toml`, atau `Makefile`), cek scope terhadap diff termasuk file untracked, dan checklist acceptance criteria dari blok `onesist-report`.
+- **AI reviewer read-only** di thread terpisah, dengan temuan per baris yang bisa diminta perbaiki, diabaikan dengan alasan, atau dibalas. Reviewer tidak diberi akses shell dan tidak bisa menulis berkas.
+- **Panel Tinjauan**: diff per repo dan per file termasuk perubahan belum di-commit, komentar per baris, temuan AI, Minta revisi, Edit sendiri + Validasi ulang, Buang run, dan Setujui.
+- **Snapshot per revisi**: setiap revisi yang lolos validasi disimpan sebagai commit `<KODE>: revisi <n>`, sehingga diff tiap revisi bisa dibedakan.
+
+### Feat — Integrasi
+- **Setujui** meng-commit sisa perubahan lalu menjalankan cara integrasi proyek: **PR** (`gh pr create`, satu PR per repo), **branch** lokal, atau **merge** lokal.
+- **Laporan sebagai body PR**: ringkasan, checklist AC + bukti, hasil cek, riwayat revisi, dan agen/model yang dipakai — tanpa isi `.env` atau transcript penuh.
+- **Status PR di card** disegarkan dari GitHub saat board dibuka, tanpa polling.
+
+### Fix — Run task
+- **Run yang agennya terputus saat aplikasi ditutup** ditandai `failed`, bukan menggantung di In Progress; run yatim yang chat run-nya sudah terinterupsi juga dirapikan saat startup.
+- **Perintah shell dinilai per segmen**: pipe ke penampil teks (`head`, `grep`, …), `echo`, git read-only dengan flag jumlah (`git log -3`), perintah file read-only, `cd` absolut di dalam folder run, dan prefix `rtk` tidak lagi meminta izin.
+- **Prompt run tidak mengulang kode task** di dalam instruksi.
+
+### Verifikasi
+- `bun run typecheck` bersih. `bun test src`: 783 tes di 156 berkas lulus.
+- Diuji dengan repo git sementara untuk diff, validasi, revisi, integrasi `branch`/`merge`, dan antrian.
+- **Belum diuji:** mode `pr` terhadap remote GitHub sungguhan, antrian dengan agen CLI sungguhan, dua run yang benar-benar berjalan bersamaan di mesin nyata, dan jalur Windows.
+
+### Catatan
+- Antigravity (agy) tidak ditawarkan sebagai agen eksekusi karena izinnya tidak bisa dibatasi per path.
+- Codex memakai mode `ask` karena sandbox-nya menjalankan perintah shell tanpa bertanya.
+- Plan dan spec desain fitur ini disimpan lokal seperti `plan/`, tidak ikut di repo.
+
 ## v0.4.2 — Server MCP eksternal: GitHub, Figma, Miro, dan Monday
 
 Chat kini bisa memakai tool dari server MCP di luar Onesist. Server dikelola dari Settings → MCP: pilih preset, hubungkan, uji koneksi, lalu tentukan apakah server itu baca-saja atau tidak.

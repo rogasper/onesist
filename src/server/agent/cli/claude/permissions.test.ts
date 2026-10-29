@@ -76,3 +76,42 @@ test("auto allows without asking; read-only denies anything but reads without as
   expect((await noShell("Bash", { command: "ls" }, { signal: signal() } as any))?.behavior).toBe("deny");
   expect(asked.length).toBe(before);
 });
+
+test("execute: writes inside the run folder are allowed without a question, writes outside ask", async () => {
+  expect(claudePolicy("execute", "agent")).toBe("execute");
+  expect(disallowedToolsFor("execute")).toEqual([]);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "onesist-run-folder-"));
+  const can = makeCanUseTool({ runId: "r", policy: "execute", cwd: folder, ask: answering("Tolak") });
+
+  const inside = await can("Edit", { file_path: path.join(folder, "api", "src", "a.ts") }, { signal: signal() } as any);
+  expect(inside?.behavior).toBe("allow");
+  const relative = await can("Write", { file_path: "api/src/b.ts" }, { signal: signal() } as any);
+  expect(relative?.behavior).toBe("allow");
+
+  asked.length = 0;
+  const outside = await can("Write", { file_path: "/etc/hosts" }, { signal: signal() } as any);
+  expect(outside?.behavior).toBe("deny");
+  expect(asked).toHaveLength(1);
+});
+
+test("execute: reads are allowed, and shell still asks", async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "onesist-run-folder-"));
+  const can = makeCanUseTool({ runId: "r", policy: "execute", cwd: folder, ask: answering("Izinkan sekali") });
+  expect((await can("Read", { file_path: "/etc/hosts" }, { signal: signal() } as any))?.behavior).toBe("allow");
+  asked.length = 0;
+  // Nothing is configured for this folder, so a test command still asks.
+  expect((await can("Bash", { command: "bun test" }, { signal: signal() } as any))?.behavior).toBe("allow");
+  expect(asked).toHaveLength(1);
+});
+
+test("execute: a configured check runs without a question, anything else asks", async () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), "onesist-run-folder-"));
+  const { writeExecutePolicy } = await import("../../execute-policy");
+  writeExecutePolicy(folder, ["bun test"]);
+  asked.length = 0;
+  const can = makeCanUseTool({ runId: "r", policy: "execute", cwd: folder, ask: answering("Tolak") });
+  expect((await can("Bash", { command: "bun test" }, { signal: signal() } as any))?.behavior).toBe("allow");
+  expect(asked).toHaveLength(0);
+  expect((await can("Bash", { command: "rm -rf api" }, { signal: signal() } as any))?.behavior).toBe("deny");
+  expect(asked).toHaveLength(1);
+});

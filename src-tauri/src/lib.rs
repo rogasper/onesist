@@ -30,7 +30,7 @@ async fn pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, Str
 }
 
 const MAX_WINDOWS: usize = 5;
-const PANE_TABS: [&str; 4] = ["erd", "spec", "tasks", "fsd"];
+const PANE_TABS: [&str; 5] = ["erd", "spec", "tasks", "fsd", "review"];
 
 /// The origin new windows load from: the main window's own origin. A debug build's main
 /// window loads the Vite dev server, not the sidecar, so the sidecar port alone is wrong there.
