@@ -54,7 +54,22 @@ export interface FsdViewProps {
 export function FsdView({ projectId, paneId = "main", onDirtyChange }: FsdViewProps) {
   const id = projectId;
   const [sessions, setSessions] = useState<FsdSession[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const fsdStorageKey = `onesist:project:${id}:fsd-active-session`;
+  const [activeId, setActiveId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(`onesist:project:${id}:fsd-active-session`);
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (!activeId) return;
+    try {
+      window.localStorage.setItem(fsdStorageKey, activeId);
+    } catch {}
+  }, [activeId, fsdStorageKey]);
   const [scanning, setScanning] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [agentName, setAgentName] = useState<string>("opencode");
@@ -110,7 +125,10 @@ export function FsdView({ projectId, paneId = "main", onDirtyChange }: FsdViewPr
         const list = await res.json();
         setSessions(list);
         if (!initialSelectDone.current && list.length > 0) {
-          setActiveId(list[0].id);
+          let savedId: string | null = null;
+          try { savedId = window.localStorage.getItem(fsdStorageKey); } catch {}
+          const targetId = savedId && list.some((s: FsdSession) => s.id === savedId) ? savedId : list[0].id;
+          setActiveId(targetId);
           initialSelectDone.current = true;
         }
         setLoaded(true);

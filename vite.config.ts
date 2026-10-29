@@ -250,13 +250,12 @@ function terminalServerPlugin() {
       } catch (e: any) {
         console.warn(`[terminal-plugin] stale-instance scan failed: ${e?.message ?? e}`);
       }
-      // Fallback: if the HTTP port is still held by something (permissions or a
-      // non-project process), kill it so vite can bind.
-      const httpOwner = (await isPortInUse(4321)) ? pidByPort(4321) : null;
-      if (httpOwner) {
-        console.log(`[terminal-plugin] port 4321 held by stale process (pid ${httpOwner}) — killing it`);
-        killProcess(httpOwner);
-        await new Promise((r) => setTimeout(r, 600));
+      // If port 4321 is already in use by another instance (e.g. desktop app or
+      // another dev server), do NOT kill it. Vite will automatically bind to the
+      // next free port (strictPort: false).
+      if (await isPortInUse(4321)) {
+        const httpOwner = pidByPort(4321);
+        console.log(`[terminal-plugin] port 4321 in use${httpOwner ? ` (pid ${httpOwner})` : ""} — Vite will bind to next free port`);
       }
       let port = TERMINAL_PORT;
       if (await isPortInUse(port)) {

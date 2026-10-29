@@ -31,8 +31,22 @@ function textSignature(text: string): string {
 export function ErdView({ projectId }: { projectId: string }) {
   const id = projectId;
   const { files, loading: filesLoading, refresh: refreshFiles } = useFileList("output/erd", id);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const storageKey = `onesist:project:${id}:erd-selected-file`;
+  const [selectedFile, setSelectedFile] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(`onesist:project:${id}:erd-selected-file`);
+    } catch {
+      return null;
+    }
+  });
 
+  useEffect(() => {
+    if (!selectedFile) return;
+    try {
+      window.localStorage.setItem(storageKey, selectedFile);
+    } catch {}
+  }, [selectedFile, storageKey]);
   const { content: dbmlText, refresh: refreshContent } = useFileContent(selectedFile, id);
   const [localText, setLocalText] = useState("");
   const [parsed, setParsed] = useState<ParsedDbml>({ tables: [], notes: [] });
@@ -59,9 +73,15 @@ export function ErdView({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!erdFiles.length) return;
     if (selectedFile && erdFiles.some((f) => f.path === selectedFile)) return;
+    let saved: string | null = null;
+    try { saved = window.localStorage.getItem(storageKey); } catch {}
+    if (saved && erdFiles.some((f) => f.path === saved)) {
+      setSelectedFile(saved);
+      return;
+    }
     const dbml = erdFiles.find((f) => f.ext === ".dbml");
     setSelectedFile((dbml ?? erdFiles[0]).path);
-  }, [erdFiles, selectedFile]);
+  }, [erdFiles, selectedFile, storageKey]);
 
   // Sync localText when content changes
   useEffect(() => {

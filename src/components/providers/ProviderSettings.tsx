@@ -268,9 +268,10 @@ function Toggle({ checked, onChange, label, description, disabled }: { checked: 
 const inputCls = "w-full rounded-lg px-3 py-2 bg-kumo-elevated ring ring-kumo-line text-sm focus:outline-none focus:ring-kumo-brand";
 
 /** Live status of a CLI provider in the list: probed afresh each time Settings opens. */
-function CliStatusLine({ providerId }: { providerId: string }) {
+function CliStatusLine({ providerId, providerName }: { providerId: string; providerName?: string }) {
   const status = useRuntimeStatus(providerId, true, true);
-  if (!status) return <span className="text-xs text-kumo-subtle">Memeriksa OpenCode…</span>;
+  const name = providerName ? providerName : "Provider";
+  if (!status) return <span className="text-xs text-kumo-subtle">Memeriksa {name}…</span>;
   return (
     <span className={`text-xs truncate ${runtimeStateClass(status.state)}`}>
       {RUNTIME_STATE_LABEL[status.state]} · {status.message}
@@ -841,7 +842,7 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
                         {/* A failed test must say WHY here too: the list is where
                             the state is read at a glance, and a red dot labelled
                             "gagal" without a reason forces a trip into the form. */}
-                        {p.apiStyle === "cli" ? <CliStatusLine providerId={p.id} /> : null}
+                        {p.apiStyle === "cli" ? <CliStatusLine providerId={p.id} providerName={p.name} /> : null}
                         {p.lastTestOk === false ? (
                           <span className="text-xs text-red-400 truncate">
                             {testErrorHint(p.lastTestErrorCategory ?? undefined)}

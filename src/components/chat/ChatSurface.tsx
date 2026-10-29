@@ -6,7 +6,7 @@ import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { threadHasRunningTurn } from "~/lib/thread-run";
 import { MessageErrorBoundary } from "~/components/chat/MessageErrorBoundary";
 import { Button } from "@cloudflare/kumo";
-import { ArrowClockwise, ArrowDown, ArrowUp, BookOpen, Brain, Check, GitBranch, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowDown, ArrowUp, BookOpen, Brain, Check, GitBranch, Globe, Lightning, ListChecks, MagnifyingGlass, PencilSimple, ShieldCheck, Sparkle, Database, Terminal, Warning, Wrench, X, type Icon } from "@phosphor-icons/react";
 import { InlineAlert } from "~/components/ui/InlineAlert";
 import { CopyButton } from "~/components/ui/CopyButton";
 import { CodeCard, isCardWorthyCode } from "~/components/chat/CodeCard";
@@ -1181,6 +1181,19 @@ export function ChatSurface({
               {m.taken ? null : <p className="text-right text-xs text-kumo-subtle">menunggu disisipkan…</p>}
             </div>
           ))}
+          {busy &&
+          (messages.length === 0 ||
+            messages[messages.length - 1]?.role === "user" ||
+            (messages[messages.length - 1]?.role === "assistant" &&
+              (!messages[messages.length - 1].parts?.length ||
+                !messages[messages.length - 1].parts.some(
+                  (p: any) =>
+                    (p.type === "text" && p.text?.trim()) ||
+                    p.type === "tool-invocation" ||
+                    (p.type === "reasoning" && p.text?.trim())
+                )))) ? (
+            <ThinkingIndicator mode={mode} />
+          ) : null}
 
           {compaction && compaction.at !== "before-turn" ? <CompactDivider event={compaction} /> : null}
           {actionNote ? <InlineAlert>{actionNote}</InlineAlert> : null}
@@ -2303,6 +2316,44 @@ function CompactDivider({ event }: { event: ChatCompactionEvent }) {
 
 /** Thinking — deliberately looks "unfinished": dashed ring, dimmed
  *  background, italic text. The user must never mistake this for the answer. */
+function ThinkingIndicator({ mode }: { mode?: string }) {
+  const [dots, setDots] = useState("");
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDots((prev) => (prev.length >= 3 ? "" : prev + "."));
+    }, 450);
+    return () => clearInterval(timer);
+  }, []);
+
+  const label = mode === "plan" ? "Menyusun rencana" : "Sedang berpikir";
+
+  return (
+    <div className="flex items-start gap-3 py-3 px-1 animate-in fade-in duration-300">
+      <div className="size-8 rounded-xl bg-kumo-brand/10 border border-kumo-brand/20 flex items-center justify-center shrink-0 text-kumo-brand shadow-sm shadow-kumo-brand/10">
+        <Sparkle size={16} className="animate-spin [animation-duration:4s]" weight="fill" />
+      </div>
+      <div className="flex-1 min-w-0 pt-0.5 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium bg-gradient-to-r from-kumo-default via-kumo-brand to-kumo-subtle bg-clip-text text-transparent animate-pulse">
+            {label}{dots}
+          </span>
+          <span className="inline-flex gap-1 items-center">
+            <span className="size-1.5 rounded-full bg-kumo-brand animate-bounce [animation-delay:-0.3s]" />
+            <span className="size-1.5 rounded-full bg-kumo-brand animate-bounce [animation-delay:-0.15s]" />
+            <span className="size-1.5 rounded-full bg-kumo-brand animate-bounce" />
+          </span>
+        </div>
+        <div className="space-y-1.5 max-w-sm">
+          <div className="h-2 rounded-full bg-gradient-to-r from-kumo-elevated via-kumo-brand/20 to-kumo-elevated animate-pulse w-full" />
+          <div className="h-2 rounded-full bg-gradient-to-r from-kumo-elevated via-kumo-brand/15 to-kumo-elevated animate-pulse w-3/4" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Thinking — deliberately looks "unfinished": dashed ring, dimmed
+ *  background, italic text. The user must never mistake this for the answer. */
 function ThinkingBlock({
   text,
   streaming,
@@ -2324,8 +2375,8 @@ function ThinkingBlock({
     <div className="grid">
       <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-kumo-elevated">
         <RowIcon icon={Brain} />
-        <span className="text-sm text-kumo-subtle truncate">
-          {streaming ? "Sedang berpikir" : "Berpikir"}
+        <span className={`text-sm truncate ${streaming ? "font-medium bg-gradient-to-r from-kumo-default via-kumo-brand to-kumo-subtle bg-clip-text text-transparent animate-pulse" : "text-kumo-subtle"}`}>
+          {streaming ? "Sedang berpikir…" : "Berpikir"}
           {detail}
         </span>
         <span className="ml-auto shrink-0 flex items-center gap-2">

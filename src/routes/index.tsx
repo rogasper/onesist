@@ -49,12 +49,20 @@ function DashboardPage() {
 
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
 
+  const projectTargetPath = useCallback((projectId: string) => {
+    try {
+      const savedTab = window.localStorage.getItem(`onesist:project:${projectId}:last-tab`);
+      if (savedTab && savedTab !== "overview") return `/projects/$id/${savedTab}`;
+    } catch {}
+    return "/projects/$id";
+  }, []);
+
   const finishProjectOpen = useCallback((projectId: string) => {
     skill.reset();
     setModalOpen(false);
     fetchProjects();
-    navigate({ to: "/projects/$id", params: { id: projectId } });
-  }, [skill.reset, fetchProjects, navigate]);
+    navigate({ to: projectTargetPath(projectId) as any, params: { id: projectId }, from: "/" });
+  }, [skill.reset, fetchProjects, navigate, projectTargetPath]);
 
   // Navigate to the project once skill setup completes.
   useEffect(() => {
@@ -162,7 +170,7 @@ function DashboardPage() {
                     e.preventDefault();
                     void openProjectWindow(`/projects/${p.id}`);
                   } else {
-                    navigate({ to: "/projects/$id", params: { id: p.id } });
+                    navigate({ to: projectTargetPath(p.id) as any, params: { id: p.id }, from: "/" });
                   }
                 }}
                 onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); void openProjectWindow(`/projects/${p.id}`); } }}
@@ -195,7 +203,7 @@ function DashboardPage() {
                 </div>
                 {/* Footer actions */}
                 <div className="mt-3 flex items-center gap-1.5 shrink-0">
-                  <AppButton variant="primary" size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); navigate({ to: "/projects/$id", params: { id: p.id } }); }}>Open</AppButton>
+                  <AppButton variant="primary" size="sm" className="flex-1" onClick={(e) => { e.stopPropagation(); navigate({ to: projectTargetPath(p.id) as any, params: { id: p.id }, from: "/" }); }}>Open</AppButton>
                   <AppButton
                     variant="secondary"
                     size="sm"

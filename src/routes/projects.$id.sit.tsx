@@ -17,8 +17,13 @@ import type { SitQualityIssue } from "~/lib/sit-parser";
 import type { SitDataset, SitTestCase, SitFileEntry } from "~/shared/sit-types";
 
 export const Route = createFileRoute("/projects/$id/sit")({
-  component: SitPage,
+  component: SitPageRoute,
 });
+
+function SitPageRoute() {
+  const { id } = Route.useParams();
+  return <SitPage key={id} />;
+}
 
 function SitPage() {
   const { id } = Route.useParams();

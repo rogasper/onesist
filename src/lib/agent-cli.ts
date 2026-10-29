@@ -104,6 +104,7 @@ export function detectAllAgents(): AgentCliConfig[] {
         windowsHide: true,
         shell: needsShell(exePath),
         timeout: 5000,
+        stdio: ["ignore", "pipe", "ignore"],
       });
       version = out.trim().split("\n")[0] || null;
     } catch {
@@ -137,7 +138,7 @@ export interface AgentModels {
 export function listAgentModels(agentName: string): AgentModels {
   if (agentName === "opencode") {
     try {
-      const out = execSync("opencode models", { encoding: "utf-8", timeout: 15000 }).trim();
+      const out = execSync("opencode models", { encoding: "utf-8", timeout: 15000, stdio: ["ignore", "pipe", "ignore"] }).trim();
       const models = out.split("\n").map((l) => l.trim()).filter(Boolean);
       return { models, supported: true };
     } catch {

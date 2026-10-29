@@ -3,9 +3,10 @@ import {
   createRootRouteWithContext,
   HeadContent,
   Scripts,
-  Link,
   useLocation,
+  useNavigate,
 } from "@tanstack/react-router";
+import { openProjectWindow } from "~/lib/window";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass, SidebarSimple } from "@phosphor-icons/react";
@@ -17,6 +18,7 @@ import { useClientErrorReporting } from "~/lib/use-client-error-report";
 import { UpdateBanner, requestUpdateCheck } from "~/components/UpdateBanner";
 import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
+import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
 import { getSidebarChoice, isSidebarToggleKey, setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
 import "~/styles.css";
@@ -30,8 +32,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
   }),
   component: RootComponent,
+  notFoundComponent: ProjectNotFound,
 });
-
 function AppSidebarHeader({ overlay }: { overlay: boolean }) {
   const { state, isMobile } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
@@ -88,7 +90,13 @@ function AppSidebarHeader({ overlay }: { overlay: boolean }) {
 function AppSidebarFooter() {
   const { state, isMobile } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
-  const [theme, setTheme] = useState<AppTheme>(() => getStoredTheme());
+  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<AppTheme>("dark");
+
+  useEffect(() => {
+    setMounted(true);
+    setTheme(getStoredTheme());
+  }, []);
 
   const onToggleTheme = () => {
     void toggleTheme().then(setTheme);
@@ -101,11 +109,11 @@ function AppSidebarFooter() {
           <button
             type="button"
             onClick={onToggleTheme}
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={mounted ? (theme === "dark" ? "Switch to light mode" : "Switch to dark mode") : "Toggle theme"}
             className="flex items-center gap-2 px-2 py-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
           >
-            {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-            <span className="text-xs">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+            {mounted && theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+            <span className="text-xs">{mounted ? (theme === "dark" ? "Light mode" : "Dark mode") : "Theme"}</span>
           </button>
         )}
         <Sidebar.Trigger />
@@ -113,7 +121,6 @@ function AppSidebarFooter() {
     </Sidebar.Footer>
   );
 }
-
 const SIDEBAR_OPEN_KEY = "onesist:sidebar:open";
 const SIDEBAR_WIDTH_KEY = "onesist:sidebar:width";
 // Height of the overlay title bar strip on the macOS main window (traffic lights + toggle).
@@ -167,8 +174,8 @@ function SidebarPersistence() {
 }
 
 function RootComponent() {
+  const navigate = useNavigate();
   // The update banner's height. kumo fixes the desktop sidebar to the top of the window, so the
-  // sidebar starts below the banner through `--update-banner-h` (see styles.css).
   const bannerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = bannerRef.current;
@@ -320,8 +327,26 @@ function RootComponent() {
                 <Sidebar.Group>
                   <Sidebar.GroupLabel>Navigation</Sidebar.GroupLabel>
                   <Sidebar.Menu>
-                    <Sidebar.MenuButton active={isDashboardActive} icon={House} tooltip="Dashboard">
-                      <Link to="/" className="no-underline text-inherit">Dashboard</Link>
+                    <Sidebar.MenuButton
+                      active={isDashboardActive}
+                      icon={House}
+                      tooltip="Dashboard"
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.metaKey || e.button === 1) {
+                          e.preventDefault();
+                          void openProjectWindow("/");
+                        } else {
+                          navigate({ to: "/", from: "/" });
+                        }
+                      }}
+                      onAuxClick={(e) => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          void openProjectWindow("/");
+                        }
+                      }}
+                    >
+                      Dashboard
                     </Sidebar.MenuButton>
                     <Sidebar.MenuButton
                       onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
@@ -341,8 +366,32 @@ function RootComponent() {
                     {projects.length === 0 ? (
                       <Sidebar.MenuButton disabled icon={Folder} tooltip="No projects">No projects</Sidebar.MenuButton>
                     ) : projects.map((p) => (
-                      <Sidebar.MenuButton key={p.id} active={pathname.startsWith(`/projects/${p.id}`)} icon={Folder} tooltip={p.name}>
-                        <Link to="/projects/$id" params={{ id: p.id }} className="no-underline text-inherit">{p.name}</Link>
+                      <Sidebar.MenuButton
+                        key={p.id}
+                        active={pathname.startsWith(`/projects/${p.id}`)}
+                        icon={Folder}
+                        tooltip={p.name}
+                        onClick={(e) => {
+                          if (e.ctrlKey || e.metaKey || e.button === 1) {
+                            e.preventDefault();
+                            void openProjectWindow(`/projects/${p.id}`);
+                          } else {
+                            let tabRoute: string = "/projects/$id";
+                            try {
+                              const savedTab = window.localStorage.getItem(`onesist:project:${p.id}:last-tab`);
+                              if (savedTab && savedTab !== "overview") tabRoute = `/projects/$id/${savedTab}`;
+                            } catch {}
+                            navigate({ to: tabRoute as any, params: { id: p.id }, from: "/" });
+                          }
+                        }}
+                        onAuxClick={(e) => {
+                          if (e.button === 1) {
+                            e.preventDefault();
+                            void openProjectWindow(`/projects/${p.id}`);
+                          }
+                        }}
+                      >
+                        {p.name}
                       </Sidebar.MenuButton>
                     ))}
                   </Sidebar.Menu>

@@ -58,8 +58,15 @@ import { PageHelpButton } from "~/components/ui/PageHelpButton";
 
 export const Route = createFileRoute("/projects/$id")({
   loader: async ({ params }) => loadProjectRouteData(params.id),
-  component: ProjectLayout,
+  component: ProjectRouteEntry,
 });
+
+function ProjectRouteEntry() {
+  const data = Route.useLoaderData() as any;
+  const project = data?.project;
+  if (!project?.id) return <ProjectNotFound />;
+  return <ProjectLayout key={project.id} project={project} />;
+}
 
 const TAB_ITEMS = [
   { value: "overview", label: "Overview" },
@@ -75,13 +82,40 @@ const TAB_ITEMS = [
   { value: "settings", label: "Settings" },
 ];
 
-function ProjectLayout() {
+function ProjectLayout({ project }: { project: any }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { project } = Route.useLoaderData() as any;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  // A quote sent from a viewer opens the chat, so the reader sees where it went.
+  const chatStorageKey = project?.id ? `onesist:project:${project.id}:chat-open` : null;
+  const [chatOpen, setChatOpen] = useState(() => {
+    if (typeof window === "undefined" || !project?.id) return false;
+    try {
+      return window.localStorage.getItem(`onesist:project:${project.id}:chat-open`) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  // Keep chatOpen in sync when switching projects
+  useEffect(() => {
+    if (!project?.id) return;
+    try {
+      const saved = window.localStorage.getItem(`onesist:project:${project.id}:chat-open`);
+      if (saved !== null) {
+        setChatOpen(saved === "true");
+      }
+    } catch {}
+  }, [project?.id]);
+
+  // Persist chatOpen state
+  useEffect(() => {
+    if (!chatStorageKey) return;
+    try {
+      window.localStorage.setItem(chatStorageKey, chatOpen ? "true" : "false");
+    } catch {}
+  }, [chatOpen, chatStorageKey]);
   useEffect(() => subscribeQuotes(() => setChatOpen(true)), []);
   useEffect(() => subscribeChatTasks(() => setChatOpen(true)), []);
   // The chat folds the app sidebar on a narrow window and gives it back when it closes (P3.2).
@@ -108,8 +142,47 @@ function ProjectLayout() {
       }),
     [startTerminalLaunch],
   );
-  const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>([]);
-  const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
+  const overviewTabsKey = project?.id ? `onesist:project:${project.id}:overview-tabs` : null;
+  const overviewActiveTabKey = project?.id ? `onesist:project:${project.id}:overview-active-tab` : null;
+
+  const [openTabs, setOpenTabs] = useState<{ path: string; name: string }[]>(() => {
+    if (typeof window === "undefined" || !project?.id) return [];
+    try {
+      const saved = window.localStorage.getItem(`onesist:project:${project.id}:overview-tabs`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [activeTabPath, setActiveTabPath] = useState<string | null>(() => {
+    if (typeof window === "undefined" || !project?.id) return null;
+    try {
+      return window.localStorage.getItem(`onesist:project:${project.id}:overview-active-tab`);
+    } catch {
+      return null;
+    }
+  });
+
+  // Save openTabs to localStorage
+  useEffect(() => {
+    if (!overviewTabsKey) return;
+    try {
+      window.localStorage.setItem(overviewTabsKey, JSON.stringify(openTabs));
+    } catch {}
+  }, [openTabs, overviewTabsKey]);
+
+  // Save activeTabPath to localStorage
+  useEffect(() => {
+    if (!overviewActiveTabKey) return;
+    try {
+      if (activeTabPath) {
+        window.localStorage.setItem(overviewActiveTabKey, activeTabPath);
+      } else {
+        window.localStorage.removeItem(overviewActiveTabKey);
+      }
+    } catch {}
+  }, [activeTabPath, overviewActiveTabKey]);
   /** Why the last "Window baru" did not open a window (for example the window limit). */
   const [windowError, setWindowError] = useState<string | null>(null);
   const skill = useSkillInstall();
@@ -182,6 +255,56 @@ function ProjectLayout() {
     try { window.localStorage.setItem(key, JSON.stringify(serializeSplit(split))); } catch {}
   }, [project?.id, split, setSplit]);
 
+  // ── Persist and restore last active tab per project ──
+  const lastTabKey = project?.id ? `onesist:project:${project.id}:last-tab` : null;
+  const restoredTabFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!project?.id || !lastTabKey) return;
+    if (restoredTabFor.current === project.id) return;
+
+    // Only redirect if user landed on the base /projects/$id route without child tab in pathname
+    const isBaseProjectRoute = !location.pathname.includes("/erd")
+      && !location.pathname.includes("/canvas")
+      && !location.pathname.includes("/spec")
+      && !location.pathname.includes("/wiki")
+      && !location.pathname.includes("/tasks")
+      && !location.pathname.includes("/fsd")
+      && !location.pathname.includes("/rtm")
+      && !location.pathname.includes("/sit")
+      && !location.pathname.includes("/docs")
+      && !location.pathname.includes("/settings");
+
+    if (isBaseProjectRoute) {
+      let savedTab: string | null = null;
+      try {
+        savedTab = window.localStorage.getItem(lastTabKey);
+      } catch {}
+
+      if (savedTab && savedTab !== "overview" && TAB_ITEMS.some((t) => t.value === savedTab)) {
+        restoredTabFor.current = project.id;
+        navigate({
+          to: `/projects/$id/${savedTab}` as any,
+          params: { id: project.id },
+          from: "/",
+          search: (prev: any) => prev,
+          replace: true,
+        });
+        return;
+      }
+    }
+    restoredTabFor.current = project.id;
+  }, [project?.id, lastTabKey, location.pathname, navigate]);
+
+  // Save activeTab ONLY after restoration check has run
+  useEffect(() => {
+    if (!lastTabKey || !activeTab) return;
+    if (restoredTabFor.current !== project?.id) return;
+    try {
+      window.localStorage.setItem(lastTabKey, activeTab);
+    } catch {}
+  }, [activeTab, lastTabKey, project?.id]);
+
   const [paneDirty, setPaneDirty] = useState<Record<number, boolean>>({});
   const handlePaneDirtyChange = useCallback((index: number, dirty: boolean) => {
     setPaneDirty((prev) => (Boolean(prev[index]) === dirty ? prev : { ...prev, [index]: dirty }));
@@ -211,7 +334,7 @@ function ProjectLayout() {
     const paneTab = split.panes[index];
     const next = setPaneTab(split, index, activeTab);
     setPaneDirty((prev) => clearDirty(prev, index));
-    navigate({ to: `/projects/$id/${paneTab}`, params: { id: project.id }, search: (prev: any) => ({ ...prev, ...serializeSplit(next) }) } as any);
+    navigate({ to: `/projects/$id/${paneTab}`, params: { id: project.id }, from: "/", search: (prev: any) => ({ ...prev, ...serializeSplit(next) }) } as any);
   }, [activeTab, split, navigate, project?.id]);
   // Swapping replaces the pane's content, so unsaved edits there are lost like on a tab change: ask first.
   const swapPane = useCallback((index: number) => {
@@ -344,11 +467,11 @@ function ProjectLayout() {
               key={t.value}
               variant="chip"
               size="sm"
-              active={activeTab === t.value}
+              active={mounted ? activeTab === t.value : t.value === "overview"}
               onClick={() => {
                 // Keep the split panes open while the main tab changes.
-                if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id }, search: (prev: any) => prev } as any);
-                else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id }, search: (prev: any) => prev } as any);
+                if (t.value === "overview") navigate({ to: "/projects/$id", params: { id: project.id }, from: "/", search: (prev: any) => prev } as any);
+                else navigate({ to: `/projects/$id/${t.value}` as any, params: { id: project.id }, from: "/", search: (prev: any) => prev } as any);
               }}
               className="px-3 shrink-0 whitespace-nowrap"
             >

@@ -7,5 +7,5 @@ export const Route = createFileRoute("/projects/$id/fsd")({
 
 function FsdPage() {
   const { id } = Route.useParams();
-  return <FsdView projectId={id} paneId="main" />;
+  return <FsdView key={id} projectId={id} paneId="main" />;
 }

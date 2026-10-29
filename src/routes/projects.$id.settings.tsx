@@ -17,9 +17,13 @@ import { loadTerminalPrefs, saveTerminalPrefs, type TerminalPrefs } from "~/lib/
 
 export const Route = createFileRoute("/projects/$id/settings")({
   loader: async ({ params }) => loadProjectRouteData(params.id),
-  component: SettingsPage,
+  component: SettingsPageRoute,
 });
 
+function SettingsPageRoute() {
+  const { id } = Route.useParams();
+  return <SettingsPage key={id} />;
+}
 const AGENTS = [
   { value: "opencode", label: "OpenCode", command: "opencode" },
   { value: "claude", label: "Claude Code", command: "claude" },

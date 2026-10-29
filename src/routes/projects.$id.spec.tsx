@@ -7,5 +7,5 @@ export const Route = createFileRoute("/projects/$id/spec")({
 
 function SpecPage() {
   const { id } = Route.useParams();
-  return <SpecView projectId={id} />;
+  return <SpecView key={id} projectId={id} />;
 }

@@ -29,8 +29,13 @@ export const Route = createFileRoute("/projects/$id/wiki")({
     const wikiPages = ((data.wikiPages as any[]) || []).filter((w: any) => w.projectId === params.id);
     return { project, wikiPages: wikiPages as WikiPage[] };
   },
-  component: WikiPage,
+  component: WikiPageRoute,
 });
+
+function WikiPageRoute() {
+  const { id } = Route.useParams();
+  return <WikiPage key={id} />;
+}
 
 function WikiPage() {
   const { id } = Route.useParams();

@@ -175,28 +175,26 @@ export function FileCard({ file, root, projectId }: { file: ThreadFile; root: st
   function runAction(action: "tab" | "os" | "expand") {
     setMenu(false);
     if (action === "tab" && tab) {
-      // Router navigation, NOT an `<a href>`: a full page load remounts the app,
-      // closes the chat panel, and aborts this thread's stream.
       navigate({ to: `/projects/$id/${tab.tab}` as any, params: { id: projectId } } as any);
       return;
     }
-    if (action === "os") {
+    if (action === "os" && canOsOpen) {
       void openWithOs("open");
       return;
     }
+    // Default fallback: expand / preview content so clicking "Buka" always opens the file
     setView(diff ? "diff" : "content");
     setOpen(true);
   }
 
   const primary: "tab" | "os" | "expand" = tab ? "tab" : canOsOpen ? "os" : "expand";
-  const primaryLabel = primary === "expand" ? "Lihat" : "Buka";
+  const primaryLabel = "Buka";
   const primaryTitle =
     primary === "tab"
       ? `Buka di tab ${tab!.label}`
       : primary === "os"
         ? `Buka ${basename(file.path)} dengan aplikasi default`
-        : "Tampilkan berkas ini di sini";
-
+        : "Tampilkan dan buka berkas ini di sini";
   /** Menu entries, in the order they are useful. Only actions that exist here
    *  are offered — a web build has no Finder, a file with no route has no tab,
    *  and a deletion has nothing to preview. */
@@ -233,12 +231,11 @@ export function FileCard({ file, root, projectId }: { file: ThreadFile; root: st
     // No overflow-hidden here: the split button's menu opens upward OUTSIDE this
     // card (bottom-full below), and clipping it made the caret's options vanish.
     // Rounded corners on expanding content are guarded by the panel itself.
-    <div className="rounded-xl ring ring-kumo-line bg-kumo-base">
+    <div className="rounded-xl ring ring-kumo-line bg-kumo-base relative z-20">
       <div className="flex items-center gap-3 px-3 py-2.5">
         <span className={`grid place-items-center size-9 shrink-0 rounded-lg ${tone}`}>
           <Icon size={17} weight="fill" />
         </span>
-
         <button onClick={() => setOpen((v) => !v)} className="min-w-0 flex-1 text-left" title={file.path}>
           <span className="flex items-center gap-1.5 min-w-0">
             {/* Expand affordance, the same caret the file tree uses — without it

@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { X, Square, Play } from "@phosphor-icons/react";
-import { Terminal } from "@xterm/xterm";
+import * as xtermModule from "@xterm/xterm";
+const defaultExport: unknown = "default" in xtermModule ? xtermModule.default : undefined;
+const defaultTerminal = defaultExport && typeof defaultExport === "object" && "Terminal" in defaultExport ? defaultExport.Terminal : undefined;
+const Terminal = (xtermModule.Terminal ?? defaultTerminal) as typeof xtermModule.Terminal;
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -51,7 +54,7 @@ export function AgentTermPanel({ visible, onClose, defaultAgent = "opencode", pr
   const lastOutputRef = useRef(0);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const termRef = useRef<Terminal | null>(null);
+  const termRef = useRef<InstanceType<typeof Terminal> | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);

@@ -11,13 +11,32 @@ import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { AppButton } from "~/components/ui/AppButton";
 
 export const Route = createFileRoute("/projects/$id/canvas")({
-  component: CanvasPage,
+  component: CanvasPageRoute,
 });
 
-function CanvasPage() {
+function CanvasPageRoute() {
   const { id } = Route.useParams();
+  return <CanvasPage key={id} id={id} />;
+}
+
+function CanvasPage({ id }: { id: string }) {
   const { files, loading: filesLoading, refresh: refreshFileList } = useFileList("output/sketches", id);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const storageKey = `onesist:project:${id}:canvas-selected-file`;
+  const [selectedFile, setSelectedFile] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(`onesist:project:${id}:canvas-selected-file`);
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (!selectedFile) return;
+    try {
+      window.localStorage.setItem(storageKey, selectedFile);
+    } catch {}
+  }, [selectedFile, storageKey]);
   const [activeFileContent, setActiveFileContent] = useState<{ path: string; text: string } | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
 
@@ -62,12 +81,18 @@ function CanvasPage() {
     fetchActiveContent(selectedFile);
   }, [selectedFile, fetchActiveContent]);
 
-  // Auto-select first file if available
+  // Auto-select file: prefer stored selection if it exists in sketchFiles, else first file
   useEffect(() => {
     if (sketchFiles.length > 0 && (!selectedFile || !sketchFiles.some((f) => f.path === selectedFile))) {
-      setSelectedFile(sketchFiles[0].path);
+      let saved: string | null = null;
+      try { saved = window.localStorage.getItem(storageKey); } catch {}
+      if (saved && sketchFiles.some((f) => f.path === saved)) {
+        setSelectedFile(saved);
+      } else {
+        setSelectedFile(sketchFiles[0].path);
+      }
     }
-  }, [sketchFiles, selectedFile]);
+  }, [sketchFiles, selectedFile, storageKey]);
 
   // Live file watch
   useFileWatch("sketch", (path) => {
