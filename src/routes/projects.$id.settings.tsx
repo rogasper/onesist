@@ -7,10 +7,12 @@ import { TaskExecutionPanel } from "~/components/settings/TaskExecutionPanel";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { loadProjectRouteData } from "~/lib/project-queries";
-import { Gear, Check, WarningCircle } from "@phosphor-icons/react";
+import { Gear, Check, WarningCircle, Key, Plus } from "@phosphor-icons/react";
 import { AppButton } from "~/components/ui/AppButton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { FilterSelect } from "~/components/ui/FilterSelect";
+import { ProviderSettings } from "~/components/providers/ProviderSettings";
+import { useProviders } from "~/lib/use-providers";
 import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 import { agentLogo } from "~/lib/agent-command";
 import { loadTerminalPrefs, saveTerminalPrefs, type TerminalPrefs } from "~/lib/terminal-prefs";
@@ -47,7 +49,7 @@ interface DetectedAgent {
   path: string | null;
 }
 
-type SettingsTab = "umum" | "mcp" | "subagent" | "task" | "terminal";
+type SettingsTab = "umum" | "byok" | "mcp" | "subagent" | "task" | "terminal";
 
 function SettingsPage() {
   const { id } = Route.useParams();
@@ -66,6 +68,8 @@ function SettingsPage() {
   const [agentsLoading, setAgentsLoading] = useState(true);
 
   const [terminalPrefs, setTerminalPrefs] = useState<TerminalPrefs>(loadTerminalPrefs);
+  const [providersOpen, setProvidersOpen] = useState(false);
+  const { providers, loading: providersLoading, refresh: refreshProviders, updateProvider } = useProviders();
 
   useEffect(() => {
     setAgentsLoading(true);
@@ -102,6 +106,7 @@ function SettingsPage() {
 
   const TABS: { id: SettingsTab; label: string }[] = [
     { id: "umum", label: "Umum & Agent" },
+    { id: "byok", label: "Model & BYOK" },
     { id: "mcp", label: "MCP" },
     { id: "subagent", label: "Subagent" },
     { id: "task", label: "Task" },
@@ -213,6 +218,49 @@ function SettingsPage() {
             )}
           </Section>
 
+          <Section title="BYOK Model Provider">
+            <div className="space-y-2">
+              <p className="text-[11px] text-kumo-subtle">
+                Provider LLM kustom (OpenAI, Anthropic, Ollama, Zen, dsb.) yang digunakan oleh percakapan dan agen.
+              </p>
+              {providersLoading ? (
+                <p className="text-xs text-kumo-subtle italic">Memuat provider…</p>
+              ) : providers.length === 0 ? (
+                <div className="p-3 rounded-xl border border-dashed border-kumo-line bg-kumo-elevated/20 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs text-kumo-subtle">
+                    <Key size={14} className="text-amber-400" />
+                    <span>Belum ada provider BYOK yang terdaftar</span>
+                  </div>
+                  <AppButton variant="secondary" size="sm" onClick={() => setProvidersOpen(true)}>
+                    + Tambah Provider
+                  </AppButton>
+                </div>
+              ) : (
+                <Field label="Default Provider">
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={providers.find((p) => p.isDefault)?.id ?? providers[0]?.id ?? ""}
+                      onChange={(e) => {
+                        const chosen = providers.find((p) => p.id === e.target.value);
+                        if (chosen) void updateProvider(chosen.id, { isDefault: true });
+                      }}
+                      className="flex-1 bg-kumo-elevated/40 text-sm text-kumo-default rounded-full border border-kumo-line/50 px-3.5 py-1.5 outline-none focus:border-kumo-brand"
+                    >
+                      {providers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.presetLabel || p.preset}){p.model ? ` — ${p.model}` : ""}{p.isDefault ? " [Default]" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <AppButton variant="secondary" size="sm" onClick={() => setActiveTab("byok")}>
+                      Kelola
+                    </AppButton>
+                  </div>
+                </Field>
+              )}
+            </div>
+          </Section>
+
           <div className="flex items-center gap-3">
             <AppButton
               variant="primary"
@@ -225,6 +273,91 @@ function SettingsPage() {
             </AppButton>
             {saved && <span className="text-xs text-kumo-brand">Settings saved</span>}
           </div>
+        </div>
+      )}
+      {activeTab === "byok" && (
+        <div className="space-y-5">
+          <Section title="Daftar Model & Provider (BYOK)">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-kumo-subtle">
+                Konfigurasi kunci API dan model LLM kustom (Bring Your Own Key). Provider bertanda Default akan dipilih otomatis pada percakapan chat baru.
+              </p>
+              <AppButton variant="primary" size="sm" onClick={() => setProvidersOpen(true)} className="shrink-0 gap-1.5">
+                <Plus size={12} weight="bold" />
+                Tambah Provider
+              </AppButton>
+            </div>
+
+            {providersLoading ? (
+              <p className="text-xs text-kumo-subtle italic py-4">Memuat provider…</p>
+            ) : providers.length === 0 ? (
+              <div className="py-8 text-center border border-dashed border-kumo-line rounded-2xl bg-kumo-elevated/10">
+                <Key size={24} className="mx-auto text-kumo-subtle mb-2" />
+                <p className="text-xs font-medium text-kumo-default">Belum ada provider yang dikonfigurasi</p>
+                <p className="text-[11px] text-kumo-subtle mt-1 mb-4">Tambahkan OpenAI, Anthropic, Ollama, atau endpoint OpenAI-compatible lainnya.</p>
+                <AppButton variant="primary" size="sm" onClick={() => setProvidersOpen(true)}>
+                  + Tambah Provider Pertama
+                </AppButton>
+              </div>
+            ) : (
+              <div className="grid gap-2.5">
+                {providers.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-3.5 rounded-xl border border-kumo-line/60 bg-kumo-elevated/30 flex items-center justify-between gap-3 hover:border-kumo-line transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-kumo-default truncate">{p.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-kumo-elevated text-kumo-subtle border border-kumo-line/50">
+                          {p.presetLabel || p.preset}
+                        </span>
+                        {p.isDefault && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-kumo-brand/15 text-kumo-brand font-medium">
+                            Default
+                          </span>
+                        )}
+                        {p.lastTestOk === true ? (
+                          <span className="text-[10px] text-green-400 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                            Terhubung {p.lastTestLatencyMs ? `(${p.lastTestLatencyMs}ms)` : ""}
+                          </span>
+                        ) : p.lastTestOk === false ? (
+                          <span className="text-[10px] text-red-400 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
+                            Gagal
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="text-xs text-kumo-subtle mt-1 flex items-center gap-3 font-mono">
+                        {p.model && <span>Model: {p.model}</span>}
+                        {p.endpoint && <span className="truncate max-w-[260px] opacity-75">{p.endpoint}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!p.isDefault && (
+                        <AppButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void updateProvider(p.id, { isDefault: true })}
+                          title="Jadikan provider default untuk percakapan baru"
+                        >
+                          Set Default
+                        </AppButton>
+                      )}
+                      <AppButton
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setProvidersOpen(true)}
+                      >
+                        Konfigurasi
+                      </AppButton>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
         </div>
       )}
 
@@ -320,6 +453,11 @@ function SettingsPage() {
           </div>
         </div>
       )}
+      <ProviderSettings
+        variant="modal"
+        open={providersOpen}
+        onClose={() => { setProvidersOpen(false); void refreshProviders(); }}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { relTime } from "~/lib/rel-time";
 import { useChat } from "~/lib/ai-client";
-import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, type UIMessage } from "~/lib/ai-client";
+import { isReasoningUIPart, isTextUIPart, isToolUIPart, isDynamicToolUIPart, isFileUIPart, getToolName, type UIMessage, type FileUIPart } from "~/lib/ai-client";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { threadHasRunningTurn } from "~/lib/thread-run";
 import { MessageErrorBoundary } from "~/components/chat/MessageErrorBoundary";
@@ -1002,7 +1002,14 @@ export function ChatSurface({
    */
   /** Resend from a user message: remove it and what follows (undoing the turns'
    *  file changes unless told otherwise), then send the text as a new message. */
-  async function resend(messageId: string, text: string, opts: { conversationOnly?: boolean } = {}): Promise<ResendResult> {
+  async function resend(
+    messageId: string,
+    text: string,
+    opts: { conversationOnly?: boolean; files?: FileUIPart[]; forceCleanStaleRun?: boolean } = {},
+  ): Promise<ResendResult> {
+    if (opts.forceCleanStaleRun) {
+      await fetch(`/api/chat/threads/${threadId}/stop`, { method: "POST" }).catch(() => {});
+    }
     const serverRunning = busy ? false : await threadHasRunningTurn(threadId);
     const block = resendBlock({ busy, serverRunning });
     if (block) {
@@ -1035,7 +1042,8 @@ export function ChatSurface({
     atBottomRef.current = true;
     setNow(Date.now());
     onRefresh();
-    await sendMessage({ text });
+    const sendPayload = opts.files && opts.files.length > 0 ? { text, files: opts.files } : { text };
+    await sendMessage(sendPayload);
     return {};
   }
 
@@ -1044,7 +1052,8 @@ export function ChatSurface({
     const idx = messages.findIndex((m) => m.id === assistantId);
     const asked = messages.slice(0, Math.max(idx, 0)).reverse().find((m) => m.role === "user");
     if (!asked) return;
-    const result = await resend(asked.id, messageText(asked));
+    const fileParts = (asked.parts ?? []).filter(isFileUIPart);
+    const result = await resend(asked.id, messageText(asked), { files: fileParts });
     if (result.conflicts || result.error) {
       setActionNote(
         result.conflicts
@@ -1058,7 +1067,8 @@ export function ChatSurface({
   async function retryAfterError() {
     const asked = [...messages].reverse().find((m) => m.role === "user");
     if (!asked) return;
-    const result = await resend(asked.id, messageText(asked));
+    const fileParts = (asked.parts ?? []).filter(isFileUIPart);
+    const result = await resend(asked.id, messageText(asked), { files: fileParts, forceCleanStaleRun: true });
     if (result.conflicts || result.error) {
       setActionNote(
         result.conflicts ? `Tidak bisa dicoba ulang: ${result.conflicts.join(", ")} sudah berubah sejak giliran itu.` : result.error ?? null,

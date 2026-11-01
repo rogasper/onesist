@@ -195,7 +195,7 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
   }
 
   return (
-    <div style={{ width: "100%", height: "100%" }}>
+    <div style={{ width: "100%", height: "100%", touchAction: "none" }} className="touch-none select-none">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -209,9 +209,12 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
         minZoom={0.1}
         maxZoom={2}
         panOnScroll
+        zoomOnPinch
+        zoomOnScroll={false}
+        zoomActivationKeyCode={["Control", "Meta"]}
+        preventScrolling
         selectionOnDrag
         panOnDrag={false}
-        // Only mount tables inside the viewport: at "fit all" zoom the whole
         // 86-table graph would otherwise stay in the DOM while the viewport is
         // transformed on every wheel tick.
         onlyRenderVisibleElements

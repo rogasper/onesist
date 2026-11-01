@@ -18,10 +18,10 @@ export { useChat } from "@ai-sdk/react";
 /** The transport `useChat` uses to call the Onesist endpoint. */
 export { DefaultChatTransport } from "ai";
 
-export type { UIMessage, UIMessagePart, ChatStatus, ToolUIPart, DynamicToolUIPart } from "ai";
+export type { UIMessage, UIMessagePart, ChatStatus, ToolUIPart, DynamicToolUIPart, FileUIPart } from "ai";
 
 /** Part predicates. Used to render the transcript without guessing part shapes. */
-export { isTextUIPart, isReasoningUIPart, isToolUIPart, isDynamicToolUIPart, getToolName, getStaticToolName } from "ai";
+export { isTextUIPart, isReasoningUIPart, isToolUIPart, isDynamicToolUIPart, isFileUIPart, getToolName, getStaticToolName } from "ai";
 
 /** Text part of a UI message. */
 export type TextPart = { type: "text"; text: string };
