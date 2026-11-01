@@ -178,7 +178,7 @@ Respond using this skill when the user says things like:
 |----------|------------------|
 | **Master (recommended for rolling context)** | **`MASTER_ERD.md`**, **`MASTER_SPEC_API.md`** |
 | API spec (per halaman/module) | `output/spec/<module>/spec.md` (buat folder `output/spec/<module>/` dulu, `mkdir -p`) |
-| ERD (per halaman) | `output/erd/<module>/erd.dbml` + `output/erd/<module>/erd.md` (folder per halaman) |
+| ERD (per halaman) | `output/erd/<module>/erd.dbml` + `output/erd/<module>/erd.md` (folder per halaman; `.dbml` is the Onesist canvas source) |
 | Tasks (backend, per halaman) | `output/task/<module>/task.md` (folder per halaman) |
 | Tasks (frontend) | `output/task/<module>/task_fe.md` (folder per halaman) |
 | Design image (kalau ada) | `input/assets/*.png` (gambar yang di-insert ke dokumen; rujuk dari task FE dengan `![…](input/assets/…)`, relatif root project) |
@@ -197,6 +197,8 @@ Respond using this skill when the user says things like:
 **SIT:** one markdown file per TC group (module/domain), plus one summary; export to Excel (XLSX) is the QC guide.
 **Folder per halaman (WAJIB):** Setiap halaman/module **wajib** buat folder terpisah (`mkdir -p output/<type>/<module>/`) sebelum tulis file. Tanpa folder, file tidak terbaca di dashboard (scan recursive tapi UI grouping butuh folder). Contoh: `output/spec/auth/spec.md`, `output/erd/auth/erd.dbml`, `output/task/auth/task.md`.
 
+**ERD canvas contract:** `output/erd/<module>/erd.dbml` is what the Onesist ERD tab draws. Always write it with valid DBML and run `python scripts/validate_erd.py output/erd/<module>/erd.dbml` before finishing. A `.md` schema is read only from **one** fenced `dbml` block; discussion notes belong outside `output/erd/` (see `references/erd_format.md`).
+
 ---
 
 ## Quality gates (before you finish)
@@ -204,6 +206,7 @@ Respond using this skill when the user says things like:
 - [ ] FSD requirements covered or explicitly flagged as out of scope / question
 - [ ] REST-ish consistency; auth and errors documented per `references/api_conventions.md` and `references/error_catalog.md`
 - [ ] Schema normalized; FKs and indexes justified
+- [ ] `output/erd/<module>/erd.dbml` is valid DBML (`scripts/validate_erd.py` passes); no discussion-note files in `output/erd/`; a `.md` schema sits in exactly one `dbml` fence
 - [ ] UML diagrams consistent with ERD and API spec (entity names, endpoint paths, statuses match)
 - [ ] Spec ↔ ERD ↔ tasks ↔ UML aligned (or consistency report lists fixes)
 - [ ] Auth pattern and role-permission matrix documented per `references/auth_security.md`

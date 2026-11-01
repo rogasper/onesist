@@ -21,10 +21,23 @@ interface FilePickerProps {
   /** Trigger text when nothing is selected. */
   placeholder?: string;
   searchPlaceholder?: string;
+  title?: string;
+  ariaLabel?: string;
+  emptyLabel?: string;
   className?: string;
 }
 
-export function FilePicker({ items, value, onChange, placeholder = "Pilih berkas", searchPlaceholder = "Cari berkas…", className = "" }: FilePickerProps) {
+export function FilePicker({
+  items,
+  value,
+  onChange,
+  placeholder = "Pilih berkas",
+  searchPlaceholder = "Cari berkas…",
+  title,
+  ariaLabel,
+  emptyLabel = "Tidak ada berkas yang cocok",
+  className = "",
+}: FilePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -89,6 +102,8 @@ export function FilePicker({ items, value, onChange, placeholder = "Pilih berkas
         onClick={() => (open ? setOpen(false) : openPicker())}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={ariaLabel}
+        title={title}
         className="flex items-center gap-2 max-w-[260px] h-7 pl-3 pr-2 rounded-full border border-kumo-line/80 bg-kumo-elevated text-xs font-medium text-kumo-default hover:border-kumo-brand/50 transition-colors"
       >
         <span className="truncate">{selected ? selected.label : placeholder}</span>
@@ -113,7 +128,7 @@ export function FilePicker({ items, value, onChange, placeholder = "Pilih berkas
           </div>
 
           <div ref={listRef} role="listbox" className="max-h-80 overflow-y-auto grid gap-0.5">
-            {matches.length === 0 ? <p className="px-2.5 py-3 text-sm text-kumo-subtle">Tidak ada berkas yang cocok</p> : null}
+            {matches.length === 0 ? <p className="px-2.5 py-3 text-sm text-kumo-subtle">{emptyLabel}</p> : null}
             {matches.map((item, index) => (
               <button
                 key={item.value}

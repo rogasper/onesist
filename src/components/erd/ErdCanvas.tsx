@@ -16,6 +16,7 @@ import "@xyflow/react/dist/style.css";
 import { TableNode } from "~/components/erd/TableNode";
 import type { TableDef, ParsedDbml } from "~/lib/dbml";
 import { layoutNodes, LAYOUT_LABELS, type LayoutAlgorithm } from "~/lib/erd-layout";
+import { useAppTheme } from "~/lib/theme";
 import { Button } from "@cloudflare/kumo";
 
 const nodeTypes: NodeTypes = {
@@ -52,6 +53,7 @@ function buildEdges(tables: TableDef[]): Edge[] {
 
 export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) {
   const [algorithm, setAlgorithm] = useState<LayoutAlgorithm>("tb");
+  const colorMode = useAppTheme();
 
   // Positions depend on the schema and the chosen algorithm only. Selection is
   // NOT a dependency: a dagre run over 86 tables costs ~40 ms, so selecting a
@@ -181,8 +183,13 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
 
   if (data.tables.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-xs text-kumo-subtle">
-        No tables parsed — toggle to DBML view and paste schema, or edit the existing DBML.
+      <div className="flex flex-col items-center justify-center h-full gap-1.5 px-6 text-center text-xs text-kumo-subtle">
+        <p className="text-sm text-kumo-default">Tidak ada tabel terbaca dari berkas ini.</p>
+        <p>
+          Kalau ini berkas Markdown, taruh schema DBML di dalam blok berpagar{" "}
+          <code className="rounded bg-kumo-elevated px-1 py-0.5 font-mono text-[11px]">dbml</code>.
+        </p>
+        <p>Berkas catatan tanpa DBML tidak bisa digambar di canvas.</p>
       </div>
     );
   }
@@ -198,7 +205,7 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}
-        colorMode="light"
+        colorMode={colorMode}
         minZoom={0.1}
         maxZoom={2}
         panOnScroll

@@ -6,6 +6,8 @@
 // - In the Tauri desktop shell, also syncs the native window background color
 //   via @tauri-apps/api/window (permission: core:window:allow-set-background-color)
 
+import { useEffect, useState } from "react";
+
 export type AppTheme = "dark" | "light";
 
 const THEME_KEY = "onesist:theme";
@@ -52,4 +54,17 @@ export async function toggleTheme(): Promise<AppTheme> {
   const next: AppTheme = getStoredTheme() === "dark" ? "light" : "dark";
   await applyTheme(next);
   return next;
+}
+
+export function useAppTheme(): AppTheme {
+  const [theme, setTheme] = useState<AppTheme>("light");
+  useEffect(() => {
+    const root = document.documentElement;
+    const read = () => setTheme(root.dataset.mode === "dark" ? "dark" : "light");
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(root, { attributes: true, attributeFilter: ["data-mode"] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
 }
