@@ -252,7 +252,7 @@ router.post("chat/threads", async (ctx) => {
     mode: body.mode === "ask" || body.mode === "plan" ? body.mode : "agent",
     providerId: body.providerId ? String(body.providerId) : null,
     model: body.model ? String(body.model) : null,
-    permissionMode: (body.permissionMode as any) ?? "ask",
+    permissionMode: (body.permissionMode as any) ?? "auto",
     // A thread that does not specify its own limit inherits the application
     // default (FR-L7), which is why that preference exists at all.
     maxSteps: typeof body.maxSteps === "number" ? normalizeMaxSteps(body.maxSteps) : normalizeAgentMaxSteps(getSetting("agentMaxSteps")),

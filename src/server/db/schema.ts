@@ -430,9 +430,8 @@ export const chatThreads = sqliteTable(
     mode: text("mode").notNull().default("agent"),
     providerId: text("provider_id"),
     model: text("model"),
-    /** ask | auto | readonly (FR-E1). `ask` = default: state-changing tools
-     *  wait for approval. */
-    permissionMode: text("permission_mode").notNull().default("ask"),
+    /** ask | auto | readonly (FR-E1). `auto` = default (YOLO). */
+    permissionMode: text("permission_mode").notNull().default("auto"),
     /** Summary of old messages once the context budget is exceeded (FR-B8 layer 2). */
     summary: text("summary"),
     /** Manual compaction (M4 ringkas): messages up to this seq are represented by
