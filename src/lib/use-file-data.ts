@@ -64,12 +64,16 @@ export function useFileContent(path: string | null, projectId?: string): { conte
   const refresh = useCallback(async () => {
     if (!path) { setContent(null); setLoading(false); return; }
     try {
-      const res = await fetch(withProject(`/api/files/read?path=${encodeURIComponent(path)}`, projectId));
+      const res = await fetch(withProject(`/api/files/read?path=${encodeURIComponent(path)}`, projectId), { cache: "no-store" });
       if (res.ok) { const d = await res.json(); setContent(d.content); }
     } catch {}
     setLoading(false);
   }, [path, projectId]);
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    setContent(null);
+    setLoading(true);
+    void refresh();
+  }, [refresh]);
   return { content, loading, refresh };
 }
 

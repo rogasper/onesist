@@ -23,13 +23,31 @@ COL_LINE_RE = re.compile(
     re.MULTILINE,
 )
 REF_RE = re.compile(
-    r"^\s*Ref\s*:\s*([\w.\"`]+)\s*([-><\-]+)\s*([\w.\"`]+)\s*$",
+    r"^\s*Ref(?:\s+[A-Za-z_][\w$]*)?\s*:\s*([\w.\"`]+)\s*([-><\-]+)\s*([\w.\"`]+)\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
 
 def strip_quotes(name: str) -> str:
-    return name.strip().strip('"').strip("`")
+    return name.strip().replace('"', "").replace("`", "")
+
+
+def bracket_delta(line: str) -> int:
+    depth = 0
+    quote = None
+    for ch in line:
+        if quote:
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "\"'`":
+            quote = ch
+            continue
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+    return depth
 
 
 def parse_tables(content: str) -> dict[str, list[str]]:
@@ -45,14 +63,28 @@ def parse_tables(content: str) -> dict[str, list[str]]:
         tname = strip_quotes(m.group(1))
         cols: list[str] = []
         i += 1
+        bracket_depth = 0
+        in_indexes = False
         while i < len(lines):
-            if re.match(r"^\s*}\s*$", lines[i]):
+            line = lines[i]
+            if in_indexes:
+                if re.match(r"^\s*}\s*$", line):
+                    in_indexes = False
+                i += 1
+                continue
+            if bracket_depth == 0 and re.match(r"^\s*indexes\s*\{", line, re.IGNORECASE):
+                in_indexes = True
+                i += 1
+                continue
+            if bracket_depth == 0 and re.match(r"^\s*}\s*$", line):
                 break
-            cm = COL_LINE_RE.match(lines[i])
-            if cm and not lines[i].strip().startswith("//"):
-                c0 = strip_quotes(cm.group(1))
-                if c0.lower() not in ("table", "enum", "ref", "indexes", "index"):
-                    cols.append(c0)
+            if bracket_depth == 0:
+                cm = COL_LINE_RE.match(line)
+                if cm and not line.strip().startswith("//"):
+                    c0 = strip_quotes(cm.group(1))
+                    if c0.lower() not in ("table", "enum", "ref", "indexes", "index", "note"):
+                        cols.append(c0)
+            bracket_depth = max(0, bracket_depth + bracket_delta(line))
             i += 1
         tables[tname] = cols
         i += 1

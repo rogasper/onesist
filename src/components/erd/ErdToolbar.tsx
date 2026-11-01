@@ -1,15 +1,22 @@
 import { Button } from "@cloudflare/kumo";
-import { Code, Eye, Download, X } from "@phosphor-icons/react";
-import { FilterSelect } from "~/components/ui/FilterSelect";
+import { Code, Eye, Download, X, PencilSimple } from "@phosphor-icons/react";
+import { FilePicker } from "~/components/ui/FilePicker";
+
+export interface ErdTableOption {
+  name: string;
+  columns: number;
+}
 
 interface ErdToolbarProps {
   showEditor: boolean;
   onToggleEditor: () => void;
   onExportDbml: () => void;
   tableCount: number;
-  tables?: string[];
+  tables?: ErdTableOption[];
   selectedTable?: string | null;
   onSelectTable?: (tableName: string | null) => void;
+  onOpenTableEditor?: () => void;
+  tableEditorOpen?: boolean;
 }
 
 export function ErdToolbar({
@@ -20,26 +27,30 @@ export function ErdToolbar({
   tables = [],
   selectedTable = null,
   onSelectTable,
+  onOpenTableEditor,
+  tableEditorOpen = false,
 }: ErdToolbarProps) {
+  const tableItems = [
+    { value: "", label: "All tables (overview)", hint: `${tables.length} tabel` },
+    ...tables.map((table) => ({ value: table.name, label: table.name, hint: `${table.columns} kolom` })),
+  ];
+
   return (
     <div className="flex items-center justify-between px-3 py-1.5 border-b border-kumo-line bg-kumo-elevated/50 gap-2 flex-wrap">
       <div className="flex items-center gap-2 text-xs text-kumo-subtle min-w-0">
         <span className="font-medium text-kumo-default shrink-0">{tableCount} tables</span>
         {tables.length > 0 && onSelectTable && (
           <div className="flex items-center gap-1 min-w-0">
-            <FilterSelect
+            <FilePicker
+              items={tableItems}
               value={selectedTable ?? ""}
-              onChange={(val) => onSelectTable(val ? val : null)}
-              className="h-6 text-[11px] max-w-[170px] truncate"
+              onChange={(value) => onSelectTable(value ? value : null)}
               title="Focus table in canvas"
-            >
-              <option value="">All tables (overview)</option>
-              {tables.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </FilterSelect>
+              ariaLabel="Focus table in canvas"
+              placeholder="Semua tabel"
+              searchPlaceholder="Cari tabel…"
+              emptyLabel="Tidak ada tabel yang cocok"
+            />
             {selectedTable && (
               <button
                 type="button"
@@ -64,6 +75,18 @@ export function ErdToolbar({
           <span style={{ display: showEditor ? "inline" : "none" }}><Eye size={14} /></span>
           <span>{showEditor ? "Visual" : "DBML"}</span>
         </Button>
+        {selectedTable && onOpenTableEditor && !tableEditorOpen && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onOpenTableEditor}
+            className="!gap-1"
+            title="Edit tabel"
+          >
+            <PencilSimple size={14} />
+            Edit
+          </Button>
+        )}
         <Button
           variant="secondary"
           size="sm"

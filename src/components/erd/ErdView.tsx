@@ -9,8 +9,9 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { ListSkeleton } from "~/components/ui/Skeleton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { FilePicker } from "~/components/ui/FilePicker";
-import { parseDbml, serializeDbml, type TableDef, type ParsedDbml } from "~/lib/dbml";
+import { parseDbml, extractDbml, replaceDbmlFence, serializeDbmlDocument, type TableDef, type ParsedDbml } from "~/lib/dbml";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
+import { useDbmlFileStatus } from "~/lib/use-dbml-file-status";
 import { AppButton } from "~/components/ui/AppButton";
 
 // 32-bit FNV-1a: used only to notice "this text is byte-identical to what we
@@ -32,10 +33,13 @@ export function ErdView({ projectId }: { projectId: string }) {
   const id = projectId;
   const { files, loading: filesLoading, refresh: refreshFiles } = useFileList("output/erd", id);
   const storageKey = `onesist:project:${id}:erd-selected-file`;
+  const restoredFromStorageRef = useRef(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     try {
-      return window.localStorage.getItem(`onesist:project:${id}:erd-selected-file`);
+      const saved = window.localStorage.getItem(storageKey);
+      if (saved) restoredFromStorageRef.current = true;
+      return saved;
     } catch {
       return null;
     }
@@ -52,6 +56,7 @@ export function ErdView({ projectId }: { projectId: string }) {
   const [parsed, setParsed] = useState<ParsedDbml>({ tables: [], notes: [] });
   const [showEditor, setShowEditor] = useState(false);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   // Filter out hidden files / dotfiles (.gitkeep, etc)
   const erdFiles = useMemo(
@@ -64,28 +69,51 @@ export function ErdView({ projectId }: { projectId: string }) {
     [files]
   );
 
-  // Auto-select the file to draw. The list is newest-first, and a turn that
-  // writes `erd.dbml` + `erd.md` puts the MARKDOWN first — the canvas then fed
-  // a `.md` to the DBML parser and rendered nothing, which reads as "the file
-  // the agent just wrote is not here" (reported 2026-09-18, UJI-MANUAL C9).
-  // So: prefer a `.dbml` whenever the current selection is gone or was never
-  // set. A file the user picked by hand is left alone.
+  const fileStatus = useDbmlFileStatus(erdFiles, id);
+  const isMarkdown = useMemo(() => (selectedFile ? /\.md$/i.test(selectedFile) : false), [selectedFile]);
+  const extracted = useMemo(() => extractDbml(localText, isMarkdown), [localText, isMarkdown]);
+  const canEditTables = !isMarkdown || (extracted.source === "fence" && extracted.fenceCount === 1);
+  const userPickedRef = useRef(false);
+
   useEffect(() => {
     if (!erdFiles.length) return;
-    if (selectedFile && erdFiles.some((f) => f.path === selectedFile)) return;
+    const tablesOf = (path: string): number | undefined => {
+      const status = fileStatus[path];
+      return status && "tables" in status ? status.tables : undefined;
+    };
+    const bestWithTables =
+      erdFiles.find((f) => f.ext === ".dbml" && (tablesOf(f.path) ?? 0) > 0) ??
+      erdFiles.find((f) => (tablesOf(f.path) ?? 0) > 0) ??
+      null;
+    const current = selectedFile && erdFiles.some((f) => f.path === selectedFile) ? selectedFile : null;
+
+    if (current) {
+      if (restoredFromStorageRef.current || userPickedRef.current) return;
+      if (tablesOf(current) === 0 && bestWithTables && bestWithTables.path !== current) {
+        setSelectedFile(bestWithTables.path);
+      }
+      return;
+    }
+
     let saved: string | null = null;
     try { saved = window.localStorage.getItem(storageKey); } catch {}
     if (saved && erdFiles.some((f) => f.path === saved)) {
+      restoredFromStorageRef.current = true;
       setSelectedFile(saved);
       return;
     }
+    restoredFromStorageRef.current = false;
+
     const dbml = erdFiles.find((f) => f.ext === ".dbml");
-    setSelectedFile((dbml ?? erdFiles[0]).path);
-  }, [erdFiles, selectedFile, storageKey]);
+    const md =
+      erdFiles.find((f) => f.ext === ".md" && /erd|dbml|schema|database/i.test(f.name)) ??
+      erdFiles.find((f) => f.ext === ".md");
+    setSelectedFile((bestWithTables ?? dbml ?? md ?? erdFiles[0]).path);
+  }, [erdFiles, selectedFile, fileStatus, storageKey]);
 
   // Sync localText when content changes
   useEffect(() => {
-    if (dbmlText !== null) setLocalText(dbmlText);
+    setLocalText(dbmlText ?? "");
   }, [dbmlText]);
 
   // Parse DBML — debounced, and skipped entirely when the text is unchanged.
@@ -93,17 +121,21 @@ export function ErdView({ projectId }: { projectId: string }) {
   // schema is re-parsed on every character typed.
   const lastParsed = useRef<string | null>(null);
   useEffect(() => {
-    if (!localText) return;
-    const signature = textSignature(localText);
+    if (!localText) {
+      lastParsed.current = null;
+      setParsed({ tables: [], notes: [] });
+      return;
+    }
+    const signature = textSignature(extracted.dbml);
     if (signature === lastParsed.current) return;
     const timer = setTimeout(() => {
       try {
-        setParsed(parseDbml(localText));
+        setParsed(parseDbml(extracted.dbml));
         lastParsed.current = signature;
       } catch {}
     }, 250);
     return () => clearTimeout(timer);
-  }, [localText]);
+  }, [extracted.dbml, localText]);
 
   // Switching files means the previously selected table belongs to another
   // schema — clearing it avoids carrying a stale selection (and its highlight)
@@ -113,6 +145,7 @@ export function ErdView({ projectId }: { projectId: string }) {
     if (selectedFileRef.current !== selectedFile) {
       selectedFileRef.current = selectedFile;
       setSelectedTable(null);
+      setPanelOpen(false);
     }
   }, [selectedFile]);
 
@@ -137,31 +170,65 @@ export function ErdView({ projectId }: { projectId: string }) {
   useFileWatch("master", refreshFiles);
 
   const handleDbmlChange = useCallback((newDbml: string) => setLocalText(newDbml), []);
+  const handleSelectTable = useCallback((name: string | null) => {
+    setSelectedTable(name);
+    if (!name) setPanelOpen(false);
+  }, []);
+  useEffect(() => {
+    if (panelOpen && selectedTable && !parsed.tables.some((t) => t.name === selectedTable)) {
+      setPanelOpen(false);
+    }
+  }, [panelOpen, parsed.tables, selectedTable]);
   const handleTableUpdate = useCallback(
     (updatedTable: TableDef) => {
-      setParsed((prev) => ({
-        ...prev,
-        tables: prev.tables.map((t) => (t.name === updatedTable.name ? updatedTable : t)),
-      }));
-      setLocalText(
-        serializeDbml(parsed.tables.map((t) => (t.name === updatedTable.name ? updatedTable : t)))
-      );
+      const next: ParsedDbml = {
+        ...parsed,
+        tables: parsed.tables.map((t) => (t.name === updatedTable.name ? updatedTable : t)),
+      };
+      setParsed(next);
+      if (!canEditTables) return;
+
+      const serialized = serializeDbmlDocument(next);
+      if (!isMarkdown) {
+        setLocalText(serialized);
+        return;
+      }
+      const replaced = replaceDbmlFence(localText, serialized);
+      if (replaced !== null) setLocalText(replaced);
     },
-    [parsed.tables]
+    [parsed, canEditTables, isMarkdown, localText]
   );
 
   const handleExportDbml = useCallback(() => {
-    const blob = new Blob([localText], { type: "text/plain" });
+    const blob = new Blob([extracted.dbml], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = selectedFile?.replace(/^.*[/\\]/, "").replace(/\.\w+$/, "") + ".dbml";
     a.click();
     URL.revokeObjectURL(url);
-  }, [localText, selectedFile]);
+  }, [extracted.dbml, selectedFile]);
 
   const selectedTableDef = parsed.tables.find((t) => t.name === selectedTable) ?? null;
-  const tableNames = useMemo(() => parsed.tables.map((t) => t.name), [parsed.tables]);
+  const tableOptions = useMemo(
+    () => parsed.tables.map((t) => ({ name: t.name, columns: t.columns.length })),
+    [parsed.tables]
+  );
+  const pickerItems = useMemo(
+    () =>
+      erdFiles.map((f) => {
+        const status = fileStatus[f.path];
+        let label: string;
+        if (f.ext !== ".dbml" && f.ext !== ".md") label = "bukan DBML";
+        else if (!status) label = "memeriksa…";
+        else if ("error" in status) label = "gagal dibaca";
+        else if (status.tables > 0) label = `${status.tables} tabel`;
+        else label = f.ext === ".md" ? "tanpa DBML" : "0 tabel";
+        const folder = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
+        return { value: f.path, label: f.name, hint: folder ? `${label} · ${folder}` : label };
+      }),
+    [erdFiles, fileStatus]
+  );
 
   return (
     <div className="h-full flex flex-col">
@@ -181,15 +248,23 @@ export function ErdView({ projectId }: { projectId: string }) {
                 {parsed.tables.length} tables
               </Badge>
             )}
+            {selectedFile && !filesLoading && parsed.tables.length === 0 && (
+              <Badge variant="neutral" className="text-[11px]">
+                tanpa DBML
+              </Badge>
+            )}
           </>
         }
         below={
           erdFiles.length > 0 && (
             <div className="flex items-center gap-2 flex-wrap min-w-0">
               <FilePicker
-                items={erdFiles.map((f) => ({ value: f.path, label: f.name, hint: f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : undefined }))}
+                items={pickerItems}
                 value={selectedFile}
-                onChange={setSelectedFile}
+                onChange={(path) => {
+                  userPickedRef.current = true;
+                  setSelectedFile(path);
+                }}
                 placeholder="Pilih berkas ERD"
                 searchPlaceholder="Cari berkas ERD…"
               />
@@ -210,7 +285,7 @@ export function ErdView({ projectId }: { projectId: string }) {
           className="flex-1"
         />
       ) : (
-        <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
+        <div className="flex flex-1 min-h-0 glass-container overflow-hidden rounded-xl">
           <div
             className="shrink-0 border-r border-kumo-line flex flex-col transition-all duration-200"
             style={{ width: showEditor ? 400 : 0, overflow: "hidden" }}
@@ -219,7 +294,7 @@ export function ErdView({ projectId }: { projectId: string }) {
               className="px-3 py-1.5 border-b border-kumo-line bg-kumo-elevated/50 text-xs font-medium text-kumo-subtle whitespace-nowrap"
               style={{ width: 400 }}
             >
-              DBML editor
+              {isMarkdown ? "Markdown editor" : "DBML editor"}
             </div>
             <div className="flex-1 min-h-0" style={{ width: 400 }}>
               <DbmlEditor value={localText} onChange={handleDbmlChange} />
@@ -232,15 +307,17 @@ export function ErdView({ projectId }: { projectId: string }) {
               onToggleEditor={() => setShowEditor((p) => !p)}
               onExportDbml={handleExportDbml}
               tableCount={parsed.tables.length}
-              tables={tableNames}
+              tables={tableOptions}
               selectedTable={selectedTable}
-              onSelectTable={(name) => setSelectedTable(name)}
+              onSelectTable={handleSelectTable}
+              onOpenTableEditor={() => setPanelOpen(true)}
+              tableEditorOpen={panelOpen}
             />
             <div className="flex-1 min-h-0 relative" style={{ width: "100%", height: "100%" }}>
               <ErdCanvas
                 key={selectedFile}
                 data={parsed}
-                onNodeClick={(name) => setSelectedTable(name)}
+                onNodeClick={handleSelectTable}
                 selectedTable={selectedTable}
               />
             </div>
@@ -248,15 +325,16 @@ export function ErdView({ projectId }: { projectId: string }) {
 
           <div
             className="shrink-0 border-l border-kumo-line flex flex-col transition-all duration-200"
-            style={{ width: selectedTableDef ? 300 : 0, overflow: "hidden" }}
+            style={{ width: panelOpen && selectedTableDef ? 300 : 0, overflow: "hidden" }}
           >
             <div className="flex-1 min-h-0" style={{ width: 300 }}>
-              {selectedTableDef ? (
+              {panelOpen && selectedTableDef ? (
                 <TableEditor
                   table={selectedTableDef}
                   onUpdate={handleTableUpdate}
                   allTables={parsed.tables.map((t) => t.name)}
-                  onClose={() => setSelectedTable(null)}
+                  onClose={() => setPanelOpen(false)}
+                  readOnly={!canEditTables}
                 />
               ) : null}
             </div>
