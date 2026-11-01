@@ -596,7 +596,8 @@ export const chatToolCalls = sqliteTable(
     isError: integer("is_error", { mode: "boolean" }).notNull().default(false),
     /** {added, removed, diff} computed AT write time, not re-read (FR-C3). */
     diffJson: text("diff_json"),
-    /** auto | approved | denied | user-approval | protected-path */
+    /** auto | auto-protected-path | rule | approved | denied | denied-readonly |
+     *  denied-timeout | protected-path. `auto-protected-path` = YOLO passed a protected path. */
     approval: text("approval"),
     startedAt: text("started_at"),
     endedAt: text("ended_at"),

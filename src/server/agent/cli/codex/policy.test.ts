@@ -8,7 +8,8 @@ import { codexPolicy, decisionFor } from "./policy";
 
 test("ask asks on request inside a workspace; auto never asks; read-only modes never write", () => {
   expect(codexPolicy("ask", "agent")).toEqual({ approvalPolicy: "on-request", sandbox: "workspace-write", ask: true });
-  expect(codexPolicy("auto", "agent")).toEqual({ approvalPolicy: "never", sandbox: "workspace-write", ask: false });
+  // YOLO lifts the sandbox entirely, not just the approval prompt.
+  expect(codexPolicy("auto", "agent")).toEqual({ approvalPolicy: "never", sandbox: "danger-full-access", ask: false });
   expect(codexPolicy("no-shell", "agent")).toEqual({ approvalPolicy: "never", sandbox: "read-only", ask: false });
   expect(codexPolicy("readonly", "agent")).toEqual({ approvalPolicy: "never", sandbox: "read-only", ask: false });
   expect(codexPolicy("auto", "plan")).toEqual({ approvalPolicy: "never", sandbox: "read-only", ask: false });

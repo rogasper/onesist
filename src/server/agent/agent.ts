@@ -237,9 +237,12 @@ export async function startTurn(input: TurnInput): Promise<AgentStream> {
 
       const args = (toolCall as any).input ?? {};
       const { protected: isProtected } = touchesProtectedPath(name, args);
-      // Auto mode: passes automatically, EXCEPT protected paths.
-      if (input.permissionMode === "auto" && !isProtected) {
-        recordApprovalDecision(input.runId, toolCallId, "auto");
+      // YOLO (mode "auto"): every mutating tool passes — protected paths included, because
+      // this mode means "full access, no manual approval". Choosing it is the decision that the
+      // agent may rewrite input/, .git/ or .agents/skills/ without asking. The read-only and
+      // ask modes still route protected paths to the approval card below.
+      if (input.permissionMode === "auto") {
+        recordApprovalDecision(input.runId, toolCallId, isProtected ? "auto-protected-path" : "auto");
         return "approved";
       }
 

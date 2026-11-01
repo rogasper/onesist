@@ -2576,7 +2576,8 @@ function toolTarget(name: string, input: any): string {
 /** Short label for a write's permission basis. */
 function approvalLabel(approval: string | undefined): string | null {
   if (!approval) return null;
-  if (approval === "auto") return "otomatis";
+  if (approval === "auto") return "YOLO";
+  if (approval === "auto-protected-path") return "YOLO (path terproteksi)";
   if (approval === "rule") return "aturan tersimpan";
   if (approval === "approved") return "disetujui";
   if (approval === "denied") return "ditolak";
