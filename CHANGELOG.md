@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.5.2 — Patch milestone v0.5.1: BYOK, chat, YOLO, dan zoom Windows
+
+Rilis patch untuk tujuh issue milestone v0.5.1: pengaturan BYOK di project, tombol retry/compact chat yang macet, default mode YOLO, dan pinch-to-zoom canvas ERD di Windows.
+
+### Fix — Layout
+- **#25 — Konten bawah terpotong di Windows**: `Sidebar.Provider` memakai `contained` + `min-h-0 h-full w-full`, jadi tinggi `UpdateBanner` tidak lagi membuat viewport overflow dan konten bawah bisa di-scroll.
+- **#27 — Toggle sidebar menimpa UpdateBanner**: posisi tombol logo mengikuti `--update-banner-h`, turun otomatis di bawah banner.
+
+### Feat — BYOK di project
+- **#28 — Pengaturan BYOK di Project Settings**: section **BYOK Model Provider** di tab *Umum & Agent*, tab **Model & BYOK** untuk mendaftar/mengonfigurasi provider dan default-nya, plus tombol **+ Tambah / Kelola Provider** di dialog buat project.
+
+### Fix — Chat
+- **#30 — Retry setelah compaction**: pesan setelah `summaryUptoSeq` bisa di-truncate/di-retry; lampiran file/gambar dipertahankan; zombie active run dihentikan sebelum kirim ulang.
+- **#31 — Compact selalu gagal**: endpoint `/compact` tidak lagi 500 pada provider CLI (memakai provider teks non-CLI bila ada atau pesan panduan), `splitForCompaction` mendukung fallback satu giliran, dan error `summarizeOldest` dicatat ke log.
+
+### Feat — YOLO
+- **#29 — Default YOLO + akses penuh**: thread chat baru default ke mode `auto` berlabel **YOLO**. Mode ini menyetujui semua tool yang mengubah state, termasuk protected paths (`input/`, `MASTER_*.md`, `.git/`, `.agents/skills/`, `.agents/agents/`), dan Codex memakai `danger-full-access`. Label/hint composer diperbarui.
+
+### Fix — ERD
+- **#38 — Trackpad Windows**: container ReactFlow memakai `touchAction: "none"` + `zoomOnPinch`/`preventScrolling`, sehingga pinch dua jari di WebView2 tidak lagi ditelan.
+
+### Verifikasi
+- `bun run typecheck` bersih. `bun test src`: **805 tes di 158 berkas** lulus (dua test baru untuk kebijakan YOLO).
+- Test `codex/policy.test.ts` dan `codex/turn.test.ts` diperbarui untuk `danger-full-access`; `thread-edit.test.ts` menutupi truncate setelah `summaryUptoSeq`.
+
+### Catatan
+- **Keamanan:** karena YOLO kini default untuk thread baru, agen bisa menimpa dokumen di `input/` dan konfigurasi skill tanpa bertanya. Mode *Tanya dulu*, *Hanya baca*, dan *Tanpa shell* tetap tersedia di pemilih mode.
+- Tidak ada migrasi database.
+
 ## v0.5.1 — Persistensi tampilan per proyek + tab ERD yang lebih andal
 
 Setiap proyek kini mengingat tampilan terakhir yang dibuka, dan tab ERD membaca DBML yang benar-benar ditulis agen: settings multi-baris, nama ber-quote, alias, catatan, serta schema yang disimpan di dalam `.md`. Picker menandai berkas yang tidak berisi DBML, dan editor tabel tidak lagi kehilangan fokus setelah satu ketikan.
