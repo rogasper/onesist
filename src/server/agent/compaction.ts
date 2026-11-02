@@ -41,7 +41,7 @@ export type CompactThreadResult =
  * Stores a `compactNotice` marker, and emits start and done (or failed) over SSE.
  */
 export async function compactThreadHistory(req: CompactThreadRequest): Promise<CompactThreadResult> {
-  const plan = splitForCompaction(req.visible);
+  const plan = splitForCompaction(req.visible) ?? splitForCompaction(req.visible, 1);
   if (!plan) return { ok: false, reason: "nothing", error: "Belum ada percakapan lama yang bisa diringkas." };
 
   eventBus.emitChatCompaction({ threadId: req.thread.id, phase: "start", at: req.at });

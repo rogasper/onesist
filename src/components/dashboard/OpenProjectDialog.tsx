@@ -304,15 +304,25 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
               </div>
 
               <div>
-                <label className="block text-xs text-kumo-subtle mb-1.5">BYOK Provider</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs text-kumo-subtle">BYOK Provider</label>
+                  <button
+                    type="button"
+                    onClick={() => setProvidersOpen(true)}
+                    className="text-[11px] text-kumo-brand hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Key size={11} />
+                    + Tambah / Kelola
+                  </button>
+                </div>
                 {providers.length === 0 ? (
                   <button
                     type="button"
                     onClick={() => setProvidersOpen(true)}
-                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded border border-dashed border-kumo-line text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/40 transition-colors"
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded border border-dashed border-kumo-line text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/40 transition-colors cursor-pointer"
                   >
                     <Key size={12} />
-                    Belum ada provider siap pakai — atur
+                    Belum ada provider siap pakai — atur sekarang
                   </button>
                 ) : (
                   <>
@@ -323,20 +333,11 @@ export function OpenProjectDialog({ open, onOpenChange, onCreated }: OpenProject
                     >
                       {providers.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.name}{p.model ? ` — ${p.model}` : ""}
+                          {p.name}{p.model ? ` — ${p.model}` : ""}{p.isDefault ? " (Default)" : ""}
                         </option>
                       ))}
                     </select>
-                    <div className="flex items-start justify-between gap-2 mt-1">
-                      <p className="text-[10px] text-kumo-subtle">Disimpan sebagai provider default, jadi project berikutnya langsung memakainya.</p>
-                      <button
-                        type="button"
-                        onClick={() => setProvidersOpen(true)}
-                        className="text-[10px] text-kumo-subtle underline hover:text-kumo-default shrink-0"
-                      >
-                        Kelola
-                      </button>
-                    </div>
+                    <p className="text-[10px] text-kumo-subtle mt-1">Disimpan sebagai provider default, jadi project berikutnya langsung memakainya.</p>
                   </>
                 )}
               </div>

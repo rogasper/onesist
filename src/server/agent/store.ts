@@ -55,7 +55,7 @@ export function createThread(input: {
     mode: input.mode ?? "agent",
     providerId: input.providerId ?? null,
     model: input.model ?? null,
-    permissionMode: input.permissionMode ?? "ask",
+    permissionMode: input.permissionMode ?? "auto",
     maxSteps: input.maxSteps ?? MAX_STEPS_DEFAULT,
     tokensUsed: 0,
     archived: false,

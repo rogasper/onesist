@@ -313,13 +313,14 @@ function RootComponent() {
             onClick={() => setSidebarOpen(true)}
             title="Tampilkan sidebar (Ctrl/⌘B)"
             aria-label="Tampilkan sidebar"
-            className="fixed left-2 top-2 z-50 flex items-center justify-center size-8 rounded bg-kumo-elevated/80 border border-kumo-line hover:bg-kumo-elevated transition-colors cursor-pointer"
+            className="fixed left-2 z-50 flex items-center justify-center size-8 rounded bg-kumo-elevated/80 border border-kumo-line hover:bg-kumo-elevated transition-colors cursor-pointer"
+            style={{ top: "calc(var(--update-banner-h, 0px) + 8px)" }}
           >
             <img src="/logo-icon.png" alt="" className="h-5 w-5 object-contain" />
           </button>
         )}
         <div className="flex flex-1 min-h-0">
-          <Sidebar.Provider open={sidebarOpen} onOpenChange={setSidebarOpen} collapsible="offcanvas" resizable defaultWidth={220} minWidth={48} maxWidth={320}>
+          <Sidebar.Provider contained open={sidebarOpen} onOpenChange={setSidebarOpen} collapsible="offcanvas" resizable defaultWidth={220} minWidth={48} maxWidth={320} className="min-h-0 h-full w-full">
             <SidebarPersistence />
             <Sidebar>
               <AppSidebarHeader overlay={IS_MAC_MAIN} />

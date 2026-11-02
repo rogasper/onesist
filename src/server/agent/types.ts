@@ -172,8 +172,12 @@ export function maxStepsOutOfRange(value: number | null | undefined): boolean {
  *  safety net — `config.ts` always sends an explicit value (spike T2). */
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
-/** Directories the agent may not modify without explicit confirmation (FR-E3),
- *  regardless of permission mode. Patterns are matched against the project-root-relative path. */
+/** Directories the agent may not modify without explicit confirmation (FR-E3).
+ *  Patterns are matched against the project-root-relative path.
+ *
+ *  Exception: permission mode `auto` (YOLO) means "full access, no manual approval", so it
+ *  approves these too — picking that mode IS the confirmation, taken once instead of per file.
+ *  Every other mode (ask, no-shell, readonly, execute) still routes them to the approval card. */
 export const PROTECTED_PATH_PATTERNS: RegExp[] = [
   /^input\//,
   /^MASTER_.*\.md$/i,

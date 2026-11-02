@@ -126,6 +126,21 @@ test("a summarised thread cannot be resent from", () => {
   const res = edit.truncateFromMessage({ threadId: t, root, messageId: "sum-u1", resetFiles: false, conversationOnly: true });
   expect(res.ok).toBe(false);
 });
+test("messages after summaryUptoSeq can be resent", () => {
+  const t = store.createThread({ projectId: "p-edit", permissionMode: "auto", mode: "agent" } as any).id as string;
+  store.appendMessage({ threadId: t, role: "user", parts: text("lama"), id: "seq-u1" });
+  store.appendMessage({ threadId: t, role: "assistant", parts: text("jawab lama"), id: "seq-a1" });
+  store.setThreadSummary(t, "ringkasan awal");
+  store.updateThread(t, { summaryUptoSeq: 2 });
+  store.appendMessage({ threadId: t, role: "user", parts: text("baru"), id: "seq-u2" });
+  store.appendMessage({ threadId: t, role: "assistant", parts: text("jawab baru"), id: "seq-a2" });
+  const res = edit.truncateFromMessage({ threadId: t, root, messageId: "seq-u2", resetFiles: false, conversationOnly: true });
+  expect(res.ok).toBe(true);
+  if (res.ok) {
+    expect(res.removedIds).toEqual(["seq-u2", "seq-a2"]);
+  }
+});
+
 
 test("a fork records where it came from, its family root, and where its own work starts", () => {
   const parent = store.createThread({ projectId: "p-edit", title: "Induk" } as any);

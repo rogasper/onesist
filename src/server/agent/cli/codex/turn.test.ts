@@ -129,7 +129,8 @@ test("a new thread starts in the workspace with the policy, and its text streams
   const start = requests().find((r) => r.startsWith("thread/start"))!;
   expect(start).toContain(`"cwd":"${fs.realpathSync(root)}"`);
   expect(start).toContain('"approvalPolicy":"never"');
-  expect(start).toContain('"sandbox":"workspace-write"');
+  // YOLO: no approval prompt AND no sandbox — full access is the mode's whole point.
+  expect(start).toContain('"sandbox":"danger-full-access"');
   expect(await usage).toEqual({ inputTokens: null, outputTokens: null });
 });
 

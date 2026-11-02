@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "~/server/db/client";
 import { apiEndpoints, apiSpecs, chatThreads, erds, fsdSessions, projects, tasks, testCases } from "~/server/db/schema";
-import { consumeStream, createUIMessageStreamResponse, toUIMessageStream, type UIMessage } from "~/server/agent/ai";
+import { consumeStream, createUIMessageStreamResponse, toUIMessageStream, type UIMessage, type LanguageModel } from "~/server/agent/ai";
 import { makeRunId, startTurn } from "~/server/agent/agent";
 import { startCliTurn } from "~/server/agent/cli/start-cli-turn";
 import {
@@ -252,7 +252,7 @@ router.post("chat/threads", async (ctx) => {
     mode: body.mode === "ask" || body.mode === "plan" ? body.mode : "agent",
     providerId: body.providerId ? String(body.providerId) : null,
     model: body.model ? String(body.model) : null,
-    permissionMode: (body.permissionMode as any) ?? "ask",
+    permissionMode: (body.permissionMode as any) ?? "auto",
     // A thread that does not specify its own limit inherits the application
     // default (FR-L7), which is why that preference exists at all.
     maxSteps: typeof body.maxSteps === "number" ? normalizeMaxSteps(body.maxSteps) : normalizeAgentMaxSteps(getSetting("agentMaxSteps")),
@@ -1463,7 +1463,8 @@ router.get("chat/threads/:id/context", async (ctx) => {
   if (!thread) return json({ error: "Thread tidak ditemukan." }, 404);
   const provider = resolveProvider(thread.providerId);
   const estimate = await estimateThreadContext(thread, projectRootOf(thread.projectId), resolveContextWindow(provider?.contextWindow));
-  return json({ ...estimate, compactable: !!splitForCompaction(visibleRows(thread)) });
+  const compactable = !!(splitForCompaction(visibleRows(thread)) ?? splitForCompaction(visibleRows(thread), 1));
+  return json({ ...estimate, compactable });
 });
 
 /**
@@ -1496,11 +1497,45 @@ router.post("chat/threads/:id/compact", async (ctx) => {
   const provider = resolveProvider(thread.providerId);
   if (!provider) return json({ error: "Belum ada provider yang bisa dipakai untuk meringkas." }, 400);
 
+  let summaryModel: LanguageModel | null = null;
+  let summaryProvider = provider;
+  if (provider.apiStyle === "cli") {
+    const nonCli = listProviders().find((p) => p.apiStyle !== "cli" && isProviderUsable(p));
+    if (nonCli) {
+      summaryProvider = nonCli;
+      try {
+        summaryModel = buildLanguageModel(nonCli, { sessionId: thread.id });
+      } catch (err) {
+        console.error("[chat] failed to build summary model from non-cli provider:", err);
+      }
+    }
+  } else {
+    try {
+      summaryModel = buildLanguageModel(provider, { sessionId: thread.id });
+    } catch (err) {
+      console.error("[chat] failed to build summary model:", err);
+    }
+  }
+
+  if (!summaryModel) {
+    if (provider.apiStyle === "cli") {
+      return json(
+        {
+          error:
+            `Provider CLI (${provider.name}) mengelola konteksnya sendiri melalui runtime CLI. ` +
+            `Untuk meringkas percakapan lewat Onesist, tambahkan provider model teks (BYOK) di pengaturan.`,
+        },
+        400,
+      );
+    }
+    return json({ error: "Gagal memuat model untuk meringkas percakapan. Periksa konfigurasi provider." }, 400);
+  }
+
   const result = await compactThreadHistory({
     thread,
     visible: visibleRows(thread),
-    model: buildLanguageModel(provider, { sessionId: thread.id }),
-    maxOutputTokens: resolveMaxOutputTokens(provider),
+    model: summaryModel,
+    maxOutputTokens: resolveMaxOutputTokens(summaryProvider),
     at: "manual",
   });
   if (!result.ok) return json({ error: result.error }, result.reason === "nothing" ? 400 : 502);

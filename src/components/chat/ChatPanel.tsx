@@ -178,7 +178,7 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
   async function handleNew() {
     setCreating(true);
     try {
-      const t = await createThread({ permissionMode: "ask" });
+      const t = await createThread({ permissionMode: "auto" });
       setActiveId(t.id);
     } finally {
       setCreating(false);
@@ -673,7 +673,7 @@ function ThreadPicker({
                   : t.permissionMode === "no-shell"
                     ? " · tanpa shell"
                     : t.permissionMode === "auto"
-                      ? " · otomatis"
+                      ? " · YOLO"
                       : " · tanya dulu"}
                 {t.tokensUsed ? ` · ${t.tokensUsed.toLocaleString("id-ID")} token` : ""}
                 {t.hasSummary ? " · diringkas" : ""}

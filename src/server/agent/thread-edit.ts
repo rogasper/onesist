@@ -38,15 +38,16 @@ export function truncateFromMessage(input: {
   if (getRunForThread(input.threadId)) {
     return { ok: false, status: 409, code: "run_active", error: "Masih ada run yang berjalan di percakapan ini. Hentikan dulu." };
   }
-  if (thread.summary) {
+  const seq = messageSeq(input.threadId, input.messageId);
+  if (seq == null) return { ok: false, status: 404, error: "Pesan tidak ditemukan." };
+  const cutoff = thread.summaryUptoSeq ?? (thread.summary ? Infinity : 0);
+  if (seq <= cutoff) {
     return {
       ok: false,
       status: 409,
-      error: "Percakapan ini sudah diringkas, jadi pesan sebelum ringkasan tidak bisa diedit. Buat cabang dari pesan ini.",
+      error: "Pesan ini sudah diringkas ke dalam ringkasan konteks, jadi tidak bisa diedit. Buat cabang dari pesan ini.",
     };
   }
-  const seq = messageSeq(input.threadId, input.messageId);
-  if (seq == null) return { ok: false, status: 404, error: "Pesan tidak ditemukan." };
   const target = db.select().from(chatMessages).where(eq(chatMessages.id, input.messageId)).get() as MessageRow;
   if (target.role !== "user") return { ok: false, status: 400, error: "Hanya pesan user yang bisa dikirim ulang." };
 

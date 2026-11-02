@@ -162,9 +162,10 @@ export async function summarizeOldest(opts: {
       // Estimate after: summary + the messages kept aside.
       estimatedAfter: Math.ceil(summary.length / 4) + estimateTokens(opts.messages.slice(cutoff)),
     };
-  } catch {
+  } catch (err) {
     // Summarization is an optimization, not a critical function: if the provider
-    // fails, better to continue with full context than to fail the turn.
+    // fails, log for diagnostics and continue without mutating the thread.
+    console.error("[context] summarizeOldest failed:", err);
     return null;
   }
 }
