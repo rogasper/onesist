@@ -152,7 +152,7 @@ export function UpdateBanner() {
     // to act on, so it stays silent. Download and install errors are local, so they show.
     if (state.phase === "check") return null;
     return (
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-red-500/40 bg-red-500/10">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-red-500/40 bg-red-950/40">
         <span className="text-sm text-red-200 truncate" title={state.message}>
           Gagal memasang update: {state.message}
         </span>
@@ -173,7 +173,7 @@ export function UpdateBanner() {
       ? Math.min(100, Math.round((state.downloaded / state.total) * 100))
       : null;
     return (
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-elevated">
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-3 text-xs text-kumo-default mb-1.5">
             <span>Mengunduh update v{state.update.version}…</span>
@@ -194,7 +194,7 @@ export function UpdateBanner() {
 
   if (state.status === "downloaded") {
     return (
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-elevated">
         <span className="text-sm text-kumo-default truncate">
           Update v{state.update.version} siap dipasang
         </span>
@@ -221,7 +221,7 @@ export function UpdateBanner() {
 
   if (state.status === "installing") {
     return (
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-elevated">
         <span className="text-sm text-kumo-default">Memasang update v{state.update.version}…</span>
       </div>
     );
@@ -230,7 +230,7 @@ export function UpdateBanner() {
   // available
   const { update } = state;
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-brand/10">
+    <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-kumo-line bg-kumo-elevated">
       <span className="text-sm text-kumo-default truncate">
         Update tersedia — v{update.version}
       </span>
