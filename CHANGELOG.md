@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.5.1 — Persistensi tampilan per proyek + tab ERD yang lebih andal
+
+Setiap proyek kini mengingat tampilan terakhir yang dibuka, dan tab ERD membaca DBML yang benar-benar ditulis agen: settings multi-baris, nama ber-quote, alias, catatan, serta schema yang disimpan di dalam `.md`. Picker menandai berkas yang tidak berisi DBML, dan editor tabel tidak lagi kehilangan fokus setelah satu ketikan.
+
+### Feat — Tampilan per proyek
+- **Tab terakhir diingat**: dashboard membuka proyek ke tab terakhir (bukan selalu Overview). Tab file di Overview, panel chat (buka/tutup + thread aktif), berkas ERD/Canvas terpilih, mode Spec, sesi FSD, dan view Tasks (list/timeline + mode) juga dipulihkan.
+- **State tidak bocor antar proyek**: layout di-remount dengan `key={project.id}`, jadi pilihan di satu proyek tidak terbawa ke proyek lain.
+- **Indikator thinking di chat** saat run aktif dan belum ada konten yang masuk.
+
+### Feat — ERD
+- **Parser DBML ditulis ulang**: settings multi-baris, nama tabel ber-quote/schema, alias (`Table users as U`), `Enum`, `Note`, dan flag (`pk`, `unique`, `not null`) dibaca per token. `default`, `note`, dan `ref` tidak lagi saling menelan; ref ganda di-dedupe; note/ref/enum bertahan saat berkas ditulis ulang.
+- **Berkas `.md` yang memuat DBML ikut terbaca**: blok berpagar `dbml`/`text`/`sql` diekstrak, dan picker menampilkan jumlah tabel per berkas. Berkas catatan tanpa DBML ditandai **tanpa DBML** dan tidak lagi jadi pilihan default; auto-select memilih berkas yang benar-benar bisa digambar.
+- **Panel edit tabel**: key baris stabil + draft lokal, jadi mengetik nama/tipe kolom tidak kehilangan fokus. Panel dibuka lewat tombol **Edit**; memilih tabel/kolom hanya menyorot. Menutup panel mempertahankan seleksi.
+- **Dropdown tabel bisa dicari** dengan hint jumlah kolom.
+- **Kontrol canvas mengikuti tema**: tombol zoom/lock/fit view tidak lagi putih di dark mode; container canvas dibuat rounded.
+- **Highlight syntax DBML** di editor: keyword, tipe, setting, string, number, komentar, dan operator.
+
+### Fix — Navigasi dan UI
+- **Router**: `navigate` memakai `from: "/"` supaya tujuan tidak bersarang; `notFoundComponent` ditambahkan di root.
+- **Sidebar**: seluruh baris bisa diklik, bukan hanya teks label.
+- **Terminal**: `@xterm/xterm` di-resolve tanpa asumsi default export, memperbaiki kegagalan client bundle.
+- **Hydration**: label theme toggle stabil sampai mounted; probe CLI OpenCode tidak lagi menulis stderr.
+- **Dev server**: `beforeDevCommand` tidak lagi `pkill` port 4321; Vite memakai port bebas berikutnya.
+
+### Fix — ERD
+- **Skill ERD** sekarang mewajibkan `output/erd/<module>/erd.dbml` yang valid, menjalankan `scripts/validate_erd.py`, dan melarang catatan diskusi di `output/erd/`.
+- Validator tidak lagi menghitung baris lanjutan settings sebagai kolom dan menangani nama ber-quote serta blok `indexes`.
+
+### Verifikasi
+- `bun run typecheck` bersih. `bun test src`: **802 tes di 157 berkas** lulus.
+- Diuji di browser pada proyek nyata: `erd_now.md` terbaca 26 tabel dari 16 fence `text`, `erd_dbdiagram.dbml` 26 tabel, `v2_erd_multilayer.dbml` 8 tabel; catatan `.md` ditandai tanpa DBML.
+- Mengetik di input kolom tetap fokus; Edit/Tutup panel berjalan; dropdown tabel memfilter (mis. `agent` → 6 dari 8 tabel); dark mode mengubah kontrol canvas; highlight DBML tampil.
+- **Belum diuji:** trackpad Windows (#38) dan persistensi edit tabel ke artifact (#37); keduanya tetap di backlog.
+
+### Catatan
+- Perubahan skill (`vendor/skills/fsd-analyzer/`) berlaku untuk instalasi/update skill berikutnya; proyek lama perlu install ulang skill untuk mendapat aturan baru.
+- `@codemirror/language` dipin ke `6.12.4` agar language extension dan tema `oneDark` memakai satu copy.
+- Tidak ada migrasi database.
+
 ## v0.5.0 — Eksekusi task oleh agen dari board kanban
 
 Task yang sudah tergenerate dari FSD kini bisa dikerjakan agen CLI langsung dari board: satu run per task di folder kerja sendiri, dipantau live, divalidasi, direview di panel diff, lalu diintegrasikan sebagai PR, branch, atau merge setelah user menekan Setujui.
