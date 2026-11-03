@@ -12,6 +12,7 @@ interface ExplorerShellProps {
   header: ReactNode;
   /** Expanded content (file tree / list). */
   children: ReactNode;
+  className?: string;
 }
 
 export function ExplorerShell({
@@ -21,9 +22,10 @@ export function ExplorerShell({
   width = "w-64",
   header,
   children,
+  className = "",
 }: ExplorerShellProps) {
   return (
-    <div className={`flex overflow-hidden transition-[width] duration-300 ease-in-out shrink-0 border-r border-kumo-line bg-kumo-elevated/30 ${collapsed ? "w-7" : width}`}>
+    <div className={`flex overflow-hidden transition-[width] duration-300 ease-in-out shrink-0 border-r border-kumo-line bg-kumo-elevated/30 ${collapsed ? "w-7" : width} ${className}`}>
       <button
         type="button"
         onClick={onToggle}

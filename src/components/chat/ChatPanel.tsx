@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Popover } from "@cloudflare/kumo";
-import { ArrowsInSimple, ArrowsOutSimple, Brain, GitBranch, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, TerminalWindow, X, type Icon } from "@phosphor-icons/react";
+import { ArrowsInSimple, ArrowsOutSimple, Brain, GitBranch, CaretUpDown, Check, FolderOpen, Gear, MagnifyingGlass, Plus, TerminalWindow, TrashSimple, X, type Icon } from "@phosphor-icons/react";
 import { ChatSidePanel, type SidePanelView } from "~/components/chat/ChatSidePanel";
 import { ChatSurface } from "~/components/chat/ChatSurface";
 import { WorkspaceDialog } from "~/components/chat/WorkspaceDialog";
@@ -287,8 +287,8 @@ export function ChatPanel({ visible, onClose, projectId }: Props) {
             </Button>
           ) : null}
           {active ? (
-            <Button variant="ghost" onClick={() => setPendingDelete(active)} title="Hapus percakapan">
-              <X size={13} />
+            <Button variant="ghost" onClick={() => setPendingDelete(active)} title="Hapus percakapan" aria-label="Hapus percakapan" className="hover:text-red-400">
+              <TrashSimple size={14} />
             </Button>
           ) : null}
           <Button variant="ghost" onClick={toggleExpanded} title={expanded ? "Kecilkan panel chat" : "Perluas panel chat"} aria-label={expanded ? "Kecilkan panel chat" : "Perluas panel chat"}>

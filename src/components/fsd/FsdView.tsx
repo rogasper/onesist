@@ -449,6 +449,7 @@ export function FsdView({ projectId, paneId = "main", onDirtyChange }: FsdViewPr
         collapsed={explorerCollapsed}
         onToggle={() => setExplorerCollapsed(false)}
         label="FSD"
+        className="rounded-lg border border-kumo-line"
         header={
           <div className="px-3 py-2 border-b border-kumo-line shrink-0 space-y-1.5">
             <div className="flex items-center gap-1">
