@@ -161,7 +161,7 @@ function WikiPage() {
         below={error && <InlineAlert kind="error">{error}</InlineAlert>}
       />
 
-      <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
+      <div className="flex flex-1 min-h-0 glass-container overflow-hidden rounded-xl">
         <div className="w-52 shrink-0 border-r border-kumo-line overflow-y-auto bg-kumo-elevated/30">
           <WikiSidebar
             pages={pages}

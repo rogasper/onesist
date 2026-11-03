@@ -811,7 +811,7 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       {view === "timeline" ? (
         <TimelineViewer projectId={id} />
       ) : (
-        <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
+        <div className="flex flex-1 min-h-0 glass-container overflow-hidden rounded-xl">
           <div className="flex-1 flex flex-col min-w-0">
             {viewMode === "board" && execSettings.settings?.taskMode !== "delivery" && (
               <div className="flex items-center gap-2 px-3 pt-3 text-xs">

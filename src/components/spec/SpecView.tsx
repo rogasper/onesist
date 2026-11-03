@@ -468,7 +468,7 @@ export function SpecView({ projectId }: { projectId: string }) {
           )}
         </div>
       ) : viewMode === "document" ? (
-        <div className="flex-1 min-h-0 glass-container overflow-hidden">
+        <div className="flex-1 min-h-0 glass-container overflow-hidden rounded-xl">
           <div className="h-full overflow-y-auto">
             <div className="spec-markdown">
               <MarkdownViewer content={activeContent ?? ""} />
@@ -486,7 +486,7 @@ export function SpecView({ projectId }: { projectId: string }) {
               </InlineAlert>
             </div>
           )}
-          <div className="flex flex-1 min-h-0 glass-container overflow-hidden">
+          <div className="flex flex-1 min-h-0 glass-container overflow-hidden rounded-xl">
             <div className="w-48 shrink-0 border-r border-kumo-line overflow-y-auto bg-kumo-elevated/30">
               <SpecSidebar modules={filteredModules} activeModule={activeModule} onModuleClick={(name) => setActiveModule((p) => p === name ? null : name)} />
             </div>
