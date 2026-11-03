@@ -15,9 +15,30 @@ export const REQUIRED_DOC_ARTIFACTS: Omit<DocArtifact, "present">[] = [
   { path: "output/spec", label: "API Spec (output/spec)" },
   { path: "output/erd", label: "ERD (output/erd)" },
   { path: "output/task", label: "Task Cards (output/task)" },
+  // Issue #47: the pictures a user attached as context are artifacts too. Listing the folder
+  // is what makes the agent aware of them; without this the document never references them.
+  { path: "input/uploads", label: "Gambar & lampiran dari chat (input/uploads)" },
+  { path: "input/assets", label: "Gambar dari editor markdown (input/assets)" },
 ];
 
-export function buildDocPrompt(meta: DocMeta, artifacts: DocArtifact[]): string {
+/** Every image file a document may embed, as root-relative paths. */
+export interface DocPromptInput {
+  meta: DocMeta;
+  artifacts: DocArtifact[];
+  /** Root-relative image paths found in the workspace (`input/uploads/…`, `input/assets/…`). */
+  images?: string[];
+}
+
+export function buildDocPrompt(input: DocPromptInput): string;
+export function buildDocPrompt(meta: DocMeta, artifacts: DocArtifact[]): string;
+export function buildDocPrompt(
+  metaOrInput: DocMeta | DocPromptInput,
+  artifactsArg?: DocArtifact[],
+): string {
+  const meta = "meta" in metaOrInput ? metaOrInput.meta : metaOrInput;
+  const artifacts = "meta" in metaOrInput ? metaOrInput.artifacts : (artifactsArg ?? []);
+  const images = ("meta" in metaOrInput ? metaOrInput.images : undefined) ?? [];
+
   const present = artifacts
     .filter((a) => a.present)
     .map((a) => `- ${a.label} (\`${a.path}\`)`)
@@ -26,6 +47,10 @@ export function buildDocPrompt(meta: DocMeta, artifacts: DocArtifact[]): string 
     .filter((a) => !a.present)
     .map((a) => `- ${a.label} (\`${a.path}\`)`)
     .join("\n");
+
+  const imageBlock = images.length
+    ? `\n\n## Gambar yang tersedia\n${images.map((p) => `- \`${p}\``).join("\n")}\n\nSisipkan gambar yang relevan ke dalam dokumen dengan sintaks markdown biasa, memakai path di atas apa adanya (jangan menyalin berkasnya):\n\`\`\`markdown\n![<keterangan>](<path>)\n\`\`\`\nLetakkan pada bagian yang memang dibicarakannya (mis. screenshot layar di bagian Front End Specification, mockup alur di System Overview). Jangan mengarang path: hanya pakai yang ada di daftar ini.`
+    : "";
 
   return `You are a Senior System Analyst producing the final Software Requirement Specification (SRS) / Technical Documentation for the client.
 
@@ -42,7 +67,7 @@ Replace ALL placeholders ({{customerName}}, {{projectName}}, {{projectId}}, {{ve
 Keep the document structure and every \`<!-- pagebreak -->\` marker exactly as-is. Do not remove any section.
 
 ## Required artifacts
-${present || "  (none detected — proceed with the template structure and mark sections N/A)"}${missing ? `\n\nDetected as missing (note them as N/A in the document, do not remove the section):\n${missing}` : ""}
+${present || "  (none detected — proceed with the template structure and mark sections N/A)"}${missing ? `\n\nDetected as missing (note them as N/A in the document, do not remove the section):\n${missing}` : ""}${imageBlock}
 
 ## Content requirements
 1. Cover — project name, customer name, project ID, version, author, date.

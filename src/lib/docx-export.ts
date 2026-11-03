@@ -17,6 +17,8 @@ import {
   Header,
   Footer,
 } from "docx";
+import fs from "node:fs";
+import path from "node:path";
 import type { DocMeta } from "~/shared/types";
 
 export interface DocxExportInput {
@@ -27,6 +29,8 @@ export interface DocxExportInput {
   diagramSvgPngs?: string[];
   rawSvgPngs?: string[];
   meta: DocMeta;
+  /** Project root, so `![alt](input/uploads/…)` can be read from the workspace (issue #47). */
+  rootPath?: string;
 }
 
 type Block =
@@ -36,7 +40,8 @@ type Block =
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "mermaid"; code?: string; index?: number }
   | { type: "diagramSvg"; code?: string; index?: number }
-  | { type: "rawSvg"; code?: string; index?: number };
+  | { type: "rawSvg"; code?: string; index?: number }
+  | { type: "image"; alt: string; src: string };
 
 type Align = (typeof AlignmentType)[keyof typeof AlignmentType];
 type Heading = (typeof HeadingLevel)[keyof typeof HeadingLevel];
@@ -106,6 +111,16 @@ function parseBlocks(part: string): Block[] {
       } else if (code.join("\n").trim()) {
         blocks.push({ type: "paragraph", text: code.join("\n") });
       }
+      continue;
+    }
+
+    // Standalone image (issue #47): `![alt](input/uploads/thr/a.png)`. A picture on its
+    // own line is a block; one inside a sentence stays inline text.
+    const imageLine = line.trim().match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+    if (imageLine) {
+      flushParagraph(paraBuf);
+      blocks.push({ type: "image", alt: imageLine[1], src: imageLine[2] });
+      i++;
       continue;
     }
 
@@ -306,6 +321,79 @@ function pngBufferToParagraph(buf: Buffer): Paragraph {
   });
 }
 
+/** Image formats `docx` can embed, keyed by file extension. */
+const DOCX_IMAGE_TYPES: Record<string, "png" | "jpg" | "gif" | "bmp"> = {
+  png: "png",
+  jpg: "jpg",
+  jpeg: "jpg",
+  gif: "gif",
+  bmp: "bmp",
+};
+
+/**
+ * Reads a project-relative image for the DOCX (issue #47).
+ *
+ * The path in the document is root-relative (`input/uploads/thr/a.png`) because that is what
+ * the agent wrote and what the viewer resolves. Only files INSIDE the project root are read:
+ * the same containment rule the image route and the agent tools use, so a document generated
+ * from untrusted model output cannot make the export read `/etc/…`.
+ *
+ * Returns null for anything unreadable or unembeddable (SVG, missing file, path escape, a
+ * format docx does not support) — the caller then keeps the caption instead of dropping the
+ * picture silently.
+ */
+function readWorkspaceImage(rootPath: string | undefined, src: string): { data: Buffer; type: "png" | "jpg" | "gif" | "bmp" } | null {
+  if (!rootPath) return null;
+  if (/^[a-z]+:/i.test(src)) return null; // data:, http:, file: — not workspace paths
+  const rootAbs = path.resolve(rootPath);
+  const abs = path.resolve(rootAbs, src.replace(/^\/+/, ""));
+  if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) return null;
+  const ext = (abs.match(/\.([a-z0-9]+)$/i)?.[1] ?? "").toLowerCase();
+  const type = DOCX_IMAGE_TYPES[ext];
+  if (!type) return null;
+  try {
+    const data = fs.readFileSync(abs);
+    return data.length ? { data, type } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A picture read from the workspace, sized to the page like the diagram images. */
+function workspaceImageParagraph(rootPath: string | undefined, alt: string, src: string): Paragraph {
+  const image = readWorkspaceImage(rootPath, src);
+  if (!image) {
+    // Never lose the reference: keep it readable as a caption.
+    return new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 120, after: 120 },
+      children: [new TextRun({ text: alt || src, italics: true, size: 18, color: "6B7280" })],
+    });
+  }
+  const maxW = 650;
+  const maxH = 900;
+  // PNG carries its size in the header; other formats are placed at the page width scaled
+  // down, which is the safe assumption for a screenshot-like asset.
+  const size = image.type === "png" ? pngSize(image.data) : null;
+  let w = size?.w ?? maxW;
+  let h = size?.h ?? Math.round(maxW * 0.62);
+  let scale = Math.min(1, maxW / w);
+  if (h * scale > maxH) scale = maxH / h;
+  w = Math.round(w * scale);
+  h = Math.round(h * scale);
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 120, after: 120 },
+    children: [
+      new ImageRun({
+        type: image.type,
+        data: image.data,
+        transformation: { width: w, height: h },
+      }),
+    ],
+  });
+}
+
 function mermaidImage(diagramPngs: string[], index?: number, code?: string): Paragraph | null {
   if (index !== undefined && diagramPngs[index]) {
     const buf = dataUrlToPng(diagramPngs[index]);
@@ -465,6 +553,7 @@ function renderSectionBlocks(
   diagramPngs: string[],
   diagramSvgPngs: string[] = [],
   rawSvgPngs: string[] = [],
+  rootPath?: string,
 ): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = [];
   for (const block of blocks) {
@@ -523,13 +612,17 @@ function renderSectionBlocks(
         if (p) out.push(p);
         break;
       }
+      case "image": {
+        out.push(workspaceImageParagraph(rootPath, block.alt, block.src));
+        break;
+      }
     }
   }
   return out;
 }
 
 export async function buildDocx(input: DocxExportInput): Promise<Buffer> {
-  const { contentMd, diagramPngs, diagramSvgPngs = [], rawSvgPngs = [], meta } = input;
+  const { contentMd, diagramPngs, diagramSvgPngs = [], rawSvgPngs = [], meta, rootPath } = input;
   const sections = splitSections(contentMd);
 
   const header = buildHeader(meta);
@@ -567,10 +660,14 @@ export async function buildDocx(input: DocxExportInput): Promise<Buffer> {
               }),
             }),
           );
+        } else if (b.type === "image") {
+          // A cover section may carry a logo or a screenshot; dropping it silently is the
+          // bug this feature exists to fix (issue #47).
+          children.push(workspaceImageParagraph(rootPath, b.alt, b.src));
         }
       });
     } else {
-      children.push(...renderSectionBlocks(blocks, diagramPngs, diagramSvgPngs, rawSvgPngs));
+      children.push(...renderSectionBlocks(blocks, diagramPngs, diagramSvgPngs, rawSvgPngs, rootPath));
     }
   });
 

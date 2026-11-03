@@ -38,6 +38,7 @@ import { threadActivityOf } from "~/server/agent/thread-activity";
 import { MENTION_KINDS, type MentionKind } from "~/lib/mention-ref";
 import { parseReasoningLevel } from "~/server/agent/reasoning";
 import { imagePartProblem } from "~/lib/image-attachment";
+import { persistMessageImages } from "~/server/services/chat-images";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { loadMcpToolsForTurn } from "~/server/mcp/client";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
@@ -507,6 +508,11 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
     const parts = (lastUser.parts ?? []) as any[];
     const pictureError = imagePartProblem(parts);
     if (pictureError) return json({ error: pictureError }, 400);
+    // Issue #47: an image used to exist only as a data URL inside the message, so nothing in
+    // the workspace pointed at it — the agent could not read it and a generated document could
+    // not reference it. Writing the bytes first gives every later step (`read_file`, the TD
+    // prompt, the DOCX export) a real path, while the data URL stays for the transcript.
+    const persisted = persistMessageImages(root, thread.id, parts);
     const text = parts
       .map((p: any) => (p?.type === "text" ? p.text : ""))
       .join(" ")
@@ -514,7 +520,7 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
     // A message with only pictures is still a message.
     const hasPicture = parts.some((p: any) => p?.type === "file");
     if (text || hasPicture) {
-      appendMessage({ threadId: thread.id, role: "user", parts: lastUser.parts, id: lastUser.id });
+      appendMessage({ threadId: thread.id, role: "user", parts: persisted.parts, id: lastUser.id });
       if (text && !thread.title) updateThread(thread.id, { title: autoTitleFrom(text) });
     }
   }

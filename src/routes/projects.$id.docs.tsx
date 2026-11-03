@@ -46,6 +46,7 @@ function DocsPage() {
   const [artifacts, setArtifacts] = useState<DocArtifact[]>([]);
   const [prompt, setPrompt] = useState("");
   const [mentionFiles, setMentionFiles] = useState<MentionFile[]>([]);
+  const [images, setImages] = useState<string[]>([]);
   const [copied, setCopied] = useState<"prompt" | "command" | null>(null);
 
   const [template, setTemplate] = useState("");
@@ -100,7 +101,7 @@ function DocsPage() {
     setDeleteTarget(null);
   };
 
-  useEffect(() => { void loadMeta(); void loadTemplate(); void loadTdFiles(); void loadMentionFiles(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadMeta(); void loadTemplate(); void loadTdFiles(); void loadMentionFiles(); void loadImages(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadMentionFiles = async () => {
     try {
@@ -108,6 +109,17 @@ function DocsPage() {
       if (res.ok) {
         const data = await res.json();
         setMentionFiles((data.files ?? []) as MentionFile[]);
+      }
+    } catch {}
+  };
+
+  /** Root-relative images the TD may embed (issue #47): chat attachments + editor assets. */
+  const loadImages = async () => {
+    try {
+      const res = await fetch(`/api/projects/${id}/docs/images`, { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        setImages(Array.isArray(data.images) ? (data.images as string[]) : []);
       }
     } catch {}
   };
@@ -167,6 +179,7 @@ function DocsPage() {
     void loadTemplate();
     void loadTdFiles();
     void loadMentionFiles();
+    void loadImages();
   };
 
   const saveMeta = async () => {
@@ -181,7 +194,7 @@ function DocsPage() {
     } catch {}
   };
 
-  const generatedPrompt = useMemo(() => buildDocPrompt(meta, artifacts), [meta, artifacts]);
+  const generatedPrompt = useMemo(() => buildDocPrompt({ meta, artifacts, images }), [meta, artifacts, images]);
 
   const promptInitialized = useRef(false);
   useEffect(() => {
