@@ -38,6 +38,7 @@ import { threadActivityOf } from "~/server/agent/thread-activity";
 import { MENTION_KINDS, type MentionKind } from "~/lib/mention-ref";
 import { parseReasoningLevel } from "~/server/agent/reasoning";
 import { imagePartProblem } from "~/lib/image-attachment";
+import { persistMessageImages } from "~/server/services/chat-images";
 import { buildSystemPrompt, scanInventory } from "~/server/agent/prompt";
 import { loadMcpToolsForTurn } from "~/server/mcp/client";
 import { getIndexStatus, indexProject } from "~/server/agent/index/service";
@@ -507,6 +508,9 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
     const parts = (lastUser.parts ?? []) as any[];
     const pictureError = imagePartProblem(parts);
     if (pictureError) return json({ error: pictureError }, 400);
+    // The bytes go to disk before the message is stored, so `read_file`, a generated document
+    // and the DOCX export all have a real path. The data URL stays for the transcript.
+    const persisted = persistMessageImages(root, thread.id, parts);
     const text = parts
       .map((p: any) => (p?.type === "text" ? p.text : ""))
       .join(" ")
@@ -514,7 +518,7 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
     // A message with only pictures is still a message.
     const hasPicture = parts.some((p: any) => p?.type === "file");
     if (text || hasPicture) {
-      appendMessage({ threadId: thread.id, role: "user", parts: lastUser.parts, id: lastUser.id });
+      appendMessage({ threadId: thread.id, role: "user", parts: persisted.parts, id: lastUser.id });
       if (text && !thread.title) updateThread(thread.id, { title: autoTitleFrom(text) });
     }
   }

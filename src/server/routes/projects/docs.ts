@@ -10,6 +10,7 @@ import { DOC_TEMPLATE_PATH, DEFAULT_TEMPLATE } from "~/lib/doc-template";
 import { db } from "~/server/db/client";
 import { projects } from "~/server/db/schema";
 import { listMentionables } from "~/server/agent/mentionables";
+import { listProjectImages } from "~/server/services/chat-images";
 
 export const router = new Router();
 
@@ -67,7 +68,7 @@ router.put("projects/:id/docs/template", async ({ params, body }) => {
 // POST /api/projects/:id/docs/export
 router.post("projects/:id/docs/export", async ({ params, body }) => {
   const data = await body();
-  const { proj } = getCtx(params.id);
+  const { proj, rootPath } = getCtx(params.id);
   const contentMd = String(data.contentMd ?? "");
   const diagramPngs: string[] = Array.isArray(data.diagramPngs) ? data.diagramPngs.map((d: unknown) => String(d)) : [];
   const diagramSvgPngs: string[] = Array.isArray((data as any).diagramSvgPngs) ? (data as any).diagramSvgPngs.map((d: unknown) => String(d)) : [];
@@ -81,7 +82,7 @@ router.post("projects/:id/docs/export", async ({ params, body }) => {
   };
   if (!contentMd) return json({ error: "Missing contentMd" }, 400);
   const { buildDocx } = await import("~/lib/docx-export");
-  const buf = await buildDocx({ contentMd, diagramPngs, diagramSvgPngs, rawSvgPngs, meta: meta as unknown as DocMeta });
+  const buf = await buildDocx({ contentMd, diagramPngs, diagramSvgPngs, rawSvgPngs, meta: meta as unknown as DocMeta, rootPath });
   const safeName = (meta.projectName || "project").replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 40) || "project";
   const filename = `Technical-Documentation-${safeName}-${meta.version || "1.0.0"}.docx`;
   return new Response(new Uint8Array(buf), {
@@ -91,6 +92,12 @@ router.post("projects/:id/docs/export", async ({ params, body }) => {
       "Cache-Control": "no-store",
     },
   });
+});
+
+// GET /api/projects/:id/docs/images — root-relative image paths for the TD prompt
+router.get("projects/:id/docs/images", ({ params }) => {
+  const { rootPath } = getCtx(params.id);
+  return json({ images: listProjectImages(rootPath) });
 });
 
 // GET /api/projects/:id/docs/files — flat list of project files for @mentions
