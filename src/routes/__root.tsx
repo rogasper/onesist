@@ -268,7 +268,10 @@ function RootComponent() {
         className="flex flex-col h-svh overflow-hidden bg-kumo-recessed text-kumo-default antialiased"
         style={IS_MAC_MAIN ? { paddingTop: TITLEBAR_H } : undefined}
       >
-        <div ref={bannerRef} className="relative z-[60] shrink-0">
+        {/* Topmost chrome layer: above the sidebar (z-40/z-50), the floating toggle (z-50)
+            and the macOS title bar strip (z-[70]). The ordering matters, not just spacing —
+            any logo drawn above this strip covers the banner's own text. */}
+        <div ref={bannerRef} className="relative z-[100] shrink-0">
           <UpdateBanner />
         </div>
         <InstanceWatch />
