@@ -94,7 +94,7 @@ router.post("projects/:id/docs/export", async ({ params, body }) => {
   });
 });
 
-// GET /api/projects/:id/docs/images — root-relative image paths for the TD prompt (issue #47)
+// GET /api/projects/:id/docs/images — root-relative image paths for the TD prompt
 router.get("projects/:id/docs/images", ({ params }) => {
   const { rootPath } = getCtx(params.id);
   return json({ images: listProjectImages(rootPath) });

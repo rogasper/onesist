@@ -1,14 +1,10 @@
 /**
- * Chat images on disk (issue #47).
+ * Chat image attachments as workspace files.
  *
- * An image attached to a chat message used to live ONLY as a `data:` URL inside
- * `chat_messages.parts`. Nothing in the workspace pointed at it, so the agent could not
- * `read_file` it, a generated document could not reference it, and the DOCX export had no
- * file to embed — the picture was visible in the transcript and nowhere else.
- *
- * These helpers write the bytes to `input/uploads/<thread>/` (the same folder the text
- * attachments already use) and hand back the root-relative path, which is what a markdown
- * document stores: `![Mockup](input/uploads/thr_x/mockup.png)`.
+ * A message part carries the picture as a `data:` URL, which no tool can read and no document
+ * can reference. These helpers write the same bytes to `input/uploads/<thread>/` — the folder
+ * text attachments already use — and hand back the root-relative path a markdown document
+ * stores: `![Mockup](input/uploads/thr_x/mockup.png)`.
  */
 import path from "node:path";
 import fs from "node:fs";
@@ -17,9 +13,9 @@ import { saveProjectImage } from "./project-image";
 /** Where chat attachments (text and images) live, relative to the project root. */
 export const UPLOADS_DIR = "input/uploads";
 
-/** The exact folder a thread's attachments go in — mirrors the attachments route. */
+/** The folder one thread's attachments go in; mirrors the attachments route. */
 export function threadUploadDir(threadId: string): string {
-  return `input/uploads/${threadId}`;
+  return `${UPLOADS_DIR}/${threadId}`;
 }
 
 /** A part as stored in `chat_messages.parts`: only the fields this module reads. */
@@ -28,7 +24,7 @@ export interface StoredPartLike {
   mediaType?: string;
   url?: string;
   filename?: string;
-  /** Set once the bytes were written to disk; a later turn must not write them again. */
+  /** Set once the bytes are on disk, so a replay does not write them again. */
   path?: string;
 }
 
@@ -60,15 +56,12 @@ export interface PersistedImage {
 }
 
 /**
- * Writes every image part of a user message to the workspace, so the turn's history (and
- * anything generated from it) can point at a real file.
+ * Writes every image part of a user message to the workspace and returns the parts with `path`
+ * filled in.
  *
- * Idempotent per message: a part that already carries `path` is left alone, so replaying a
- * turn, retrying it, or re-reading stored history never duplicates the file. A part that
- * cannot be decoded is skipped rather than failing the turn — the transcript still shows
- * the picture, it just stays unreferenceable.
- *
- * Returns the parts with `path` filled in for the ones that were written.
+ * Idempotent per part: one that already carries `path` is left alone, so a retried or replayed
+ * turn never duplicates the file. A part that cannot be decoded is skipped rather than failing
+ * the turn — the picture still shows in the transcript, it just stays unreferenceable.
  */
 export function persistMessageImages(
   root: string,
@@ -93,18 +86,15 @@ export function persistMessageImages(
   return { parts: next, saved };
 }
 
-/**
- * Every image the project holds under `input/uploads` and `input/assets`, as root-relative
- * paths. Used by the TD prompt so a document can reference what the user attached — in this
- * thread or an earlier one — instead of the agent guessing that pictures exist.
- *
- * Bounded (`MAX_PROMPT_IMAGES`) and shallow on purpose: a project with hundreds of uploads
- * must not turn a prompt into a file listing.
- */
+/** How many images a prompt may list; a large project must not turn one into a file index. */
 export const MAX_PROMPT_IMAGES = 24;
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 
+/**
+ * Image paths under `input/uploads` and `input/assets`, as the TD prompt lists them so a
+ * generated document can reference what the user attached.
+ */
 export function listProjectImages(root: string, limit = MAX_PROMPT_IMAGES): string[] {
   const found: string[] = [];
   const walk = (rel: string, depth: number) => {

@@ -508,10 +508,8 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
     const parts = (lastUser.parts ?? []) as any[];
     const pictureError = imagePartProblem(parts);
     if (pictureError) return json({ error: pictureError }, 400);
-    // Issue #47: an image used to exist only as a data URL inside the message, so nothing in
-    // the workspace pointed at it — the agent could not read it and a generated document could
-    // not reference it. Writing the bytes first gives every later step (`read_file`, the TD
-    // prompt, the DOCX export) a real path, while the data URL stays for the transcript.
+    // The bytes go to disk before the message is stored, so `read_file`, a generated document
+    // and the DOCX export all have a real path. The data URL stays for the transcript.
     const persisted = persistMessageImages(root, thread.id, parts);
     const text = parts
       .map((p: any) => (p?.type === "text" ? p.text : ""))

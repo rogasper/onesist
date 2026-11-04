@@ -1,13 +1,8 @@
 /**
- * Images in the exported DOCX (issue #47).
+ * Images in the exported DOCX.
  *
- * Before this, `buildDocx` knew mermaid / diagram-svg / raw-svg markers and nothing else: a
- * markdown `![alt](path)` line fell through to a paragraph and the picture was lost. (It was
- * lost TWICE — the block was also dropped outright in the cover section's own render branch,
- * which is a bug this suite caught during development.)
- *
- * These tests inspect the produced archive instead of trusting the code path: a PNG that is
- * really embedded appears as `word/media/*` plus an `r:embed` in `document.xml`.
+ * The archive itself is the evidence: an embedded picture shows up as `word/media/*` with an
+ * `r:embed` in `document.xml`. Checking the returned bytes would only prove the function ran.
  *
  *   bun test src/lib/docx-export.test.ts
  */
@@ -60,9 +55,8 @@ describe("buildDocx images", () => {
     expect(hasEmbeddedImage(buf)).toBe(true);
   });
 
-  test("an image on the cover section is kept, not dropped", async () => {
-    // The cover section has its own render branch; it used to render only headings and
-    // paragraphs, so a logo on page one vanished silently.
+  test("an image on the cover section is kept", async () => {
+    // The cover renders through its own branch, which must handle image blocks too.
     const buf = await buildDocx({
       contentMd: "# Judul\n\n![Logo](input/uploads/thr_x/mockup.png)",
       diagramPngs: [],

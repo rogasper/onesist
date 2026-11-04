@@ -15,17 +15,16 @@ export const REQUIRED_DOC_ARTIFACTS: Omit<DocArtifact, "present">[] = [
   { path: "output/spec", label: "API Spec (output/spec)" },
   { path: "output/erd", label: "ERD (output/erd)" },
   { path: "output/task", label: "Task Cards (output/task)" },
-  // Issue #47: the pictures a user attached as context are artifacts too. Listing the folder
-  // is what makes the agent aware of them; without this the document never references them.
+  // Attached pictures are artifacts too: listing the folder is what makes the agent use them.
   { path: "input/uploads", label: "Gambar & lampiran dari chat (input/uploads)" },
   { path: "input/assets", label: "Gambar dari editor markdown (input/assets)" },
 ];
 
-/** Every image file a document may embed, as root-relative paths. */
+/** Root-relative image paths the document may embed. */
 export interface DocPromptInput {
   meta: DocMeta;
   artifacts: DocArtifact[];
-  /** Root-relative image paths found in the workspace (`input/uploads/…`, `input/assets/…`). */
+  /** Root-relative paths under `input/uploads` and `input/assets`. */
   images?: string[];
 }
 

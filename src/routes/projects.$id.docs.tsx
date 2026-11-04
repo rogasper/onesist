@@ -113,7 +113,7 @@ function DocsPage() {
     } catch {}
   };
 
-  /** Root-relative images the TD may embed (issue #47): chat attachments + editor assets. */
+  /** Root-relative images the TD may embed: chat attachments and editor assets. */
   const loadImages = async () => {
     try {
       const res = await fetch(`/api/projects/${id}/docs/images`, { cache: "no-store" });

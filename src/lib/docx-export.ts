@@ -29,7 +29,7 @@ export interface DocxExportInput {
   diagramSvgPngs?: string[];
   rawSvgPngs?: string[];
   meta: DocMeta;
-  /** Project root, so `![alt](input/uploads/…)` can be read from the workspace (issue #47). */
+  /** Project root, so a document's `![alt](input/uploads/…)` resolves to a real file. */
   rootPath?: string;
 }
 
@@ -114,8 +114,7 @@ function parseBlocks(part: string): Block[] {
       continue;
     }
 
-    // Standalone image (issue #47): `![alt](input/uploads/thr/a.png)`. A picture on its
-    // own line is a block; one inside a sentence stays inline text.
+    // A picture alone on its line is a block; one inside a sentence stays inline text.
     const imageLine = line.trim().match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
     if (imageLine) {
       flushParagraph(paraBuf);
@@ -331,20 +330,16 @@ const DOCX_IMAGE_TYPES: Record<string, "png" | "jpg" | "gif" | "bmp"> = {
 };
 
 /**
- * Reads a project-relative image for the DOCX (issue #47).
+ * Reads a project-relative image, or null when it cannot be embedded.
  *
- * The path in the document is root-relative (`input/uploads/thr/a.png`) because that is what
- * the agent wrote and what the viewer resolves. Only files INSIDE the project root are read:
- * the same containment rule the image route and the agent tools use, so a document generated
- * from untrusted model output cannot make the export read `/etc/…`.
- *
- * Returns null for anything unreadable or unembeddable (SVG, missing file, path escape, a
- * format docx does not support) — the caller then keeps the caption instead of dropping the
- * picture silently.
+ * The path is root-relative because that is what the agent writes and the viewer resolves.
+ * Containment matters: a document built from model output must not make the export read
+ * outside the workspace. Unreadable, out-of-root, SVG and unsupported formats all return null
+ * so the caller can keep a caption instead of dropping the reference.
  */
 function readWorkspaceImage(rootPath: string | undefined, src: string): { data: Buffer; type: "png" | "jpg" | "gif" | "bmp" } | null {
   if (!rootPath) return null;
-  if (/^[a-z]+:/i.test(src)) return null; // data:, http:, file: — not workspace paths
+  if (/^[a-z]+:/i.test(src)) return null; // data:, http:, file: are not workspace paths
   const rootAbs = path.resolve(rootPath);
   const abs = path.resolve(rootAbs, src.replace(/^\/+/, ""));
   if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) return null;
@@ -372,8 +367,7 @@ function workspaceImageParagraph(rootPath: string | undefined, alt: string, src:
   }
   const maxW = 650;
   const maxH = 900;
-  // PNG carries its size in the header; other formats are placed at the page width scaled
-  // down, which is the safe assumption for a screenshot-like asset.
+  // Only PNG states its size in the bytes; the rest are fitted to the page width.
   const size = image.type === "png" ? pngSize(image.data) : null;
   let w = size?.w ?? maxW;
   let h = size?.h ?? Math.round(maxW * 0.62);
@@ -661,8 +655,7 @@ export async function buildDocx(input: DocxExportInput): Promise<Buffer> {
             }),
           );
         } else if (b.type === "image") {
-          // A cover section may carry a logo or a screenshot; dropping it silently is the
-          // bug this feature exists to fix (issue #47).
+          // The cover has its own render branch; a logo there must not be dropped.
           children.push(workspaceImageParagraph(rootPath, b.alt, b.src));
         }
       });
