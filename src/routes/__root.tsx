@@ -9,7 +9,7 @@ import {
 import { openProjectWindow } from "~/lib/window";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
-import { House, Folder, Sun, Moon, ArrowUp, MagnifyingGlass, SidebarSimple } from "@phosphor-icons/react";
+import { House, Folder, Gear, Sun, Moon, ArrowUp, MagnifyingGlass, SidebarSimple } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
 import { useGlobalDropGuard } from "~/lib/file-drop";
@@ -361,6 +361,27 @@ function RootComponent() {
                         <span>Quick Open</span>
                         <kbd className="text-[10px] font-mono px-1 py-0.2 rounded bg-kumo-elevated text-kumo-subtle border border-kumo-line/60">⌘P</kbd>
                       </span>
+                    </Sidebar.MenuButton>
+                    <Sidebar.MenuButton
+                      active={pathname === "/settings"}
+                      icon={Gear}
+                      tooltip="Settings"
+                      onClick={(e) => {
+                        if (e.ctrlKey || e.metaKey || e.button === 1) {
+                          e.preventDefault();
+                          void openProjectWindow("/settings");
+                        } else {
+                          navigate({ to: "/settings", from: "/" });
+                        }
+                      }}
+                      onAuxClick={(e) => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          void openProjectWindow("/settings");
+                        }
+                      }}
+                    >
+                      Settings
                     </Sidebar.MenuButton>
                   </Sidebar.Menu>
                 </Sidebar.Group>
