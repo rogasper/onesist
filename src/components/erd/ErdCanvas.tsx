@@ -10,6 +10,8 @@ import {
   useNodesState,
   useEdgesState,
   type NodeTypes,
+  type Connection,
+  type NodeChange,
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -27,7 +29,8 @@ interface ErdCanvasProps {
   data: ParsedDbml;
   onNodeClick?: (tableName: string) => void;
   selectedTable?: string | null;
-  onDbmlChange?: (tables: TableDef[]) => void;
+  /** A relation was drawn by dragging from one column handle to another. */
+  onConnect?: (connection: Connection) => void;
 }
 
 function buildEdges(tables: TableDef[]): Edge[] {
@@ -51,7 +54,7 @@ function buildEdges(tables: TableDef[]): Edge[] {
   return edges;
 }
 
-export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) {
+export function ErdCanvas({ data, onNodeClick, selectedTable, onConnect }: ErdCanvasProps) {
   const [algorithm, setAlgorithm] = useState<LayoutAlgorithm>("tb");
   const colorMode = useAppTheme();
 
@@ -64,18 +67,47 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
   );
   const initialEdges = useMemo(() => buildEdges(data.tables), [data.tables]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(positioned);
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState(positioned);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // Tables the user has dragged by hand. Their positions must survive a schema
+  // edit (adding a relation/add table re-runs dagre): without this, drawing one
+  // relation would throw away the arrangement the analyst just made. Switching
+  // the layout algorithm clears the set — the algorithm is the whole point there.
+  const movedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    movedRef.current.clear();
+  }, [algorithm]);
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      for (const change of changes) {
+        if (change.type === "position" && change.dragging) movedRef.current.add(change.id);
+      }
+      onNodesChangeBase(changes);
+    },
+    [onNodesChangeBase],
+  );
 
   // Recreate nodes/edges only when the layout (or the schema behind the edges)
   // actually changed — otherwise a refresh that produced identical data would
   // reset the React Flow state and visibly re-fit the viewport.
   const layoutRef = useRef<{ nodes: Node[]; edges: Edge[] } | null>(null);
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
   useEffect(() => {
     const prev = layoutRef.current;
     if (prev?.nodes === positioned && prev?.edges === initialEdges) return;
     layoutRef.current = { nodes: positioned, edges: initialEdges };
-    setNodes(positioned);
+    const dragged = movedRef.current;
+    const known = new Map(nodesRef.current.map((n) => [n.id, n.position]));
+    setNodes(
+      dragged.size === 0
+        ? positioned
+        : positioned.map((n) => {
+            const kept = dragged.has(n.id) ? known.get(n.id) : undefined;
+            return kept ? { ...n, position: kept } : n;
+          }),
+    );
     setEdges(initialEdges);
   }, [positioned, initialEdges, setNodes, setEdges]);
 
@@ -202,6 +234,14 @@ export function ErdCanvas({ data, onNodeClick, selectedTable }: ErdCanvasProps) 
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClickHandler}
+        onConnect={onConnect}
+        isValidConnection={(connection) =>
+          // Both ends must be distinct column handles; a self-loop on the same
+          // column is not a relation.
+          !!connection.source &&
+          !!connection.target &&
+          !(connection.source === connection.target && connection.sourceHandle === connection.targetHandle)
+        }
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}

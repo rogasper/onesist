@@ -9,7 +9,11 @@ import { EmptyState } from "~/components/ui/EmptyState";
 import { ListSkeleton } from "~/components/ui/Skeleton";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { FilePicker } from "~/components/ui/FilePicker";
-import { parseDbml, extractDbml, replaceDbmlFence, serializeDbmlDocument, type TableDef, type ParsedDbml } from "~/lib/dbml";
+import { parseDbml, extractDbml, replaceDbmlFence, type TableDef, type ParsedDbml } from "~/lib/dbml";
+import { setColumnRef, addTableToDbml, removeTableFromDbml, updateTableInDbml } from "~/lib/dbml-edit";
+import { AddTableDialog } from "~/components/erd/AddTableDialog";
+import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
+import type { Connection } from "@xyflow/react";
 import { useFileList, useFileContent, useFileWatch } from "~/lib/use-file-data";
 import { useDbmlFileStatus } from "~/lib/use-dbml-file-status";
 import { AppButton } from "~/components/ui/AppButton";
@@ -57,6 +61,12 @@ export function ErdView({ projectId }: { projectId: string }) {
   const [showEditor, setShowEditor] = useState(false);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [addTableOpen, setAddTableOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  /** Whether the text on screen is already in the file. */
+  const [saveState, setSaveState] = useState<"clean" | "dirty" | "saving" | "error">("clean");
+  /** The last text this view wrote (or read) — the baseline for "dirty". */
+  const savedTextRef = useRef<string | null>(null);
 
   // Filter out hidden files / dotfiles (.gitkeep, etc)
   const erdFiles = useMemo(
@@ -111,10 +121,60 @@ export function ErdView({ projectId }: { projectId: string }) {
     setSelectedFile((bestWithTables ?? dbml ?? md ?? erdFiles[0]).path);
   }, [erdFiles, selectedFile, fileStatus, storageKey]);
 
-  // Sync localText when content changes
+  // The file's content, adopted only when nothing local is unsaved. A save we
+  // just made echoes back through the file watcher; adopting it blindly would
+  // reset the editor's cursor on every keystroke-debounce, and adopting an
+  // agent's write while the user is typing would silently discard their edit.
   useEffect(() => {
-    setLocalText(dbmlText ?? "");
-  }, [dbmlText]);
+    if (dbmlText === null) return;
+    if (savedTextRef.current === null) {
+      savedTextRef.current = dbmlText;
+      setLocalText(dbmlText);
+      return;
+    }
+    if (savedTextRef.current === dbmlText) return;
+    if (localText === savedTextRef.current) {
+      savedTextRef.current = dbmlText;
+      setLocalText(dbmlText);
+    }
+  }, [dbmlText, localText]);
+
+  const canWrite = canEditTables && !!selectedFile;
+
+  const saveNow = useCallback(
+    async (text: string) => {
+      if (!selectedFile || !canEditTables) return;
+      setSaveState("saving");
+      try {
+        const res = await fetch("/api/files/write", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: selectedFile, projectId: id, content: text }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        savedTextRef.current = text;
+        setSaveState("clean");
+      } catch {
+        // The next change (or the Simpan button) retries; the file is untouched.
+        setSaveState("error");
+      }
+    },
+    [selectedFile, canEditTables, id],
+  );
+
+  // Debounced write-back: a canvas edit and a keystroke in the DBML editor both
+  // end up in the artifact, but the file is not rewritten on every character.
+  useEffect(() => {
+    if (savedTextRef.current === null) return;
+    if (localText === savedTextRef.current) {
+      setSaveState("clean");
+      return;
+    }
+    setSaveState("dirty");
+    if (!canWrite) return;
+    const timer = setTimeout(() => void saveNow(localText), 1200);
+    return () => clearTimeout(timer);
+  }, [localText, canWrite, saveNow]);
 
   // Parse DBML — debounced, and skipped entirely when the text is unchanged.
   // The editor calls onChange per keystroke, so without the debounce a 96 KB
@@ -146,6 +206,10 @@ export function ErdView({ projectId }: { projectId: string }) {
       selectedFileRef.current = selectedFile;
       setSelectedTable(null);
       setPanelOpen(false);
+      // A new file has its own content: the old baseline would make the first
+      // incoming text look "dirty" against another file's bytes.
+      savedTextRef.current = null;
+      setSaveState("clean");
     }
   }, [selectedFile]);
 
@@ -179,25 +243,101 @@ export function ErdView({ projectId }: { projectId: string }) {
       setPanelOpen(false);
     }
   }, [panelOpen, parsed.tables, selectedTable]);
-  const handleTableUpdate = useCallback(
-    (updatedTable: TableDef) => {
-      const next: ParsedDbml = {
-        ...parsed,
-        tables: parsed.tables.map((t) => (t.name === updatedTable.name ? updatedTable : t)),
-      };
-      setParsed(next);
+  /**
+   * Put edited DBML back into the visible document. A `.dbml` file IS the DBML;
+   * a markdown file keeps everything around its single fenced block.
+   */
+  const commitDbml = useCallback(
+    (nextDbml: string) => {
       if (!canEditTables) return;
-
-      const serialized = serializeDbmlDocument(next);
       if (!isMarkdown) {
-        setLocalText(serialized);
+        setLocalText(nextDbml);
         return;
       }
-      const replaced = replaceDbmlFence(localText, serialized);
+      const replaced = replaceDbmlFence(localText, nextDbml);
       if (replaced !== null) setLocalText(replaced);
     },
-    [parsed, canEditTables, isMarkdown, localText]
+    [canEditTables, isMarkdown, localText],
   );
+
+  const handleTableUpdate = useCallback(
+    (updatedTable: TableDef) => {
+      const previous = parsed.tables.find((t) => t.name === updatedTable.name);
+      setParsed({
+        ...parsed,
+        tables: parsed.tables.map((t) => (t.name === updatedTable.name ? updatedTable : t)),
+      });
+      if (!previous) return;
+      // Surgical: only the columns that changed are rewritten, so comments and
+      // settings this model does not carry survive the edit (issue #37).
+      commitDbml(updateTableInDbml(extracted.dbml, previous, updatedTable));
+    },
+    [parsed, extracted.dbml, commitDbml],
+  );
+
+  /** A relation was drawn on the canvas: record it on the source column. */
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      if (!canEditTables) return;
+      const { source, target, sourceHandle, targetHandle } = connection;
+      if (!source || !target || !sourceHandle || !targetHandle) return;
+      const sourceTable = parsed.tables.find((t) => t.name === source);
+      const targetTable = parsed.tables.find((t) => t.name === target);
+      if (!sourceTable || !targetTable) return;
+      const columnOf = (table: TableDef, handleId: string, kind: "source" | "target") => {
+        const key = handleId.endsWith(`-${kind}`) ? handleId.slice(0, -kind.length - 1) : handleId;
+        return table.columns.find((c) => `${table.name}.${c.name}` === key) ?? null;
+      };
+      const sourceColumn = columnOf(sourceTable, sourceHandle, "source");
+      const targetColumn = columnOf(targetTable, targetHandle, "target");
+      if (!sourceColumn || !targetColumn) return;
+      const already =
+        sourceColumn.ref &&
+        sourceColumn.ref.table === targetTable.name &&
+        sourceColumn.ref.column === targetColumn.name;
+      if (already) return;
+
+      const nextTables = parsed.tables.map((t) =>
+        t.name !== sourceTable.name
+          ? t
+          : {
+              ...t,
+              columns: t.columns.map((c) =>
+                c.name === sourceColumn.name
+                  ? { ...c, ref: { table: targetTable.name, column: targetColumn.name, relation: ">" } }
+                  : c,
+              ),
+            },
+      );
+      setParsed({ ...parsed, tables: nextTables });
+      commitDbml(
+        setColumnRef(extracted.dbml, {
+          from: { table: sourceTable.name, column: sourceColumn.name },
+          to: { table: targetTable.name, column: targetColumn.name },
+        }),
+      );
+    },
+    [parsed, extracted.dbml, commitDbml, canEditTables],
+  );
+
+  const handleCreateTable = useCallback(
+    (table: TableDef) => {
+      setParsed((current) => ({ ...current, tables: [...current.tables, table] }));
+      setSelectedTable(table.name);
+      commitDbml(addTableToDbml(extracted.dbml, table));
+    },
+    [extracted.dbml, commitDbml],
+  );
+
+  const handleDeleteTable = useCallback(() => {
+    const name = selectedTable;
+    if (!name) return;
+    setDeleteOpen(false);
+    setParsed((current) => ({ ...current, tables: current.tables.filter((t) => t.name !== name) }));
+    setSelectedTable(null);
+    setPanelOpen(false);
+    commitDbml(removeTableFromDbml(extracted.dbml, name));
+  }, [selectedTable, extracted.dbml, commitDbml]);
 
   const handleExportDbml = useCallback(() => {
     const blob = new Blob([extracted.dbml], { type: "text/plain" });
@@ -312,6 +452,11 @@ export function ErdView({ projectId }: { projectId: string }) {
               onSelectTable={handleSelectTable}
               onOpenTableEditor={() => setPanelOpen(true)}
               tableEditorOpen={panelOpen}
+              canEdit={canEditTables}
+              saveState={saveState}
+              onSave={() => void saveNow(localText)}
+              onAddTable={() => setAddTableOpen(true)}
+              onDeleteTable={() => setDeleteOpen(true)}
             />
             <div className="flex-1 min-h-0 relative" style={{ width: "100%", height: "100%" }}>
               <ErdCanvas
@@ -319,9 +464,28 @@ export function ErdView({ projectId }: { projectId: string }) {
                 data={parsed}
                 onNodeClick={handleSelectTable}
                 selectedTable={selectedTable}
+                onConnect={handleConnect}
               />
             </div>
           </div>
+
+          <AddTableDialog
+            open={addTableOpen}
+            onOpenChange={setAddTableOpen}
+            existingTables={parsed.tables.map((t) => t.name)}
+            onCreate={handleCreateTable}
+          />
+
+          <ConfirmDialog
+            open={deleteOpen}
+            title="Hapus tabel"
+            onOpenChange={setDeleteOpen}
+            onConfirm={handleDeleteTable}
+            confirmLabel="Hapus"
+          >
+            Tabel <b>{selectedTable}</b> beserta relasi dan catatannya dihapus dari berkas DBML. Tindakan
+            ini menulis langsung ke artifact.
+          </ConfirmDialog>
 
           <div
             className="shrink-0 border-l border-kumo-line flex flex-col transition-all duration-200"
