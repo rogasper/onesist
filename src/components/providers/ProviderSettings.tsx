@@ -49,14 +49,23 @@ const MONO = "font-mono text-[0.8125rem]";
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** `page` covers the whole app (default); `modal` floats over the caller. */
-  variant?: "page" | "modal";
+  /**
+   * `page` covers the whole app (default); `modal` floats over the caller;
+   * `inline` renders in the caller's own flow (Global Settings → Model & BYOK),
+   * where an overlay would hide the page's header and tabs.
+   */
+  variant?: "page" | "modal" | "inline";
   /** Called with the saved provider when the surface is run as a modal. */
   onSaved?: (provider: ProviderSummary) => void;
 }
 
-/** The two views' shell: full-surface, or the app's dialog chrome over the caller. */
-function Frame({ variant, onClose, dismissible, children }: { variant: "page" | "modal"; onClose?: () => void; dismissible?: boolean; children: React.ReactNode }) {
+/** The three views' shell: full-surface, the app's dialog chrome, or the caller's flow. */
+function Frame({ variant, onClose, dismissible, children }: { variant: "page" | "modal" | "inline"; onClose?: () => void; dismissible?: boolean; children: React.ReactNode }) {
+  // Inline: no fixed position, no backdrop, no background — the page keeps its
+  // own chrome and this surface is just a block inside it.
+  if (variant === "inline") {
+    return <div className="flex flex-col">{children}</div>;
+  }
   if (variant === "page") {
     return <div className="fixed inset-0 z-50 bg-kumo-canvas flex flex-col">{children}</div>;
   }
@@ -867,13 +876,15 @@ export function ProviderSettings({ open, onClose, variant = "page", onSaved }: P
         </div>
       </div>
 
-      <footer className="flex items-center px-8 py-4 border-t border-kumo-line shrink-0">
-        <div className="mx-auto w-full max-w-4xl flex">
-          <Button variant="secondary" className="ml-auto" onClick={onClose} icon={<X size={13} />}>
-            Tutup
-          </Button>
-        </div>
-      </footer>
+      {variant !== "inline" && (
+        <footer className="flex items-center px-8 py-4 border-t border-kumo-line shrink-0">
+          <div className="mx-auto w-full max-w-4xl flex">
+            <Button variant="secondary" className="ml-auto" onClick={onClose} icon={<X size={13} />}>
+              Tutup
+            </Button>
+          </div>
+        </footer>
+      )}
     </Frame>
   );
 }

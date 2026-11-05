@@ -16,7 +16,8 @@ export type PageHelpKey =
   | "sit"
   | "docs"
   | "wiki"
-  | "settings";
+  | "settings"
+  | "globalSettings";
 
 export interface PageHelp {
   title: { id: string; en: string };
@@ -269,6 +270,24 @@ const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
         "Terminal: font size, theme, cursor — saved per device (localStorage).",
         "Root Path is read-only info — change it by removing and reopening the project.",
         "The default agent is stored in the DB; other tabs (FSD/Spec/RTM) use whichever agent is detected at that moment.",
+      ],
+    },
+  },
+
+  globalSettings: {
+    title: { id: "Global Settings — Petunjuk Pemakaian", en: "Global Settings — How to Use" },
+    tips: {
+      id: [
+        "Model & BYOK: konfigurasi provider bersifat machine-wide — dipakai semua project, bukan hanya project yang sedang dibuka.",
+        "MCP Servers: server eksternal di sini dibagikan ke setiap project (baris yang sama, bukan salinan).",
+        "Agent CLI: daftar ini hanya laporan (read-only) dan diperiksa ulang lewat tombol Segarkan tanpa restart aplikasi.",
+        "Tampilan & Terminal: preferensi terminal per perangkat (localStorage) dan berlaku live; project tetap punya halaman Settings-nya sendiri.",
+      ],
+      en: [
+        "Model & BYOK: provider configuration is machine-wide — shared by every project, not just the one currently open.",
+        "MCP Servers: external servers configured here are shared by every project (the same rows, not copies).",
+        "Agent CLI: this list is read-only reporting and is re-checked via the Refresh button without restarting the app.",
+        "Appearance & Terminal: terminal preferences are per-device (localStorage) and apply live; projects keep their own Settings page.",
       ],
     },
   },
