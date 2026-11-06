@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — ERD canvas: tarik relasi, tambah tabel, simpan ke artifact
+
+Canvas ERD kini bisa menyunting schema, bukan hanya menampilkannya — dan setiap perubahan ditulis balik ke berkas DBML tanpa merusak bagian yang tidak disentuh.
+
+### Feat — ERD (#37)
+- **Tarik relasi**: handle source/target tampil di setiap kolom; menarik garis dari kolom kanan ke kolom kiri menulis relasi ke artifact (`ref: > …` di baris kolom, atau `Ref:` baru bila kolom belum punya relasi — mengikuti gaya berkas itu sendiri).
+- **Tambah tabel**: dialog nama tabel + kolom awal menyisipkan blok `Table … { }` baru sebelum bagian `Ref:`/`Note`.
+- **Hapus tabel**: dari toolbar (dengan konfirmasi) — blok, `Ref:` yang menyentuhnya, `ref:` inline di tabel lain, dan `Note <tabel>:` ikut dibersihkan.
+- **Edit tabel/kolom tersinkron ke artifact**: `updateTableInDbml` hanya menulis ulang kolom yang berubah; baris kolom lain (komentar, `indexes { … [name: …] }`, `default: \`now()\``) tetap byte-identik.
+- **Simpan otomatis + tombol Simpan**: perubahan dari canvas maupun editor DBML ditulis setelah 1,2 detik; toolbar menampilkan status *Simpan / Menyimpan… / Tersimpan / Gagal simpan*, dan berkas `.md` ditulis lewat blok berpagar (prosa di sekitarnya tidak berubah).
+- Perubahan dari agen tidak menimpa teks yang sedang diketik: konten eksternal hanya diadopsi saat tidak ada perubahan lokal yang belum tersimpan.
+
+### Catatan teknis
+- `src/lib/dbml-edit.ts` menggantikan serialisasi penuh: menulis rentang karakter, bukan membangun ulang seluruh dokumen (`serializeDbmlDocument` menghapus komentar dan `name:` pada index).
+- Handle relasi dipindah ke dalam kotak baris: `.erd-col-row` memakai `content-visibility: auto`, yang menyiratkan paint containment sehingga handle di luar kotak baris tidak pernah menerima pointer.
+- Posisi tabel yang sudah digeser pengguna dipertahankan saat schema berubah; berpindah algoritma layout mengembalikan tata letak otomatis.
+
+### Verifikasi
+- `bun run typecheck` bersih; `bun test src`: **825 tes di 161 berkas** lulus (11 tes baru di `dbml-edit.test.ts`).
+- Smoke terhadap artifact nyata: drag relasi, tambah/hapus tabel, edit kolom, dan penyuntingan berkas `.md` — komentar, nama index, dan default tetap utuh; prosa di luar fence tidak berubah.
+
 ## v0.5.2 — Patch milestone v0.5.1: BYOK, chat, YOLO, dan zoom Windows
 
 Rilis patch untuk tujuh issue milestone v0.5.1: pengaturan BYOK di project, tombol retry/compact chat yang macet, default mode YOLO, dan pinch-to-zoom canvas ERD di Windows.

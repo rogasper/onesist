@@ -1,5 +1,5 @@
 import { Button } from "@cloudflare/kumo";
-import { Code, Eye, Download, X, PencilSimple } from "@phosphor-icons/react";
+import { Code, Eye, Download, X, PencilSimple, Plus, Trash, FloppyDisk } from "@phosphor-icons/react";
 import { FilePicker } from "~/components/ui/FilePicker";
 
 export interface ErdTableOption {
@@ -17,6 +17,13 @@ interface ErdToolbarProps {
   onSelectTable?: (tableName: string | null) => void;
   onOpenTableEditor?: () => void;
   tableEditorOpen?: boolean;
+  /** False for a markdown file whose DBML cannot be written back. */
+  canEdit?: boolean;
+  /** `clean` means the file already matches what is on screen. */
+  saveState?: "clean" | "dirty" | "saving" | "error";
+  onSave?: () => void;
+  onAddTable?: () => void;
+  onDeleteTable?: () => void;
 }
 
 export function ErdToolbar({
@@ -29,6 +36,11 @@ export function ErdToolbar({
   onSelectTable,
   onOpenTableEditor,
   tableEditorOpen = false,
+  canEdit = false,
+  saveState = "clean",
+  onSave,
+  onAddTable,
+  onDeleteTable,
 }: ErdToolbarProps) {
   const tableItems = [
     { value: "", label: "All tables (overview)", hint: `${tables.length} tabel` },
@@ -65,6 +77,59 @@ export function ErdToolbar({
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        {onAddTable && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onAddTable}
+            disabled={!canEdit}
+            className="!gap-1"
+            aria-label="Tambah tabel"
+            title={canEdit ? "Tambah tabel ke artifact DBML" : "Berkas ini tidak bisa ditulis (blok DBML tidak tunggal)"}
+          >
+            <Plus size={14} />
+            Tabel
+          </Button>
+        )}
+        {selectedTable && onDeleteTable && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onDeleteTable}
+            disabled={!canEdit}
+            className="!gap-1"
+            aria-label="Hapus tabel"
+            title="Hapus tabel dari artifact"
+          >
+            <Trash size={14} />
+          </Button>
+        )}
+        {onSave && (
+          <Button
+            variant={saveState === "error" ? "secondary-destructive" : "secondary"}
+            size="sm"
+            onClick={onSave}
+            disabled={!canEdit || saveState === "clean" || saveState === "saving"}
+            className="!gap-1"
+            aria-label="Simpan ke artifact"
+            title={
+              saveState === "error"
+                ? "Gagal menyimpan — tekan untuk mencoba lagi"
+                : saveState === "clean"
+                  ? "Tidak ada perubahan yang perlu disimpan"
+                  : "Tulis perubahan ke berkas sekarang (tersimpan otomatis setelah 1,2 detik)"
+            }
+          >
+            <FloppyDisk size={14} />
+            {saveState === "saving"
+              ? "Menyimpan…"
+              : saveState === "error"
+                ? "Gagal simpan"
+                : saveState === "dirty"
+                  ? "Simpan"
+                  : "Tersimpan"}
+          </Button>
+        )}
         <Button
           variant="secondary"
           size="sm"

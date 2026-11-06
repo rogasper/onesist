@@ -40,21 +40,27 @@ function TableNodeInner({ data }: NodeProps<TableNodeType>) {
                once a table has 40+ columns (the schema here has ~700 rows total). */
             <div
               key={key}
-              className="erd-col-row flex items-center gap-2 px-3 py-1.5 relative hover:bg-kumo-elevated/50"
+              className="erd-col-row group/row flex items-center gap-2 px-3 py-1.5 relative hover:bg-kumo-elevated/50"
             >
+              {/* A relation is drawn by dragging from a column's right dot onto
+                  another column's left dot, so both are always present. They sit
+                  INSIDE the row box on purpose: `.erd-col-row` carries
+                  `content-visibility: auto` (the perf rule that makes an 86-table
+                  pan cheap), which implies paint containment — a handle offset
+                  outside the row is clipped and can never receive the pointer. */}
               <Handle
                 type="source"
                 position={Position.Right}
                 id={`${key}-source`}
-                className="!size-2 !border-2 !border-kumo-brand !bg-kumo-base !right-[-5px]"
-                style={{ visibility: col.ref ? "visible" : "hidden" }}
+                className="!size-3 !border-2 !border-kumo-brand !bg-kumo-base !right-0 z-10 cursor-crosshair opacity-50 group-hover/row:opacity-100 hover:!opacity-100"
+                title="Tarik ke kolom lain untuk membuat relasi"
               />
               <Handle
                 type="target"
                 position={Position.Left}
                 id={`${key}-target`}
-                className="!size-2 !border-2 !border-amber-400 !bg-kumo-base !left-[-5px]"
-                style={{ visibility: col.isPk ? "visible" : "hidden" }}
+                className="!size-3 !border-2 !border-amber-400 !bg-kumo-base !left-0 z-10 cursor-crosshair opacity-40 group-hover/row:opacity-100 hover:!opacity-100"
+                title="Lepas relasi di sini"
               />
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                 {col.isPk && <span className="text-amber-400 font-bold shrink-0">PK</span>}
