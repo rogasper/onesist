@@ -1,25 +1,50 @@
 # Changelog
 
-## Unreleased — ERD canvas: tarik relasi, tambah tabel, simpan ke artifact
+## v0.5.3 — Export/import project, Global Settings, dan saran lanjutan di chat
 
-Canvas ERD kini bisa menyunting schema, bukan hanya menampilkannya — dan setiap perubahan ditulis balik ke berkas DBML tanpa merusak bagian yang tidak disentuh.
+Rilis ini mengumpulkan pekerjaan sejak v0.5.2: project bisa dipindahkan sebagai satu ZIP, pengaturan model/MCP/CLI/tampilan punya halaman global, chat menawarkan langkah lanjutan yang bisa diklik, berkas markdown dibuka sebagai bacaan, dan canvas ERD kini bisa menyunting schema. Ada juga perbaikan gambar TD dan konsistensi UI.
+
+### Feat — Project (#53)
+- **Export project sebagai ZIP** dari dashboard: berkas project + baris SQLite milik project (ERD, API spec, wiki, task, FSD, RTM, changelog, pengaturan eksekusi). `node_modules`, `.git`, `dist`/build/cache, `.env`, database lokal, dan symlink tidak ikut; batas 500 MB.
+- **Chat opsional dan ringkas**: checkbox **Sertakan riwayat chat (ringkas)** (default mati). Hanya pesan user dan jawaban akhir yang dibawa — tool call, reasoning, gambar/data URL, diff file, dan sesi CLI/provider/workspace dibuang. ZIP tidak dienkripsi, jadi UI memperingatkan saat opsi ini dicentang.
+- **Import** lewat dialog: pilih ZIP + folder tujuan kosong. Project dibuat baru dengan ID baru; seluruh FK di-remap (termasuk lineage fork), folder `input/uploads/<thread>` di-rename, dan indeks pencarian chat dibuat ulang. Zip-slip ditolak dan folder yang sudah terisi tidak ditimpa.
+
+### Feat — Global Settings (#32)
+- Route **`/settings`** di sidebar dengan empat tab: **Model & BYOK**, **MCP Servers**, **Agent CLI**, dan **Tampilan & Terminal**. Semua memakai baris global yang sama dengan pengaturan project, tanpa sinkronisasi tambahan.
+- Provider settings bisa tampil **inline** di halaman (bukan overlay), deteksi CLI menampilkan hasil `/api/agent/detect` dengan tombol refresh, dan theme/terminal memakai preferensi yang sudah ada.
+
+### Feat — Chat (#55)
+- **Saran lanjutan yang bisa diklik**: jawaban boleh diakhiri blok berpagar `suggestions`; itemnya tampil sebagai chip di bawah jawaban terakhir. Klik chip mengirim saran itu sebagai pesan user biasa (antrean dan aturan permission tetap berlaku), sedangkan composer tetap bebas diketik dan chip bisa ditutup tanpa mengirim.
+- Blok saran dipisahkan dari `contentJson` dan disimpan di `chat_messages.suggestions_json`, jadi model tidak membacanya lagi, teks jawaban bersih, chip bertahan setelah reload, dan ikut export/import chat. Konvensi dikirim ke system prompt native dan setiap turn CLI.
+
+### UX — Chat (#54)
+- Berkas `.md`/`.markdown`/`.mdx` dibuka dalam **Preview** secara default di Overview dan FSD Analyzer; berpindah berkas mengembalikan mode ke Preview.
 
 ### Feat — ERD (#37)
-- **Tarik relasi**: handle source/target tampil di setiap kolom; menarik garis dari kolom kanan ke kolom kiri menulis relasi ke artifact (`ref: > …` di baris kolom, atau `Ref:` baru bila kolom belum punya relasi — mengikuti gaya berkas itu sendiri).
-- **Tambah tabel**: dialog nama tabel + kolom awal menyisipkan blok `Table … { }` baru sebelum bagian `Ref:`/`Note`.
-- **Hapus tabel**: dari toolbar (dengan konfirmasi) — blok, `Ref:` yang menyentuhnya, `ref:` inline di tabel lain, dan `Note <tabel>:` ikut dibersihkan.
-- **Edit tabel/kolom tersinkron ke artifact**: `updateTableInDbml` hanya menulis ulang kolom yang berubah; baris kolom lain (komentar, `indexes { … [name: …] }`, `default: \`now()\``) tetap byte-identik.
-- **Simpan otomatis + tombol Simpan**: perubahan dari canvas maupun editor DBML ditulis setelah 1,2 detik; toolbar menampilkan status *Simpan / Menyimpan… / Tersimpan / Gagal simpan*, dan berkas `.md` ditulis lewat blok berpagar (prosa di sekitarnya tidak berubah).
-- Perubahan dari agen tidak menimpa teks yang sedang diketik: konten eksternal hanya diadopsi saat tidak ada perubahan lokal yang belum tersimpan.
+- **Tarik relasi** dari handle kolom kanan ke kolom kiri; relasi ditulis ke artifact (`ref: > …` di baris kolom atau `Ref:` baru mengikuti gaya berkas).
+- **Tambah/hapus tabel**: dialog nama tabel + kolom awal menyisipkan blok `Table … { }`; hapus tabel membersihkan blok, `Ref:` terkait, `ref:` inline di tabel lain, dan `Note <tabel>:`.
+- **Edit tabel/kolom tersinkron**: hanya kolom yang berubah ditulis ulang; komentar, `indexes { … }`, dan `default` lain tetap byte-identik.
+- **Simpan otomatis + tombol Simpan** untuk perubahan dari canvas maupun editor DBML; berkas `.md` ditulis lewat blok berpagar tanpa mengubah prosa di sekitarnya. Perubahan dari agen tidak menimpa teks yang sedang diketik.
 
-### Catatan teknis
-- `src/lib/dbml-edit.ts` menggantikan serialisasi penuh: menulis rentang karakter, bukan membangun ulang seluruh dokumen (`serializeDbmlDocument` menghapus komentar dan `name:` pada index).
-- Handle relasi dipindah ke dalam kotak baris: `.erd-col-row` memakai `content-visibility: auto`, yang menyiratkan paint containment sehingga handle di luar kotak baris tidak pernah menerima pointer.
-- Posisi tabel yang sudah digeser pengguna dipertahankan saat schema berubah; berpindah algoritma layout mengembalikan tata letak otomatis.
+### Fix — Docs (#47)
+- Gambar lampiran chat kini disimpan ke `input/uploads/<thread>/` sebelum pesan disimpan, disebut di prompt TD sebagai "Gambar yang tersedia", dan **ditempel ke export DOCX** (termasuk cover). Berkas hilang, SVG, atau path di luar root jatuh ke caption, bukan hilang diam-diam.
+
+### Fix — UI (#44, #46, #48)
+- **#44**: UpdateBanner berada di lapisan chrome paling atas; logo/toggle sidebar tidak lagi menimpanya.
+- **#46**: container Wiki, Tasks, API Spec, Overview, dan sidebar FSD Analyzer memakai sudut membulat yang konsisten.
+- **#48**: ikon hapus percakapan diganti dari X menjadi trash, sehingga tidak ambigu dengan tombol tutup panel.
 
 ### Verifikasi
-- `bun run typecheck` bersih; `bun test src`: **825 tes di 161 berkas** lulus (11 tes baru di `dbml-edit.test.ts`).
-- Smoke terhadap artifact nyata: drag relasi, tambah/hapus tabel, edit kolom, dan penyuntingan berkas `.md` — komentar, nama index, dan default tetap utuh; prosa di luar fence tidak berubah.
+- `bun run typecheck` bersih; `bun test src`: **844 tes di 165 berkas** lulus.
+- Export→import lewat API pada project nyata: 7 thread / 27 pesan / 27 baris FTS dipulihkan; project uji dihapus setelahnya.
+- Chat saran diuji end-to-end dengan provider OpenAI-compatible lokal: system prompt memuat aturan, fence hilang dari parts tersimpan, metadata saran muncul, klik mengirim, draft composer tetap, tutup dan reload bekerja.
+- Smoke ERD pada artifact nyata (drag relasi, tambah/hapus tabel, edit kolom, berkas `.md`), DOCX diperiksa dengan membongkar `word/media` + `document.xml`, dan halaman `/settings` diuji di browser.
+- Catatan: aturan saran untuk runtime CLI sudah terpasang dan teruji unit, tetapi belum dijalankan dengan CLI sungguhan.
+
+### Catatan teknis
+- Migrasi `0029_chat_suggestions.sql` menambah `chat_messages.suggestions_json`; runtime ALTER di `server/db/client.ts` menambal DB lama.
+- Dependency baru: `jszip@3.10.1`.
+- Export/import memakai format bundle versi 1 dengan manifest; tidak ada telemetry — semua data tetap di `data.db` lokal.
 
 ## v0.5.2 — Patch milestone v0.5.1: BYOK, chat, YOLO, dan zoom Windows
 
