@@ -16,14 +16,14 @@ jobs:
       matrix:
         include:
           # macOS arm64 (Apple Silicon)
-          - platform: macos-14
+          - platform: macos-15
             platform_key: darwin-aarch64
             target_triple: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --bundles app,dmg
-          # macOS x86_64 (Intel) — macos-13 runner deprecated; cross-compile
-          # on arm64 macos-14 via rust target + bun --target.
-          - platform: macos-14
+          # macOS x86_64 (Intel) — macOS 14 images retired on 2026-11-02;
+          # cross-compile on arm64 macos-15 via rust target + bun --target.
+          - platform: macos-15
             platform_key: darwin-x86_64
             target_triple: x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
