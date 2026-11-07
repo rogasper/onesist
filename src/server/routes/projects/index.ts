@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { eq } from "drizzle-orm";
-import { json, notFound } from "../../http/response";
+import { badRequest, json, notFound } from "../../http/response";
 import { Router } from "../../http/router";
 import { db } from "~/server/db/client";
 import {
@@ -194,6 +194,50 @@ router.delete("projects/:id", async ({ params }) => {
 
   db.delete(projects).where(eq(projects.id, id)).run();
   return json({ message: "Deleted" });
+});
+
+// GET /api/projects/:id/export — ZIP of the project files + project-scoped SQLite rows.
+router.get("projects/:id/export", async ({ params, query }) => {
+  const project = db.select().from(projects).where(eq(projects.id, params.id)).get();
+  if (!project) return notFound();
+  try {
+    const { exportProjectBundle } = await import("~/server/project-bundle");
+    const bytes = await exportProjectBundle(db, params.id, { includeChat: query.get("includeChat") === "1" });
+    const slug = String(project.name ?? "project").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
+    return new Response(bytes, {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="onesist-${slug}.zip"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Export gagal" }, 500);
+  }
+});
+
+// POST /api/projects/import — multipart: file=<zip>, destPath=<absolute folder>.
+router.post("projects/import", async ({ request }) => {
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return badRequest("Form import tidak valid");
+  }
+  const file = form.get("file");
+  const destPath = String(form.get("destPath") ?? "").trim();
+  if (!file || typeof file === "string") return badRequest("File ZIP wajib diunggah");
+  if (!destPath) return badRequest("Folder tujuan wajib diisi");
+  const { MAX_BUNDLE_BYTES, importProjectBundle } = await import("~/server/project-bundle");
+  if (file.size > MAX_BUNDLE_BYTES) return json({ error: "Ukuran ZIP melebihi batas 500 MB" }, 413);
+  try {
+    const result = await importProjectBundle(db, new Uint8Array(await file.arrayBuffer()), destPath);
+    const { registerWatchRoot } = await import("~/server/realtime/file-watcher");
+    registerWatchRoot(result.rootPath);
+    return json(result, 201);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Import gagal" }, 400);
+  }
 });
 
 // GET /api/projects/:id/changelog

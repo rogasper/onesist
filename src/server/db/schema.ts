@@ -570,6 +570,9 @@ export const chatMessages = sqliteTable(
      *  through the stream (FR-B5) — without this column the transcript could
      *  only show a character count. */
     reasoningMs: integer("reasoning_ms"),
+    /** Follow-up suggestions the answer ended with (issue #55), as a JSON string
+     *  array. Kept out of `contentJson` so the model never reads them again. */
+    suggestionsJson: text("suggestions_json"),
     /** ok | error | aborted */
     status: text("status").notNull().default("ok"),
     /** Already sanitized: provider responseBody can echo the API key (FR-K7). */

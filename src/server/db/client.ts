@@ -233,6 +233,8 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE fsd_sessions ADD COLUMN conversion_error TEXT",
     // chat columns added after 0006 — see migrations/0007_*.sql
     "ALTER TABLE chat_messages ADD COLUMN reasoning_ms INTEGER",
+    // #55: saran lanjutan di akhir jawaban, di luar contentJson agar tidak terbaca model lagi.
+    "ALTER TABLE chat_messages ADD COLUMN suggestions_json TEXT",
     "ALTER TABLE chat_thread_files ADD COLUMN diff_json TEXT",
     // Which assistant turn wrote a file (the transcript's per-answer file
     // section, UJI-MANUAL C9b) — see migrations/0014_white_sentinel.sql.

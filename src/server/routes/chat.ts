@@ -34,6 +34,7 @@ import { estimateTokens, resolveContextWindow, splitForCompaction } from "~/serv
 import { compactThreadHistory, shouldCompactBeforeTurn } from "~/server/agent/compaction";
 import { dbmlTableNames, listMentionRefs, resolveMentionRef } from "~/server/agent/mention-refs";
 import { suggestionsFor } from "~/server/agent/suggestions";
+import { extractSuggestions } from "~/lib/chat-suggestions";
 import { threadActivityOf } from "~/server/agent/thread-activity";
 import { MENTION_KINDS, type MentionKind } from "~/lib/mention-ref";
 import { parseReasoningLevel } from "~/server/agent/reasoning";
@@ -710,10 +711,12 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
           } catch {
             /* usage unavailable — no reason to fail the save */
           }
+          const extracted = extractSuggestions(assistant.parts ?? []);
           const messageId = appendMessage({
             threadId: current.id,
             role: "assistant",
-            parts: assistant.parts,
+            parts: extracted.parts,
+            suggestions: extracted.suggestions,
             id: typeof assistant.id === "string" ? assistant.id : undefined,
             providerId: provider.id,
             model: current.model ?? provider.model,

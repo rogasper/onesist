@@ -729,7 +729,13 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   // FSD-style editor for the open markdown file. Save goes through the generic
   // /api/files/write (creates the file if missing). Switching away with unsaved
   // edits is guarded by a confirm dialog (pendingSwitch).
-  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [editorMode, setEditorMode] = useState<EditorMode>(() =>
+    activeTabPath && /\.(md|markdown|mdx)$/i.test(activeTabPath) ? "preview" : "edit"
+  );
+  useEffect(() => {
+    if (!activeTabPath) return;
+    setEditorMode(/\.(md|markdown|mdx)$/i.test(activeTabPath) ? "preview" : "edit");
+  }, [activeTabPath]);
   const [draftContent, setDraftContent] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);

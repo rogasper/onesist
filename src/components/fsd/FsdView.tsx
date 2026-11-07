@@ -77,7 +77,7 @@ export function FsdView({ projectId, paneId = "main", onDirtyChange }: FsdViewPr
   const [running, setRunning] = useState(false);
   const [showStream, setShowStream] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [editorMode, setEditorMode] = useState<EditorMode>("preview");
   const [draftContent, setDraftContent] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -176,6 +176,7 @@ export function FsdView({ projectId, paneId = "main", onDirtyChange }: FsdViewPr
   useEffect(() => {
     setDraftContent(null);
     setDirty(false);
+    setEditorMode("preview");
   }, [activeId]);
 
   const handleScan = useCallback(async () => {

@@ -139,6 +139,8 @@ export function appendMessage(input: {
   inputTokens?: number | null;
   outputTokens?: number | null;
   reasoningMs?: number | null;
+  /** Follow-up chips this answer ended with (issue #55). */
+  suggestions?: string[] | null;
   status?: "ok" | "error" | "aborted";
   error?: string | null;
   id?: string;
@@ -164,6 +166,7 @@ export function appendMessage(input: {
       inputTokens: input.inputTokens ?? null,
       outputTokens: input.outputTokens ?? null,
       reasoningMs: input.reasoningMs ?? null,
+      suggestionsJson: input.suggestions?.length ? JSON.stringify(input.suggestions) : null,
       status: input.status ?? "ok",
       error: input.error ?? null,
       createdAt: new Date().toISOString(),
@@ -373,6 +376,14 @@ export function toUIMessages(rows: MessageRow[]): {
     if (row.inputTokens != null) metadata.inputTokens = row.inputTokens;
     if (row.outputTokens != null) metadata.outputTokens = row.outputTokens;
     if (row.reasoningMs != null) metadata.reasoningMs = row.reasoningMs;
+    if (row.suggestionsJson) {
+      try {
+        const suggestions = JSON.parse(row.suggestionsJson);
+        if (Array.isArray(suggestions) && suggestions.length) metadata.suggestions = suggestions.filter((s) => typeof s === "string");
+      } catch {
+        /* a broken column must not hide the message */
+      }
+    }
     if (row.model) metadata.model = row.model;
     if (row.status && row.status !== "ok") metadata.status = row.status;
     if (row.createdAt) metadata.createdAt = row.createdAt;

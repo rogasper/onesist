@@ -4,6 +4,7 @@
  * told before the new message, come from prepare-turn.ts (Fase 4A).
  */
 import { modeNote, withModeNote } from "./mode-note";
+import { withSuggestionsNote } from "./suggestions-note";
 import type { PermissionMode, ThreadMode } from "~/server/agent/types";
 import { parseModelOptions } from "~/lib/model-options";
 import type { UIMessage } from "~/server/agent/ai";
@@ -67,8 +68,8 @@ export async function startCliTurn(
     thread,
     root: input.root,
     provider,
-    // The mode note goes to the runtime only; the stored user message is unchanged.
-    text: withModeNote(prepared.text, modeNote(thread.permissionMode as PermissionMode, thread.mode as ThreadMode)),
+    // The mode and suggestions notes go to the runtime only; the stored user message is unchanged.
+    text: withSuggestionsNote(withModeNote(prepared.text, modeNote(thread.permissionMode as PermissionMode, thread.mode as ThreadMode))),
     sessionId,
     onSessionCreated: (id) => {
       sessionId = id;
