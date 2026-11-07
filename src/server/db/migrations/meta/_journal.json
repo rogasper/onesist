@@ -204,6 +204,13 @@
       "when": 1792830371012,
       "tag": "0028_pr_state",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1794000000000,
+      "tag": "0029_chat_suggestions",
+      "breakpoints": true
     }
   ]
 }

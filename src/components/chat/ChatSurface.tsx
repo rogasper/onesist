@@ -17,6 +17,7 @@ import { loadDraft, promptText, quoteBlock, saveDraft } from "~/components/chat/
 import { refSlug, refTokens, type MentionRef } from "~/lib/mention-ref";
 import { MAX_IMAGES, MAX_IMAGE_BYTES } from "~/lib/image-attachment";
 import { subscribeQuotes, takePendingQuotes, type ChatQuote } from "~/lib/chat-quote";
+import { extractSuggestions, MAX_CHAT_SUGGESTIONS } from "~/lib/chat-suggestions";
 import { supportsReasoningEffort, parseReasoningLevel, type ReasoningLevel } from "~/lib/reasoning-level";
 import { workspaceImageSrc } from "~/lib/workspace-image";
 import {
@@ -728,6 +729,21 @@ export function ChatSurface({
     return map;
   }, [detail.toolCalls]);
 
+  /** The follow-up chips of the newest answer (issue #55): stored ones when the
+   *  transcript came from the server, parsed ones while the answer just streamed. */
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<string | null>(null);
+  const lastAnswer = useMemo(
+    () => [...messages].reverse().find((m) => m.role === "assistant") ?? null,
+    [messages],
+  );
+  const lastSuggestions = useMemo(() => {
+    if (!lastAnswer || streaming || dismissedSuggestions === lastAnswer.id) return [];
+    const stored = metadataById.get(lastAnswer.id ?? "")?.suggestions;
+    const fromServer = Array.isArray(stored) ? stored.filter((s): s is string => typeof s === "string") : [];
+    const fromStream = extractSuggestions(lastAnswer.parts ?? []).suggestions;
+    return [...new Set([...fromServer, ...fromStream])].slice(0, MAX_CHAT_SUGGESTIONS);
+  }, [lastAnswer, metadataById, streaming, dismissedSuggestions]);
+
   const toolDuration = useCallback(
     (toolCallId: string | undefined) => {
       if (!toolCallId) return null;
@@ -801,6 +817,25 @@ export function ChatSurface({
     }
     setNow(Date.now());
     await sendMessage(fileParts.length ? { text: payload, files: fileParts } : { text: payload });
+  }
+
+  /** A suggestion chip is a normal user message: same expansion, queue and
+   *  permission rules as the composer. It never sends without the click. */
+  async function sendSuggestion(text: string) {
+    if (lastAnswer?.id) setDismissedSuggestions(lastAnswer.id);
+    const payload = `${expandMentions(text, mentionFiles)}${await referencesFor(text)}`.trim();
+    if (!payload) return;
+    if (busy) {
+      void queue.enqueue([payload]);
+      return;
+    }
+    if (await threadHasRunningTurn(threadId)) {
+      await followIfStillRunning();
+      void queue.enqueue([payload]);
+      return;
+    }
+    setNow(Date.now());
+    await sendMessage({ text: payload });
   }
 
   /**
@@ -1172,6 +1207,14 @@ export function ChatSurface({
             {compaction?.at === "before-turn" && mi === lastUserIndex ? <CompactDivider event={compaction} /> : null}
             </div>
           ))}
+
+          {lastSuggestions.length && !busy && !planReadyToApprove && !questions.length && !approvals.length ? (
+            <SuggestionChips
+              items={lastSuggestions}
+              onPick={(text) => void sendSuggestion(text)}
+              onDismiss={() => lastAnswer?.id && setDismissedSuggestions(lastAnswer.id)}
+            />
+          ) : null}
 
           {/* Messages handed to the running turn ("Arahkan"): in the user's own
               words right away, labelled as pending until the model takes them.
@@ -1568,6 +1611,44 @@ function EmptyState({
   );
 }
 
+function SuggestionChips({
+  items,
+  onPick,
+  onDismiss,
+}: {
+  items: string[];
+  onPick: (text: string) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-2 px-1">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-kumo-subtle">Saran lanjutan</span>
+        <button
+          onClick={onDismiss}
+          title="Tutup saran"
+          aria-label="Tutup saran"
+          className="rounded p-0.5 text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated transition-colors"
+        >
+          <X size={11} />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {items.map((item) => (
+          <button
+            key={item}
+            onClick={() => onPick(item)}
+            title={item}
+            className="max-w-full rounded-xl px-3 py-1.5 text-left text-xs text-kumo-default bg-kumo-elevated/40 ring ring-kumo-line/70 hover:bg-kumo-elevated hover:text-kumo-brand hover:ring-kumo-brand/40 transition-colors"
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type Block =
   | { kind: "text"; key: string; text: string }
   | { kind: "reasoning"; key: string; text: string }
@@ -1805,9 +1886,10 @@ function MessageBlockView({
     );
   }
 
-  const blocks = groupParts(message.parts ?? []);
+  const displayParts = extractSuggestions(message.parts ?? []).parts;
+  const blocks = groupParts(displayParts);
   /** What "copy this answer" copies: the prose of this turn, nothing else. */
-  const answerText = messageText(message);
+  const answerText = messageText({ parts: displayParts });
   const reasoningBlocks = blocks.filter((b) => b.kind === "reasoning").length;
   const reasoningMs = typeof metadata?.reasoningMs === "number" ? metadata.reasoningMs : null;
   const inputTokens = typeof metadata?.inputTokens === "number" ? metadata.inputTokens : null;

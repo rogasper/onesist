@@ -1,11 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button, Badge } from "@cloudflare/kumo";
-import { Folder, Cube, Plus, Trash, WindowsLogo, CalendarBlank, Buildings } from "@phosphor-icons/react";
+import { Folder, Cube, Plus, Trash, WindowsLogo, CalendarBlank, Buildings, UploadSimple, DownloadSimple } from "@phosphor-icons/react";
 import { CardGridSkeleton } from "~/components/ui/Skeleton";
 import { EmptyState } from "~/components/ui/EmptyState";
 import { ConfirmDialog } from "~/components/ui/ConfirmDialog";
 import { OpenProjectDialog } from "~/components/dashboard/OpenProjectDialog";
+import { ImportProjectDialog } from "~/components/dashboard/ImportProjectDialog";
+import { ExportProjectDialog } from "~/components/dashboard/ExportProjectDialog";
 import { SkillSetupDialog } from "~/components/dashboard/SkillSetupDialog";
 import { PageHeader } from "~/components/ui/PageHeader";
 import { AppButton } from "~/components/ui/AppButton";
@@ -30,6 +32,8 @@ function DashboardPage() {
   const [projects, setProjects] = useState<ProjectData[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportTarget, setExportTarget] = useState<ProjectData | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
   const skill = useSkillInstall();
@@ -124,14 +128,20 @@ function DashboardPage() {
         help="dashboard"
         badges={projects.length > 0 ? <Badge variant="neutral" className="text-xs px-2 py-0.5">{projects.length}</Badge> : undefined}
         actions={
-          <AppButton variant="primary" size="sm" onClick={() => setModalOpen(true)} icon={<Plus size={14} />}>
-            Open Project
-          </AppButton>
+          <div className="flex items-center gap-2">
+            <AppButton variant="secondary" size="sm" onClick={() => setImportOpen(true)} icon={<UploadSimple size={14} />}>
+              Import
+            </AppButton>
+            <AppButton variant="primary" size="sm" onClick={() => setModalOpen(true)} icon={<Plus size={14} />}>
+              Open Project
+            </AppButton>
+          </div>
         }
         className="mb-6 shrink-0 space-y-2"
       />
 
       <OpenProjectDialog open={modalOpen} onOpenChange={setModalOpen} onCreated={handleCreated} />
+      <ImportProjectDialog open={importOpen} onOpenChange={setImportOpen} onImported={handleCreated} />
 
       <SkillSetupDialog
         state={skill.state}
@@ -148,6 +158,12 @@ function DashboardPage() {
       >
         Are you sure you want to remove this project from the dashboard? Local files will not be deleted.
       </ConfirmDialog>
+
+      <ExportProjectDialog
+        open={!!exportTarget}
+        onOpenChange={(next) => { if (!next) setExportTarget(null); }}
+        project={exportTarget}
+      />
 
       {loading ? (
         <CardGridSkeleton count={6} />
@@ -216,9 +232,22 @@ function DashboardPage() {
                   </AppButton>
                   <Button
                     variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExportTarget(p);
+                    }}
+                    className="p-2 text-kumo-subtle hover:text-kumo-brand hover:bg-kumo-brand/10 transition-colors shrink-0"
+                    title="Export project (ZIP)"
+                    aria-label="Export project (ZIP)"
+                  >
+                    <DownloadSimple size={14} />
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={(e) => handleDeleteClick(e, p.id)}
                     className="p-2 text-kumo-subtle hover:text-red-400 hover:bg-red-400/10 transition-colors shrink-0"
                     title="Remove from dashboard"
+                    aria-label="Remove from dashboard"
                   >
                     <Trash size={14} />
                   </Button>
