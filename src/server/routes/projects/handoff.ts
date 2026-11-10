@@ -178,6 +178,7 @@ function safeRead(rootPath: string, rel: string, max = 10000): string {
 
 // GET /api/projects/:id/handoff?format=zip|json|jira-csv|monday-csv
 router.get("projects/:id/handoff", async ({ params, query }) => {
+  const startedAt = Date.now();
   const id = params.id;
   const proj = getProject(id);
   if (!proj) return notFound();
@@ -187,6 +188,9 @@ router.get("projects/:id/handoff", async ({ params, query }) => {
   const allTasks = db.select().from(tasks).where(eq(tasks.projectId, id)).all() as any[];
   // Sort by code for deterministic output
   allTasks.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  // Every export leaves a trace: a failure reported from a user's machine can
+  // only be diagnosed from the server log if the request itself is in it.
+  console.log(`[export] handoff project=${id} format=${format} tasks=${allTasks.length}`);
 
   const projectName = (proj.name as string) || "project";
   const version = (proj.docVersion as string) || "1.0.0";
@@ -412,16 +416,28 @@ Generated: ${date}
   files["jira-import.csv"] = jiraRows.map((r) => r.map(csvEscape).join(",")).join("\n");
   files["monday-import.csv"] = mondayRows.map((r) => r.map(csvEscape).join(",")).join("\n");
 
-  const zipBytes = createZip(files);
+  let zipBytes: Uint8Array;
+  try {
+    zipBytes = createZip(files);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[export] handoff zip failed project=${id} after ${Date.now() - startedAt}ms: ${message}`);
+    return json({ error: `Export ZIP gagal: ${message}` }, 500);
+  }
+  const elapsed = Date.now() - startedAt;
+  console.log(`[export] handoff zip done project=${id} files=${Object.keys(files).length} bytes=${zipBytes.length} in ${elapsed}ms`);
   const safeName = projectName.replace(/[^A-Za-z0-9_-]+/g, "-").slice(0, 40) || "project";
   const filename = `handoff-${safeName}-v${version}-${date}.zip`;
 
+  // No manual Content-Length: the runtime measures the body itself. Writing it
+  // by hand was the only place in the codebase doing so, and a framing header
+  // that disagrees with the real body is a network error to WebView2 (the
+  // "Failed to fetch" in #59), never an HTTP error a user could read.
   return new Response(zipBytes as any, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
-      "Content-Length": String(zipBytes.length),
     },
   });
 });

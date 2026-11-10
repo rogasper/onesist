@@ -22,6 +22,8 @@ import { TaskDetail } from "~/components/tasks/TaskDetail";
 import { TimelineViewer } from "~/components/tasks/TimelineViewer";
 import type { Task } from "~/shared/types";
 import { PageHeader } from "~/components/ui/PageHeader";
+import { InlineAlert } from "~/components/ui/InlineAlert";
+import { EXPORT_TIMEOUT_MS, downloadFilename, reportDownloadFailure, saveBlob } from "~/lib/download";
 import { SearchInput } from "~/components/ui/SearchInput";
 import { FilterSelect } from "~/components/ui/FilterSelect";
 import { subscribe } from "~/lib/event-stream";
@@ -117,6 +119,7 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   }, [viewModeKey]);
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [missingDialog, setMissingDialog] = useState<{ missing: string[]; prompt: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null;
@@ -132,52 +135,36 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   const handleExport = useCallback(async (format: string, force = false) => {
     setExporting(format);
     setExportMenuOpen(false);
+    setExportError(null);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS);
     try {
       const url = `/api/projects/${id}/handoff?format=${format}${force ? "&force=true" : ""}`;
-      if (format === "zip") {
-        // Fetch first to detect missing context (400) before triggering download
-        const res = await fetch(url, { cache: "no-store" });
-        if (res.status === 400) {
-          const data = await res.json().catch(() => ({}));
-          if (data.missing) {
-            setMissingDialog({ missing: data.missing as string[], prompt: (data.prompt as string) || "" });
-            setExporting(null);
-            return;
-          }
+      // Fetch first to detect missing context (400) before triggering the download.
+      const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+      if (res.status === 400) {
+        const data = await res.json().catch(() => ({}));
+        if (data.missing) {
+          setMissingDialog({ missing: data.missing as string[], prompt: (data.prompt as string) || "" });
+          return;
         }
-        if (!res.ok) throw new Error("export failed");
-        const blob = await res.blob();
-        const cd = res.headers.get("Content-Disposition") || "";
-        const filenameMatch = cd.match(/filename="([^"]+)"/);
-        const filename = filenameMatch ? filenameMatch[1] : `handoff-${id}.zip`;
-        const href = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = href;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(href);
-      } else {
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error("export failed");
-        const blob = await res.blob();
-        const cd = res.headers.get("Content-Disposition") || "";
-        const filenameMatch = cd.match(/filename="([^"]+)"/);
-        const filename = filenameMatch ? filenameMatch[1] : `export-${format}-${id}.${format.includes("csv") ? "csv" : "json"}`;
-        const href = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = href;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(href);
       }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || `Export gagal (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const fallback =
+        format === "zip"
+          ? `handoff-${id}.zip`
+          : `export-${format}-${id}.${format.includes("csv") ? "csv" : "json"}`;
+      saveBlob(blob, downloadFilename(res, fallback));
     } catch (e) {
-      console.error("Export failed", e);
+      setExportError(reportDownloadFailure("tasks-export", e));
+    } finally {
+      clearTimeout(timer);
+      setExporting(null);
     }
-    setExporting(null);
   }, [id]);
 
   const totalPoints = useMemo(
@@ -807,6 +794,12 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
           )
         }
       />
+
+      {exportError ? (
+        <InlineAlert kind="error" className="mb-2">
+          {exportError}
+        </InlineAlert>
+      ) : null}
 
       {view === "timeline" ? (
         <TimelineViewer projectId={id} />

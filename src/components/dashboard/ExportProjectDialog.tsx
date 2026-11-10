@@ -3,6 +3,7 @@ import { Dialog, DialogRoot, DialogTitle } from "@cloudflare/kumo";
 import { DownloadSimple } from "@phosphor-icons/react";
 import { AppButton } from "~/components/ui/AppButton";
 import { InlineAlert } from "~/components/ui/InlineAlert";
+import { EXPORT_TIMEOUT_MS, downloadFilename, reportDownloadFailure, saveBlob } from "~/lib/download";
 
 interface ExportProjectDialogProps {
   open: boolean;
@@ -26,25 +27,25 @@ export function ExportProjectDialog({ open, onOpenChange, project }: ExportProje
     if (!project) return;
     setExporting(true);
     setError("");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS);
     try {
       const query = includeChat ? "?includeChat=1" : "";
-      const res = await fetch(`/api/projects/${project.id}/export${query}`, { cache: "no-store" });
+      const res = await fetch(`/api/projects/${project.id}/export${query}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Export gagal");
+        throw new Error((data as { error?: string }).error || `Export gagal (HTTP ${res.status})`);
       }
       const blob = await res.blob();
-      const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = match?.[1] ?? `${project.name}.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, downloadFilename(res, `${project.name}.zip`));
       onOpenChange(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Export gagal");
+      setError(reportDownloadFailure("export-project", e));
     } finally {
+      clearTimeout(timer);
       setExporting(false);
     }
   };
