@@ -239,6 +239,7 @@ export async function exportProjectBundle(
   projectId: string,
   options: ProjectBundleOptions = {},
 ): Promise<ArrayBuffer> {
+  const startedAt = Date.now();
   const project = db.select().from(projects).where(eq(projects.id, projectId)).get() as Row | undefined;
   if (!project) throw new Error("Project tidak ditemukan");
 
@@ -360,9 +361,20 @@ export async function exportProjectBundle(
   zip.file("data/execution.json", JSON.stringify({ settings }, null, 2));
   if (chat) zip.file("data/chat.json", JSON.stringify(chat, null, 2));
   for (const file of files) {
-    zip.file(`project/${file.rel.replace(/\\/g, "/")}`, fs.readFileSync(file.abs));
+    // Async reads yield between files: a synchronous loop over thousands of
+    // files blocked the event loop for the whole export, starving the SSE
+    // heartbeat so the stream looked dead while the ZIP was being built.
+    zip.file(`project/${file.rel.replace(/\\/g, "/")}`, await fs.promises.readFile(file.abs));
   }
-  return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  const bytes = await zip.generateAsync({
+    type: "arraybuffer",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
+  console.log(
+    `[export] project bundle id=${projectId} files=${files.length} source=${totalFileBytes} zip=${bytes.byteLength} bytes in ${Date.now() - startedAt}ms`,
+  );
+  return bytes;
 }
 
 function remapEntityId(entityType: string, entityId: string, maps: Record<string, Map<string, string>>, newProjectId: string): string {

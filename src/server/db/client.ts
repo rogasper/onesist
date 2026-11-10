@@ -1,6 +1,11 @@
 import * as schema from "~/server/db/schema";
-import fs from "node:fs";
 import path from "node:path";
+import {
+  guardSchema,
+  journalSummary,
+  type MigrationState,
+  type SchemaGuardDb,
+} from "~/server/db/schema-guard";
 
 // Desktop sidecar passes an absolute DB path via SA_DB_PATH (appData dir).
 // Web mode (CWD = repo root) falls back to ./data.db.
@@ -166,12 +171,13 @@ const RUNTIME_TABLES = [
  *
  * Failure here is NOT fatal: `applyMigrations()` already handles tables and
  * columns idempotently. So it is reported once so an out-of-sync journal
- * becomes visible, not hidden.
+ * becomes visible, not hidden — and the schema guard then reconciles it.
  */
 let migrationWarningShown = false;
 /**
  * @returns true when drizzle ran everything it had; false when it stopped
- * (the schema guard below then replays the migration files idempotently).
+ * (the schema guard below then replays the migration files and reconciles the
+ * journal, so the next start is clean).
  */
 function runDrizzleMigrations(run: () => void): boolean {
   try {
@@ -181,10 +187,13 @@ function runDrizzleMigrations(run: () => void): boolean {
     if (!migrationWarningShown) {
       migrationWarningShown = true;
       const pesan = err?.message ?? String(err);
+      const state = driverMigrationState();
+      const summary = journalSummary(migrationsDir, state);
       console.warn(
-        `[db] migrasi drizzle tidak selesai: ${pesan}\n` +
-          `     Ini normal pada DB lama yang __drizzle_migrations-nya tertinggal (mis. hanya 0000-0003 sementara journal sudah 0007).\n` +
-          `     Skema tetap benar karena applyMigrations() + penjaga skema di client.ts menanganinya secara idempoten.`,
+        `[db] drizzle migrations did not finish: ${pesan}\n` +
+          `     The journal holds ${summary.recorded} of ${summary.total} entries` +
+          `${summary.lastRecorded ? ` (last: ${summary.lastRecorded})` : ""}; the migration files go up to ${summary.lastFile ?? "none"}.\n` +
+          `     The schema guard will replay the unrecorded migrations and reconcile __drizzle_migrations, so the next start is clean once that succeeds.`,
       );
     }
     return false;
@@ -266,145 +275,49 @@ function applyMigrations(runSql: (sql: string) => unknown) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Penjaga skema — "menyembuhkan diri" setelah DB cedera (2026-10-04)
+// Schema guard — see server/db/schema-guard.ts for what it does and why.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Kenapa ada: DB yang berpindah antar-laptop lewat zip bisa pulang dalam
- * keadaan di mana `__drizzle_migrations` SUDAH mencatat suatu revisi sementara
- * tabelnya sendiri tidak ikut tersalin — zip diambil saat aplikasi masih
- * berjalan (isi terbaru masih di `data.db-wal`), atau `data.db` disalin tanpa
- * `-wal`/`-shm`-nya. drizzle TIDAK pernah mengulang revisi yang sudah tercatat,
- * jadi aplikasi gagal permanen dengan "no such table" (kejadian nyata: project
- * pindah laptop, tab Traceability mati karena `business_requirements` hilang
- * sementara `projects` ada; markdown-nya sendiri utuh di folder project).
- *
- * Yang dilakukan: membaca berkas migrasi dan MENJALANKAN ULANG tiap pernyataan,
- * toleran terhadap error yang berarti "sudah ada" (`already exists`,
- * `duplicate column name`). Urutannya sama dengan urutan migrasi, sehingga tabel
- * yang hilang dibuat lengkap dengan indeks dan kolomnya.
- *
- * Batas yang disengaja:
- *  - Pernyataan merusak (DROP/RENAME/INSERT/UPDATE/DELETE — mis. rebuild tabel
- *    yang di-generate drizzle-kit) DILEWATI: replay tidak boleh menyentuh data.
- *  - Dijalankan hanya bila diperlukan (migrate() berhenti, atau ada tabel yang
- *    seharusnya ada tetapi tidak ada), jadi DB sehat tidak membayar apa pun.
- *  - Nama tabel yang diharapkan dibaca DARI BERKAS MIGRASI, bukan dari daftar
- *    manual, supaya tidak bisa melenceng dari skema yang dikirim aplikasi.
- */
-const STATEMENT_SPLITTER = /-->\s*statement-breakpoint/;
-const DESTRUCTIVE_STATEMENT = /^(DROP|INSERT|UPDATE|DELETE)\b|RENAME\s+TO/i;
-const ALREADY_APPLIED = /already exists|duplicate column name/i;
-
-function migrationFiles(): string[] {
-  try {
-    return fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
-  } catch {
-    return [];
-  }
-}
-
-/** Nama tabel (termasuk FTS virtual) yang seharusnya ada setelah semua migrasi. */
-function expectedTables(): string[] {
-  const names = new Set<string>();
-  for (const file of migrationFiles()) {
-    let sql = "";
-    try {
-      sql = fs.readFileSync(path.join(migrationsDir, file), "utf-8");
-    } catch {
-      continue;
-    }
-    for (const m of sql.matchAll(/CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"[]?([A-Za-z_][A-Za-z0-9_]*)/gi)) {
-      names.add(m[1]);
-    }
-  }
-  return [...names];
-}
-
-function repairMissingSchema(
-  runStatement: (statement: string) => void,
-  listNames: () => string[],
-  migrationsStopped: boolean,
-): void {
-  const expected = expectedTables();
-  if (!expected.length) return; // folder migrasi tidak terbaca — tidak ada yang bisa dipulihkan di sini
-
-  const missing = () => {
-    const have = new Set(listNames());
-    return expected.filter((n) => !have.has(n));
-  };
-
-  const before = missing();
-  if (!before.length && !migrationsStopped) return; // sehat dan jurnal utuh — nol biaya
-  if (before.length) {
-    console.warn(`[db] skema tidak lengkap: ${before.join(", ")} — memperbaiki dari berkas migrasi…`);
-  }
-
-  let applied = 0;
-  let skipped = 0;
-  const failed: string[] = [];
-  for (const file of migrationFiles()) {
-    const content = fs.readFileSync(path.join(migrationsDir, file), "utf-8");
-    for (const raw of content.split(STATEMENT_SPLITTER)) {
-      const stmt = raw.replace(/^\s*--[^\n]*$/gm, "").trim();
-      if (!stmt) continue;
-      if (DESTRUCTIVE_STATEMENT.test(stmt)) {
-        skipped++;
-        continue;
-      }
-      try {
-        runStatement(stmt);
-        applied++;
-      } catch (err) {
-        const msg = String((err as { message?: string })?.message ?? err).split("\n")[0];
-        if (!ALREADY_APPLIED.test(msg)) failed.push(`${file}: ${msg}`);
-      }
-    }
-  }
-
-  const after = missing();
-  if (after.length) {
-    console.warn(
-      `[db] PERINGATAN: perbaikan skema tidak tuntas (${applied} pernyataan dijalankan, ${skipped} dilewati, ${failed.length} gagal).\n` +
-        `     Tabel yang masih hilang: ${after.join(", ")}.\n` +
-        `     Berkas DB kemungkinan rusak: tutup aplikasi, pindahkan data.db (beserta -wal/-shm) keluar dari folder data aplikasi, lalu buka lagi — skema akan dibuat dari nol.`,
-    );
-  } else if (before.length) {
-    console.warn(`[db] perbaikan skema selesai: ${before.length} tabel dipulihkan (${applied} pernyataan dijalankan, ${skipped} dilewati).`);
-  } else {
-    console.warn(`[db] migrasi tertinggal tetapi skema lengkap — replay idempoten dijalankan (${applied} pernyataan, ${skipped} dilewati).`);
-  }
-  if (failed.length) {
-    console.warn(`[db] pernyataan yang gagal di luar 'sudah ada': ${failed.slice(0, 5).join("; ")}`);
-  }
-}
 
 // Runtime detection: Bun ships bun:sqlite built-in. Under Node.js we use the
 // better-sqlite3 driver instead (never loaded under Bun — it crashes the Bun
 // process, so the branches below are strictly exclusive).
 const isBun = typeof Bun !== "undefined";
 
-/** Satu pernyataan lewat driver aktif: Bun `run`, Node lewat prepared `run`. */
+/** One statement through the active driver: Bun `run`, Node a prepared `run`. */
 function driverRunStatement(statement: string) {
   return isBun ? rawSqlite.run(statement) : rawSqlite.prepare(statement).run();
 }
 
-/** Nama tabel & view yang ada sekarang — bahan pemeriksaan penjaga skema. */
-function driverListNames(): string[] {
-  const query = "SELECT name FROM sqlite_master WHERE type IN ('table','view')";
-  const rows = isBun ? rawSqlite.query(query).all() : rawSqlite.prepare(query).all();
-  return (rows as { name: string }[]).map((r) => r.name);
+function driverRows(sql: string): Record<string, unknown>[] {
+  return rawSqlite.prepare(sql).all() as Record<string, unknown>[];
 }
 
+function driverMigrationState(): MigrationState {
+  try {
+    const row = driverRows(`SELECT COUNT(*) AS recorded, MAX(created_at) AS last FROM "__drizzle_migrations"`)[0] ?? {};
+    return {
+      recorded: Number(row.recorded ?? 0),
+      lastWhen: row.last === null || row.last === undefined ? null : Number(row.last),
+    };
+  } catch {
+    // The table does not exist yet — a brand-new database.
+    return { recorded: 0, lastWhen: null };
+  }
+}
+
+const schemaGuardDb: SchemaGuardDb = {
+  run: driverRunStatement,
+  all: driverRows,
+  migrationState: driverMigrationState,
+};
+
 /**
- * Menjalankan penjaga skema SEKARANG, tanpa menunggu restart aplikasi — dipakai
- * suite verifikasi (`plan/agent-chat/spike/verify-schema-repair.ts`) dan berguna
- * manual setelah `data.db` dipulihkan dari salinan yang cedera.
- * `force` menjalankan replay walau tidak ada tabel yang hilang (memperbaiki
- * kolom yang tertinggal).
+ * Runs the schema guard NOW, without waiting for an app restart — useful after
+ * `data.db` was restored from a damaged copy. `force` replays even when nothing
+ * looks missing (repairs a lagging column).
  */
 export function repairSchemaNow(force = true): void {
-  repairMissingSchema(driverRunStatement, driverListNames, force);
+  guardSchema(schemaGuardDb, migrationsDir, { migrationsStopped: true, force });
 }
 
 // Bundled production: import.meta.dirname points into dist/server/assets/,
@@ -438,9 +351,10 @@ if (isBun) {
   // Flipping the order lets drizzle work on a clean DB, and the runtime path
   // becomes the idempotent safety net for old DBs.
   const migrationsComplete = runDrizzleMigrations(() => migrate(db, { migrationsFolder: migrationsDir }));
-  // Penjaga skema: lihat penjelasan di repairMissingSchema(). Dijalankan SEBELUM
-  // applyMigrations() supaya tabel yang hilang sudah ada saat ALTER berjalan.
-  repairMissingSchema(driverRunStatement, driverListNames, !migrationsComplete);
+  // Schema guard (server/db/schema-guard.ts). Runs BEFORE applyMigrations() so
+  // missing tables exist when the ALTERs below run, and it reconciles the
+  // journal so a lagging `__drizzle_migrations` stops warning on every start.
+  guardSchema(schemaGuardDb, migrationsDir, { migrationsStopped: !migrationsComplete });
   applyMigrations((sql) => sqlite.run(sql));
 } else {
   const BetterSqlite3 = (await import("better-sqlite3")).default;
@@ -453,8 +367,8 @@ if (isBun) {
   db = drizzle(sqlite, { schema });
   // See the ordering note in the Bun branch above.
   const migrationsComplete = runDrizzleMigrations(() => migrate(db, { migrationsFolder: migrationsDir }));
-  // Penjaga skema: lihat penjelasan di repairMissingSchema().
-  repairMissingSchema(driverRunStatement, driverListNames, !migrationsComplete);
+  // Schema guard — same call as the Bun branch above.
+  guardSchema(schemaGuardDb, migrationsDir, { migrationsStopped: !migrationsComplete });
   applyMigrations((sql) => sqlite.exec(sql));
 }
 

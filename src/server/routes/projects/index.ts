@@ -198,11 +198,14 @@ router.delete("projects/:id", async ({ params }) => {
 
 // GET /api/projects/:id/export — ZIP of the project files + project-scoped SQLite rows.
 router.get("projects/:id/export", async ({ params, query }) => {
+  const startedAt = Date.now();
+  const includeChat = query.get("includeChat") === "1";
   const project = db.select().from(projects).where(eq(projects.id, params.id)).get();
   if (!project) return notFound();
+  console.log(`[export] project bundle start id=${params.id} includeChat=${includeChat}`);
   try {
     const { exportProjectBundle } = await import("~/server/project-bundle");
-    const bytes = await exportProjectBundle(db, params.id, { includeChat: query.get("includeChat") === "1" });
+    const bytes = await exportProjectBundle(db, params.id, { includeChat });
     const slug = String(project.name ?? "project").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
     return new Response(bytes, {
       headers: {
@@ -212,7 +215,9 @@ router.get("projects/:id/export", async ({ params, query }) => {
       },
     });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Export gagal" }, 500);
+    const message = error instanceof Error ? error.message : "Export gagal";
+    console.error(`[export] project bundle failed id=${params.id} after ${Date.now() - startedAt}ms: ${message}`);
+    return json({ error: message }, 500);
   }
 });
 
