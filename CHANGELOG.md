@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.5.4 — DB warisan direkonsiliasi, export ZIP tidak lagi "Failed to fetch"
+
+Rilis patch untuk dua laporan dari mesin Windows yang menjalankan DB hasil upgrade build lama: jurnal migrasi yang tertinggal kini bisa menyusul, dan export project/task tidak lagi berhenti dengan pesan mentah dari browser.
+
+### Fix — Database (#58)
+- **Jurnal migrasi direkonsiliasi**, bukan hanya direplay: penjaga skema mencatat migrasi yang sudah diverifikasi ke `__drizzle_migrations` dengan format drizzle sendiri (sha256 berkas `.sql` + `when` dari `_journal.json`). DB dengan jurnal di 0003 kini menyusul penuh pada start pertama, dan start berikutnya bersih — tanpa peringatan dan tanpa replay ulang.
+- **Migrasi rebuild tidak lagi dilewati diam-diam**: `DROP`/`INSERT`/`UPDATE`/`DELETE`/`RENAME` dijalankan untuk migrasi yang belum tercatat, di dalam `SAVEPOINT` sehingga kegagalan menggulung berkasnya dan jurnal tetap di belakangnya.
+- **Pemeriksaan kolom**, bukan hanya nama tabel: kolom yang hilang tetap diperbaiki walau jurnal sudah lengkap.
+- Peringatan memakai hitungan nyata dari jurnal, dan tidak lagi salah lapor untuk tabel scratch `__new_*` maupun kolom yang dihapus lewat rebuild / `DROP COLUMN`.
+
+### Fix — Export (#59)
+- **`Content-Length` manual pada ZIP handoff dihapus** — header framing yang ditulis sendiri bisa bentrok dengan runtime dan menjadi network error di WebView2, bukan error HTTP yang bisa dibaca user.
+- **Setiap export meninggalkan jejak di log server**: mulai (project, format, jumlah task), selesai (jumlah berkas, byte sumber, byte ZIP, durasi), dan gagal (pesan + durasi).
+- **Pembacaan berkas tidak lagi memblokir event loop** (`await fs.promises.readFile`), sehingga heartbeat SSE tetap hidup saat project besar diekspor.
+- **Pesan yang bisa ditindaklanjuti di UI**: `Failed to fetch` / `Load failed` / timeout dipetakan ke kalimat yang jelas, kegagalan dikirim ke `/api/system/client-error`, unduhan memakai pola append → click → remove dengan revoke tertunda, dialog export berhenti setelah 5 menit, dan jalur export di tab Tasks menampilkan `InlineAlert` (dulu hanya `console.error`).
+
+### Verifikasi
+- `bun run typecheck` bersih; `bun test src`: **859 tes di 167 berkas** lulus (14 tes baru: 10 penjaga skema, 5 helper unduhan).
+- Reproduksi issue #58 dengan dua proses start pada DB yang jurnalnya dipangkas ke 4 baris: start pertama mencatat 26 entri (4 → 30) dan start kedua tanpa output dengan jurnal tetap 30; `migrate()` pada start lanjutan lolos.
+- Kedua route export dipanggil lewat `handleApiRequest`: status 200, ZIP valid (`PK\x03\x04`), tanpa `Content-Length` manual, dan baris `[export]` muncul untuk keduanya.
+- Catatan: klik unduh ZIP di desktop build Windows belum diuji di mesin Windows.
+
+### Catatan teknis
+- Tidak ada migrasi database baru dan tidak ada dependency baru.
+
 ## v0.5.3 — Export/import project, Global Settings, dan saran lanjutan di chat
 
 Rilis ini mengumpulkan pekerjaan sejak v0.5.2: project bisa dipindahkan sebagai satu ZIP, pengaturan model/MCP/CLI/tampilan punya halaman global, chat menawarkan langkah lanjutan yang bisa diklik, berkas markdown dibuka sebagai bacaan, dan canvas ERD kini bisa menyunting schema. Ada juga perbaikan gambar TD dan konsistensi UI.
