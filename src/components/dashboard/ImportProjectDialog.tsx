@@ -57,7 +57,16 @@ export function ImportProjectDialog({ open, onOpenChange, onImported }: ImportPr
       form.append("destPath", destPath.trim());
       const res = await fetch("/api/projects/import", { method: "POST", body: form, cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Import gagal");
+      if (!res.ok) {
+        // A body over Bun's request limit is rejected before the route runs: an
+        // empty 413 with no JSON, which used to surface as a bare "Import gagal".
+        const message =
+          (data as { error?: string }).error ||
+          (res.status === 413
+            ? "ZIP terlalu besar untuk diunggah ke server lokal ini. Batas export/import 500 MB."
+            : `Import gagal (HTTP ${res.status})`);
+        throw new Error(message);
+      }
       reset();
       onOpenChange(false);
       onImported(data.projectId);
