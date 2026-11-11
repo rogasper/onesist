@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.6 — ZIP export bisa dibuka Windows Explorer, dan tidak lagi ditahan di memori WebView
+
+Rilis patch untuk export proyek besar. Arsipnya kini ditulis dengan format ZIP biasa — CRC dan ukuran di local header, bukan data descriptor yang ditolak Windows — dan klien menyimpannya langsung ke disk, bukan menampungnya dulu di memori WebView.
+
+### Fix — Export (#59)
+- **ZIP ditolak Windows Explorer.** Arsip dari `generateNodeStream` JSZip memakai data descriptor (flag bit 3, ukuran dan CRC setelah data); `unzip`, bsdtar, dan JSZip membacanya, Explorer tidak — "The Compressed (zipped) Folder is invalid". Penulis ZIP sendiri di `server/zip-stream.ts` menaruh CRC dan ukuran sebenarnya di setiap local header dengan flags 0. Diverifikasi: 124 entri, **0 memakai data descriptor**, `unzip -t` bersih, JSZip membaca ulang, nama UTF-8 dan berkas kosong ikut diuji.
+- **Transfer dibatalkan klien.** Log pelapor menunjukkan server sehat (RSS puncak 331 MB dari 3000 MB, tanpa `done`/`failed`) sementara klien memutus koneksi: `blob()` sekitar 400 MB bisa melewati kuota memori renderer. Dialog export kini memakai `showSaveFilePicker()` **sebelum** request dan menyalurkan body ke disk; tanpa API itu (atau bila picker ditolak) kembali ke jalur blob, dan stream yang putus membatalkan tulis serta menghapus berkas parsial. Tidak ada fungsi Rust/Tauri.
+- **Log yang bisa dibedakan.** `stream done … zip=N` untuk arsip yang selesai, `stream aborted … after N zip bytes, X/Y file(s)` untuk yang dibatalkan; sebelumnya tiga kegagalan tampak seperti tiga stream yang sekadar tidak pernah selesai.
+
+### Verifikasi
+- `bun run typecheck` bersih; `bun test src`: **874 tes di 169 berkas** lulus (10 tes baru: format ZIP dan helper simpan-ke-disk).
+- Ekspor 120 berkas (70 MB) lewat sidecar terkompilasi: 63.018.124 byte sama persis dengan `zip=63018124` pada baris log, `unzip -t` bersih.
+- Catatan: membuka ZIP di Windows Explorer dan munculnya dialog "Simpan sebagai" di WebView2 belum diuji dari mesin pengembang (macOS).
+
+### Catatan teknis
+- Tidak ada migrasi database baru dan tidak ada dependency baru.
+
 ## v0.5.5 — Export proyek besar: ZIP dialirkan dan progress-nya terlihat
 
 Rilis patch untuk export project yang masih gagal di proyek besar setelah v0.5.4. Pesan "Koneksi ke server terputus" itu benar: koneksinya memang diputus, bukan export-nya kehabisan waktu.
