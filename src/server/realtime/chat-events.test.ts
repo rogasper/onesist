@@ -80,3 +80,24 @@ test("chat:compaction reaches the client, so the transcript can show the divider
   expect(text).toContain('"estimatedBefore":9000');
   controller.abort();
 });
+
+// The export dialog draws its progress bar from this event; the route's list of
+// forwarded names is easy to forget (that is exactly how chat:steer broke).
+test("export:progress reaches the client, so the export dialog can show a bar", async () => {
+  const { res, controller } = await openEvents();
+  queueMicrotask(() =>
+    eventBus.emitExportProgress({
+      progressId: "exp_1",
+      projectId: "p1",
+      bytesDone: 25,
+      bytesTotal: 100,
+      filesDone: 1,
+      filesTotal: 4,
+    }),
+  );
+  const text = await readUntil(res, "event: export:progress");
+  expect(text).toContain('"progressId":"exp_1"');
+  expect(text).toContain('"bytesTotal":100');
+  expect(text).toContain('"filesTotal":4');
+  controller.abort();
+});

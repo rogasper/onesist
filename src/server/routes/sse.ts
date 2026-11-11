@@ -47,7 +47,7 @@ router.get("events", async (ctx) => {
         }
       };
       const handlers: Record<string, (...args: any[]) => void> = {};
-      for (const event of ["file:changed", "task:status", "fsd:conversion", "chat:run", "chat:approval", "chat:steer", "chat:approval-resolved", "chat:queue", "chat:turn", "chat:question", "chat:question-resolved", "chat:provider-retry", "chat:compaction", "lock:changed"]) {
+      for (const event of ["file:changed", "task:status", "fsd:conversion", "chat:run", "chat:approval", "chat:steer", "chat:approval-resolved", "chat:queue", "chat:turn", "chat:question", "chat:question-resolved", "chat:provider-retry", "chat:compaction", "lock:changed", "export:progress"]) {
         const handler = (payload: any) => send(event, payload);
         eventBus.on(event, handler);
         handlers[event] = handler;

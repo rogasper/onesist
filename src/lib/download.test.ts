@@ -5,7 +5,7 @@
  *   bun test src/lib/download.test.ts
  */
 import { expect, test } from "bun:test";
-import { downloadErrorText, downloadFilename } from "./download";
+import { downloadErrorText, downloadFilename, formatBytes } from "./download";
 
 test("browser network wording becomes an actionable message", () => {
   for (const raw of ["Failed to fetch", "Load failed", "fetch failed", "The operation couldn't be completed"]) {
@@ -34,4 +34,13 @@ test("the filename comes from the response header, with a fallback", () => {
   });
   expect(downloadFilename(withHeader, "fallback.zip")).toBe("handoff-Demo-v1.zip");
   expect(downloadFilename(new Response("x"), "fallback.zip")).toBe("fallback.zip");
+});
+
+test("bytes are written the way the UI shows them", () => {
+  expect(formatBytes(0)).toBe("0 B");
+  expect(formatBytes(512)).toBe("512 B");
+  expect(formatBytes(12_400)).toBe("12,1 KB");
+  expect(formatBytes(124_800_000)).toBe("119 MB");
+  expect(formatBytes(1_500_000_000)).toBe("1,4 GB");
+  expect(formatBytes(Number.NaN)).toBe("0 B");
 });

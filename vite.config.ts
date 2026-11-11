@@ -312,6 +312,17 @@ export default defineConfig({
   resolve: {
     alias: {
       "~": path.resolve(__dirname, "./src"),
+      // jszip's package `browser` field points its entry at dist/jszip.min.js,
+      // which has no Node stream support (no generateNodeStream, no stream
+      // input). The project export streams each file from disk, so the server
+      // build must use the Node entry. jszip is server-only: nothing imports it
+      // from client code.
+      jszip: path.resolve(__dirname, "./node_modules/jszip/lib/index.js"),
+      // jszip decides whether it can stream Node entries by checking
+      // `require("readable-stream").Readable`. Bundling the polyfill package
+      // made that check fail ("nodestream is not supported by this platform"),
+      // so point it at Node's own stream — the sidecar runs in Bun/Node anyway.
+      "readable-stream": "node:stream",
     },
   },
   build: {
@@ -394,5 +405,10 @@ export default defineConfig({
       "node-pty",
       "ws",
     ],
+    // jszip's Node entry keeps `require("setimmediate" | "lie" | "pako" |
+    // "readable-stream")` calls; left external they cannot resolve inside the
+    // compiled sidecar (no node_modules), which broke the streamed export with
+    // "Cannot find module 'setimmediate'". Bundle them into the server output.
+    noExternal: ["jszip", "setimmediate", "lie", "pako"],
   },
 });
