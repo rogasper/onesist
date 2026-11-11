@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.7 — Import project besar bisa diunggah
+
+Rilis patch untuk import ZIP di atas 128 MB yang selalu berhenti dengan "Import gagal".
+
+### Fix — Import
+- **Batas body server dinaikkan.** Bun punya batas bawaan 128 MB untuk body request, dan penolakannya berupa **HTTP 413 dengan body kosong** — sebelum route import sempat berjalan, sehingga UI hanya bisa menampilkan "Import gagal" tanpa sebab. Server Onesist dijalankan oleh auto-serve Bun dari default export `src/server.ts`, dan `maxRequestBodySize` di sana kini diatur ke batas bundel 500 MB + 32 MB. ZIP yang benar-benar kelewat besar tetap sampai ke route dan mendapat pesan JSON-nya.
+- **Pesan galat yang jelas di dialog Import**: respons non-JSON menyebut status HTTP, dan 413 mengatakan ZIP melebihi batas alih-alih mengulang "Import gagal".
+
+### Verifikasi
+- ZIP 305,7 MB milik pelapor diimpor lewat sidecar terkompilasi + HTTP: **201 dalam 3,5 detik**, baris project dibuat, **299 task** dipulihkan. Memanggil `importProjectBundle` langsung juga berhasil (488 MB RSS), yang membuktikan importer-nya sehat dan batas body-lah penyebabnya.
+- `bun run typecheck` bersih; `bun test src`: **874 tes di 169 berkas** lulus; `bun run build:server` sukses.
+- Catatan: unggahan 305 MB lewat WebView (dialog aslinya) belum diuji dari mesin pengembang.
+
+### Catatan teknis
+- Tidak ada migrasi database baru dan tidak ada dependency baru.
+
 ## v0.5.6 — ZIP export bisa dibuka Windows Explorer, dan tidak lagi ditahan di memori WebView
 
 Rilis patch untuk export proyek besar. Arsipnya kini ditulis dengan format ZIP biasa — CRC dan ukuran di local header, bukan data descriptor yang ditolak Windows — dan klien menyimpannya langsung ke disk, bukan menampungnya dulu di memori WebView.
