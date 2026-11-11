@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { db } from "~/server/db/client";
 import { projects } from "~/server/db/schema";
+import { MAX_BUNDLE_BYTES } from "~/server/project-bundle";
 import { resolveNodeExe } from "~/lib/resolve-node";
 import { recoverInterruptedRuns } from "~/server/agent/run-registry";
 import { startIndexWatcher } from "~/server/agent/index/watch";
@@ -194,6 +195,15 @@ async function serveStatic(request: Request): Promise<Response | null> {
 }
 
 export default {
+  /**
+   * Bun auto-serves this default export, and the options here are handed to
+   * `Bun.serve` — its own default request limit is 128 MB, so importing a project
+   * ZIP larger than that died as an EMPTY 413 before the import route ever ran,
+   * which the dialog could only show as "Import gagal". The limit sits just above
+   * the bundle cap (500 MB) so an oversized ZIP still reaches the route and gets
+   * its proper JSON error.
+   */
+  maxRequestBodySize: MAX_BUNDLE_BYTES + 32 * 1024 * 1024,
   async fetch(request: Request, opts?: Parameters<typeof startHandler>[1]) {
     const apiResponse = await handleApiRequest(request);
     if (apiResponse) return apiResponse;
