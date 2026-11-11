@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.5.5 — Export proyek besar: ZIP dialirkan dan progress-nya terlihat
+
+Rilis patch untuk export project yang masih gagal di proyek besar setelah v0.5.4. Pesan "Koneksi ke server terputus" itu benar: koneksinya memang diputus, bukan export-nya kehabisan waktu.
+
+### Fix — Export (#59)
+- **ZIP dialirkan, bukan ditahan di RAM.** Tiap berkas di-pipe dari disk ke compressor dan byte terkompresi dikirim sambil dibuat. Pada proyek 300 MB, puncak memori turun dari **1.542 MB ke 237 MB** dan byte pertama tiba dalam **~19 ms** (sebelumnya menunggu 12,5 detik sampai seluruh ZIP selesai). Ekspor kedua berturut-turut tidak lagi menumpuk di atas sisa yang pertama.
+- **Penyebabnya memori, bukan timeout.** Jalur lama menahan semua isi berkas plus ZIP jadi (≈5× ukuran proyek); sidecar mematikan dirinya sendiri di `SA_MAX_RSS_MB` (3000 MB), sehingga proyek yang lebih besar memutus koneksi di tengah request.
+- **ZIP hasil stream tetap kompatibel**: memakai data descriptor (`streamFiles`), lolos `unzip -t`, dan dibaca ulang oleh JSZip — impor project tetap bekerja.
+- Sidecar memakai build Node `jszip` (`generateNodeStream`) dan `node:stream`; `setimmediate`/`lie`/`pako` ikut dibundel karena binary sidecar tidak punya `node_modules`.
+
+### Feat — Progress export
+- **Progress bar di dialog Export**: "104 / 200 berkas · 110,8 MB / 200 MB". Server melaporkan byte sumber yang sudah dibaca lewat event SSE `export:progress` (throttle 150 ms, difilter `progressId` milik dialog), ditambah header total dari route. Tanpa polling, dan tetap turun ke spinner bila SSE putus.
+
+### Verifikasi
+- `bun run typecheck` bersih; `bun test src`: **863 tes di 167 berkas** lulus (3 tes baru: progress 0→100%, forwarding SSE, `formatBytes`).
+- Sidecar terkompilasi: 150 MB teks 3,4 s; 300 MB biner 12,3 s dua kali beruntun (keduanya 200); 200 MB → 56 event progress dari 0 sampai 100%; setiap ZIP lolos `unzip -t`.
+- Catatan: klik unduh ZIP di desktop build Windows masih belum diuji di mesin Windows. Bila masih gagal, log server membedakannya: `[export] project bundle stream done` berarti server selesai mengirim dan sisanya di WebView.
+
+### Catatan teknis
+- Tidak ada migrasi database baru dan tidak ada dependency baru.
+
 ## v0.5.4 — DB warisan direkonsiliasi, export ZIP tidak lagi "Failed to fetch"
 
 Rilis patch untuk dua laporan dari mesin Windows yang menjalankan DB hasil upgrade build lama: jurnal migrasi yang tertinggal kini bisa menyusul, dan export project/task tidak lagi berhenti dengan pesan mentah dari browser.
