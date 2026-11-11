@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import JSZip from "jszip";
+import { zipStream, type ZipEntry } from "~/server/zip-stream";
 import { eq, inArray, sql } from "drizzle-orm";
 import {
   apiEndpoints,
@@ -245,7 +246,8 @@ function rewriteUploads(value: string | null, oldThreadId: string, newThreadId: 
 }
 
 interface PreparedBundle {
-  zip: JSZip;
+  /** Manifest dan data JSON lain, selalu ditulis lebih dulu di dalam ZIP. */
+  jsonEntries: { name: string; contents: string }[];
   files: ProjectFile[];
   totalFileBytes: number;
   projectId: string;
@@ -377,55 +379,45 @@ async function prepareProjectBundle(
     counts,
   };
 
-  const zip = new JSZip();
-  zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-  zip.file("data/project.json", JSON.stringify({ project: sanitizeProject(project) }, null, 2));
-  zip.file("data/artifacts.json", JSON.stringify(artifacts, null, 2));
-  zip.file("data/execution.json", JSON.stringify({ settings }, null, 2));
-  if (chat) zip.file("data/chat.json", JSON.stringify(chat, null, 2));
-  return { zip, files, totalFileBytes, projectId, startedAt };
+  const jsonEntries = [
+    { name: "manifest.json", contents: JSON.stringify(manifest, null, 2) },
+    { name: "data/project.json", contents: JSON.stringify({ project: sanitizeProject(project) }, null, 2) },
+    { name: "data/artifacts.json", contents: JSON.stringify(artifacts, null, 2) },
+    { name: "data/execution.json", contents: JSON.stringify({ settings }, null, 2) },
+  ];
+  if (chat) jsonEntries.push({ name: "data/chat.json", contents: JSON.stringify(chat, null, 2) });
+  return { jsonEntries, files, totalFileBytes, projectId, startedAt };
 }
 
 /**
- * Buffered export (tests, small callers): the whole ZIP is returned as one
- * buffer. For the download route use `exportProjectBundleStream` — a project
- * near the 500 MB cap needed ~5× its size in RSS this way, which is what made
- * the sidecar's memory watchdog kill the process mid-export.
+ * Buffered export (tests, small callers): the whole ZIP is returned as one buffer.
+ * It consumes the streaming implementation, so both produce the same archive —
+ * and a project near the 500 MB cap pays ~5× its size in RSS this way, which is
+ * why the download route uses `exportProjectBundleStream` instead.
  */
 export async function exportProjectBundle(
   db: Db,
   projectId: string,
   options: ProjectBundleOptions = {},
 ): Promise<ArrayBuffer> {
-  const prepared = await prepareProjectBundle(db, projectId, options);
-  for (const file of prepared.files) {
-    // Async reads yield between files: a synchronous loop over thousands of
-    // files blocked the event loop for the whole export, starving the SSE
-    // heartbeat so the stream looked dead while the ZIP was being built.
-    prepared.zip.file(bundlePath(file), await fs.promises.readFile(file.abs));
-  }
-  const bytes = await prepared.zip.generateAsync({
-    type: "arraybuffer",
-    compression: "DEFLATE",
-    compressionOptions: { level: 6 },
-  });
-  console.log(
-    `[export] project bundle id=${projectId} files=${prepared.files.length} source=${prepared.totalFileBytes} zip=${bytes.byteLength} bytes in ${Date.now() - prepared.startedAt}ms`,
-  );
-  return bytes;
+  const { stream } = await exportProjectBundleStream(db, projectId, options);
+  return new Response(stream).arrayBuffer();
 }
 
 /**
- * Streaming export for the HTTP route: each project file is piped straight from
- * disk into the compressor, and compressed bytes go to the response as they are
- * produced. Memory stays flat (one file at a time) instead of holding every
- * source buffer plus the finished ZIP, and the client sees the first bytes
- * immediately — a long silent build is what a runtime idle timeout can cut.
+ * Streaming export for the HTTP route: files are compressed and written one at a
+ * time, and the bytes leave as they are produced. Memory stays flat (one file at
+ * a time) instead of holding every source buffer plus the finished ZIP, and the
+ * client sees the first bytes immediately — a long silent build is what a
+ * runtime idle timeout can cut.
  *
- * Files are entries of the ZIP only, never touched by `generateAsync`, so the
- * stream is generated exactly once. A read failure mid-stream is logged; the
- * response has already started, so it can only end truncated — the client is
- * told to retry by the failed download in that rare case.
+ * The archive is written by `zip-stream.ts` (sizes and CRC in each local header)
+ * rather than JSZip's `generateNodeStream`: that one uses data descriptors,
+ * which Windows Explorer refuses to open.
+ *
+ * A read failure mid-stream is logged; the response has already started, so it
+ * can only end truncated — the client is told to retry by the failed download in
+ * that rare case.
  */
 export async function exportProjectBundleStream(
   db: Db,
@@ -450,15 +442,38 @@ export async function exportProjectBundleStream(
     });
   };
   report(true); // 0% with the real totals, so the UI can show them immediately
-  for (const file of prepared.files) {
-    prepared.zip.file(bundlePath(file), countedStream(file.abs, counters, report));
-  }
-  const nodeStream = prepared.zip.generateNodeStream({
-    type: "nodebuffer",
-    streamFiles: true,
-    compression: "DEFLATE",
-    compressionOptions: { level: 6 },
+
+  // Progress follows the project files only: the manifest and the JSON blobs are
+  // five entries that would otherwise push filesDone past filesTotal.
+  const entries: ZipEntry[] = [
+    ...prepared.jsonEntries.map((entry) => ({ name: entry.name, data: entry.contents })),
+    ...prepared.files.map((file) => ({
+      name: bundlePath(file),
+      abs: file.abs,
+      onChunk: (bytes: number) => {
+        counters.bytesDone += bytes;
+        report();
+      },
+      onFileDone: () => {
+        counters.filesDone += 1;
+        report();
+      },
+    })),
+  ];
+
+  const nodeStream = zipStream(entries);
+  // Compressed bytes on their way out, counted without attaching a `data`
+  // listener to the source (that would start it flowing before the web stream
+  // reads it). This is what makes a truncated response visible in the log.
+  let outputBytes = 0;
+  const outbound = new Transform({
+    transform(chunk, _encoding, done) {
+      outputBytes += chunk.length;
+      done(null, chunk);
+    },
   });
+  const sized = nodeStream.pipe(outbound);
+  let finished = false;
   nodeStream.once("error", (error) => {
     console.error(
       `[export] project bundle stream failed id=${projectId} after ${Date.now() - prepared.startedAt}ms: ${
@@ -467,45 +482,32 @@ export async function exportProjectBundleStream(
     );
   });
   nodeStream.once("end", () => {
+    finished = true;
     report(true); // 100% — every file was read
     console.log(
-      `[export] project bundle stream done id=${projectId} files=${prepared.files.length} source=${prepared.totalFileBytes} in ${Date.now() - prepared.startedAt}ms`,
+      `[export] project bundle stream done id=${projectId} files=${prepared.files.length} source=${prepared.totalFileBytes} zip=${outputBytes} in ${Date.now() - prepared.startedAt}ms`,
     );
   });
+  // Closed before it reached the end: the consumer went away (the WebView
+  // cancelled the response, or the socket died). Without this line a truncated
+  // response was completely silent in the log — three failed exports looked
+  // like three streams that simply never finished. Destroying the generator
+  // stops the compression instead of leaving it filling a pipe nobody reads.
+  sized.once("close", () => {
+    if (finished) return;
+    console.warn(
+      `[export] project bundle stream aborted id=${projectId} after ${outputBytes} zip bytes, ` +
+        `${counters.filesDone}/${prepared.files.length} file(s), ${counters.bytesDone}/${prepared.totalFileBytes} source bytes ` +
+        `in ${Date.now() - prepared.startedAt}ms`,
+    );
+    // `zipStream` returns a Node stream; its type omits destroy.
+    (nodeStream as unknown as Readable).destroy();
+  });
   return {
-    stream: Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>,
+    stream: Readable.toWeb(sized) as unknown as ReadableStream<Uint8Array>,
     fileCount: prepared.files.length,
     sourceBytes: prepared.totalFileBytes,
   };
-}
-
-/**
- * One project file as a counting stream: the bytes JSZip pulls all pass through
- * here, which is what makes the progress bar reflect real work. The counter is a
- * Transform, not a `data` listener — attaching one would start the source
- * flowing before JSZip reads it and could drop data.
- */
-function countedStream(
-  abs: string,
-  counters: { bytesDone: number; filesDone: number },
-  report: () => void,
-): Readable {
-  const source = fs.createReadStream(abs);
-  const counter = new Transform({
-    transform(chunk, _encoding, done) {
-      counters.bytesDone += chunk.length;
-      report();
-      done(null, chunk);
-    },
-    flush(done) {
-      counters.filesDone += 1;
-      report();
-      done();
-    },
-  });
-  source.on("error", (error) => counter.destroy(error));
-  source.pipe(counter);
-  return counter;
 }
 
 function remapEntityId(entityType: string, entityId: string, maps: Record<string, Map<string, string>>, newProjectId: string): string {
