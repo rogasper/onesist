@@ -11,6 +11,7 @@ import {
   saveBlob,
 } from "~/lib/download";
 import { subscribe } from "~/lib/event-stream";
+import { discardSaveDestination, pickSaveDestination, streamResponseToFile } from "~/lib/save-file";
 
 interface ExportProjectDialogProps {
   open: boolean;
@@ -44,6 +45,18 @@ export function ExportProjectDialog({ open, onOpenChange, project }: ExportProje
     setExporting(true);
     setError("");
     setProgress(null);
+
+    // Ask where to save BEFORE the request: the file picker needs this click's
+    // user gesture, and awaiting a response consumes it. Given a handle, the
+    // response body is piped straight to disk — a 387 MB ZIP never passes through
+    // `blob()` in the WebView, which is the one large buffer left on the client.
+    const suggestedName = `onesist-${project.name.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "project"}.zip`;
+    const destination = await pickSaveDestination(suggestedName);
+    if (destination === "cancelled") {
+      setExporting(false);
+      return;
+    }
+
     // The server reports source bytes read over the shared SSE stream; this id
     // keeps the events of another window's export out of this dialog.
     const progressId = crypto.randomUUID();
@@ -68,6 +81,7 @@ export function ExportProjectDialog({ open, onOpenChange, project }: ExportProje
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (destination) void discardSaveDestination(destination);
         throw new Error((data as { error?: string }).error || `Export gagal (HTTP ${res.status})`);
       }
       // Totals arrive as headers, so the bar is meaningful even if the first
@@ -80,8 +94,12 @@ export function ExportProjectDialog({ open, onOpenChange, project }: ExportProje
           filesTotal: Number(res.headers.get("X-Export-Files-Total")) || 0,
         },
       );
-      const blob = await res.blob();
-      saveBlob(blob, downloadFilename(res, `${project.name}.zip`));
+      if (destination) {
+        await streamResponseToFile(res, destination);
+      } else {
+        const blob = await res.blob();
+        saveBlob(blob, downloadFilename(res, suggestedName));
+      }
       onOpenChange(false);
     } catch (e) {
       setError(reportDownloadFailure("export-project", e));
