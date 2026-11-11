@@ -33,7 +33,11 @@ type EventName =
   | "chat:workspace"
   // Fase 5E: a document's write lock moved between windows (claimed, released, or its
   // holder's stream closed). Windows waiting on it claim again.
-  | "lock:changed";
+  | "lock:changed"
+  // A project ZIP export is being streamed: source bytes read so far. The client
+  // that asked for the export filters by its own `progressId` (the event goes to
+  // every open stream, like every other event here).
+  | "export:progress";
 
 interface EventPayload {
   type: EventName;
@@ -153,6 +157,19 @@ class AppEventBus extends EventEmitter {
 
   emitLockChanged(input: { key: string }) {
     this.emitAppEvent({ type: "lock:changed", data: { ...input } });
+  }
+
+  /** Source bytes read so far for a streamed project export. Throttled by the
+   *  exporter; consumers filter on their own `progressId`. */
+  emitExportProgress(input: {
+    progressId: string;
+    projectId: string;
+    bytesDone: number;
+    bytesTotal: number;
+    filesDone: number;
+    filesTotal: number;
+  }) {
+    this.emitAppEvent({ type: "export:progress", data: { ...input } });
   }
 
   emitChatApprovalResolved(input: { threadId: string; toolCallId: string }) {

@@ -31,6 +31,17 @@ export function downloadFilename(response: Response, fallback: string): string {
   return match?.[1] ?? fallback;
 }
 
+/** Bytes in readable Indonesian units: `980 B`, `12,4 KB`, `124,8 MB`. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / 1024 ** index;
+  // No decimals for plain bytes or for values already at/over 100.
+  const digits = index === 0 || value >= 100 ? 0 : 1;
+  return `${value.toFixed(digits).replace(".", ",")} ${units[index]}`;
+}
+
 /**
  * A message a user can act on. The browser's own wording ("Failed to fetch",
  * "Load failed") says nothing about what to do — and used to be shown as the

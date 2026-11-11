@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { eq } from "drizzle-orm";
 import * as schema from "./db/schema";
-import { exportProjectBundle, importProjectBundle } from "./project-bundle";
+import { exportProjectBundle, exportProjectBundleStream, importProjectBundle } from "./project-bundle";
 
 let sqlite: Database;
 let db: any;
@@ -164,6 +164,34 @@ describe("project bundle", () => {
     expect(zip.file("project/node_modules/pkg/index.js")).toBeNull();
     expect(zip.file("project/.env")).toBeNull();
     expect(zip.file("project/dist/out.js")).toBeNull();
+  });
+
+  test("the streamed export reports progress up to the source total", async () => {
+    const seen: { bytesDone: number; bytesTotal: number; filesDone: number; filesTotal: number }[] = [];
+    const { stream, fileCount, sourceBytes } = await exportProjectBundleStream(db, "p1", {
+      progress: (progress) => seen.push(progress),
+    });
+    await new Response(stream).arrayBuffer();
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen[0]).toEqual({ bytesDone: 0, bytesTotal: sourceBytes, filesDone: 0, filesTotal: fileCount });
+    const last = seen.at(-1)!;
+    expect(last.bytesDone).toBe(sourceBytes);
+    expect(last.filesDone).toBe(fileCount);
+    expect(last.filesTotal).toBe(fileCount);
+  });
+
+  test("the streamed export is a valid ZIP with the same entries", async () => {
+    const { stream, fileCount, sourceBytes } = await exportProjectBundleStream(db, "p1");
+    const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    expect(fileCount).toBeGreaterThan(0);
+    expect(sourceBytes).toBeGreaterThan(0);
+    // A streamed ZIP uses data descriptors (streamFiles), so validate the
+    // archive rather than comparing bytes with the buffered export.
+    const zip = await JSZip.loadAsync(bytes);
+    expect(zip.file("manifest.json")).not.toBeNull();
+    expect(zip.file("project/input/fsd/spec.md")).not.toBeNull();
+    expect(await zip.file("project/input/fsd/spec.md")!.async("string")).toBe("# Spec");
+    expect(zip.file("project/node_modules/pkg/index.js")).toBeNull();
   });
 
   test("import creates a new project and remaps every id", async () => {

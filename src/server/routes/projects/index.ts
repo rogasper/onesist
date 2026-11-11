@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { badRequest, json, notFound } from "../../http/response";
 import { Router } from "../../http/router";
 import { db } from "~/server/db/client";
+import { eventBus } from "~/server/realtime/events";
 import {
   apiEndpoints,
   apiSpecs,
@@ -198,25 +199,40 @@ router.delete("projects/:id", async ({ params }) => {
 
 // GET /api/projects/:id/export — ZIP of the project files + project-scoped SQLite rows.
 router.get("projects/:id/export", async ({ params, query }) => {
-  const startedAt = Date.now();
   const includeChat = query.get("includeChat") === "1";
+  const progressId = query.get("progressId");
   const project = db.select().from(projects).where(eq(projects.id, params.id)).get();
   if (!project) return notFound();
   console.log(`[export] project bundle start id=${params.id} includeChat=${includeChat}`);
   try {
-    const { exportProjectBundle } = await import("~/server/project-bundle");
-    const bytes = await exportProjectBundle(db, params.id, { includeChat });
+    const { exportProjectBundleStream } = await import("~/server/project-bundle");
+    // Streamed, not buffered: a large project used to hold every source file
+    // plus the finished ZIP in memory (~5× the project size), which pushed the
+    // sidecar past its RSS watchdog and dropped the connection mid-export.
+    const { stream, fileCount, sourceBytes } = await exportProjectBundleStream(db, params.id, {
+      includeChat,
+      // Progress rides the shared SSE stream; the dialog that started this
+      // export filters on its own id (another window may be exporting too).
+      progress: progressId
+        ? (progress) => eventBus.emitExportProgress({ progressId, projectId: params.id, ...progress })
+        : undefined,
+    });
     const slug = String(project.name ?? "project").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
-    return new Response(bytes, {
+    console.log(`[export] project bundle streaming id=${params.id} files=${fileCount} source=${sourceBytes}`);
+    return new Response(stream, {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="onesist-${slug}.zip"`,
         "Cache-Control": "no-store",
+        // Totals for the progress bar; the streamed ZIP has no Content-Length
+        // (the compressed size is only known once it finishes).
+        "X-Export-Bytes-Total": String(sourceBytes),
+        "X-Export-Files-Total": String(fileCount),
       },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Export gagal";
-    console.error(`[export] project bundle failed id=${params.id} after ${Date.now() - startedAt}ms: ${message}`);
+    console.error(`[export] project bundle failed id=${params.id}: ${message}`);
     return json({ error: message }, 500);
   }
 });
