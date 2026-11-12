@@ -120,6 +120,8 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
   const [exporting, setExporting] = useState<string | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  /** Saved in the app, but the task's .md file could not be updated. */
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [missingDialog, setMissingDialog] = useState<{ missing: string[]; prompt: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? null;
@@ -355,10 +357,14 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (res.ok) {
-      const updated = await res.json();
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
-    }
+    const payload = await res.json().catch(() => ({}));
+    // A failed save is surfaced in the modal instead of closing as if it worked.
+    if (!res.ok) throw new Error((payload as { error?: string }).error || `Gagal menyimpan (HTTP ${res.status})`);
+    const { fileSync, ...row } = payload as Task & { fileSync?: { synced: boolean; error?: string } | null };
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? (row as Task) : t)));
+    // The row is saved either way; the .md write can fail on its own (a card the
+    // locator cannot find, a read-only file) and is reported here, not as an error.
+    setSaveWarning(fileSync && !fileSync.synced && fileSync.error ? fileSync.error : null);
   }, [id]);
 
   const handleDelete = useCallback(async (taskId: string) => {
@@ -798,6 +804,12 @@ export function TasksView({ projectId, initialTasks }: { projectId: string; init
       {exportError ? (
         <InlineAlert kind="error" className="mb-2">
           {exportError}
+        </InlineAlert>
+      ) : null}
+
+      {saveWarning ? (
+        <InlineAlert kind="warning" className="mb-2">
+          {saveWarning}
         </InlineAlert>
       ) : null}
 

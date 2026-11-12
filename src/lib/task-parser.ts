@@ -23,6 +23,300 @@ export interface ParsedTask {
   acceptanceCriteria: string[];
 }
 
+/**
+ * Heading variants a task card can start with (H2 only). The fsd-analyzer skill
+ * documents several and different models follow different ones, so all are
+ * accepted:
+ *   A: "## Task FE-1: Title" — canonical; separator can be : ： — – -
+ *   B: "## Task: Title"      — no ID → deterministic auto-number
+ *   B2:"## Task [FE]: Title" — bracket role (escaped \[FE] from AI) -> auto-number
+ *   C: "## FE-1: Title"      — code-like ID without the "Task" keyword
+ */
+const TASK_SECTION_HEADINGS = [
+  /^##\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]\s*(.*)$/i,
+  // Empty group 1 keeps the (id, title) layout consistent across patterns
+  /^##\s+Task\s*[:：]\s*()(.+)$/i,
+  /^##\s+Task\s*(?:\\?\[?[A-Za-z]+\]?\s*)?[:：]\s*()(.+)$/i,
+  /^##\s+([A-Za-z]{1,12}-\d[\w.-]*)\s*[:：—–-]\s*(.+)$/,
+];
+
+/** Headings that belong to the card, not to its body (H1 and H3 fallbacks included). */
+const TASK_BODY_HEADINGS = [/^#\s+Task\b/i, /^###\s+\S+\s*[—–-]\s+/, ...TASK_SECTION_HEADINGS];
+
+/** `task_fe.md` → "fe", `task.md`/`MASTER_TASK.md` → "task" (same rule as the parser). */
+function moduleNameFor(filename: string): string {
+  return filename.replace(/\.md$/i, "").replace(/^MASTER_TASK$/i, "task").replace(/^tasks?_/i, "") || "task";
+}
+
+/**
+ * The card code a heading parses to: the raw ID keeps its own module prefix,
+ * otherwise the file's module is prepended; headings without an ID get the
+ * deterministic `module-N` fallback.
+ */
+function deriveTaskCode(rawId: string, moduleName: string, autoIndex: number): string {
+  if (!rawId) return `${moduleName}-${autoIndex}`;
+
+  const prefix = rawId.toLowerCase();
+  return prefix.startsWith(`${moduleName.toLowerCase()}-`) ||
+    prefix.startsWith(`${moduleName.toLowerCase()}_`) ||
+    prefix.startsWith(`${moduleName.toLowerCase()}.`)
+    ? rawId
+    : `${moduleName}-${rawId}`;
+}
+
+/** A row or bullet that repeats the Story Points / Assignee field above the editor. */
+function isTaskMetaLine(line: string): boolean {
+  if (/^\s*\|\s*(story\s*points?|developer)\s*\|/i.test(line)) return true;
+  return /^\s*[-*]\s*(story\s*points?|developer)\s*[:：]/i.test(line);
+}
+
+/**
+ * The body a human edits: no `## Task …` heading and no metadata line that
+ * repeats a field shown above the editor (Story Points, Developer).
+ *
+ * The heading is recognised by pattern — or dropped by exact match when the
+ * parser already knows the line — instead of "drop the first line", so content
+ * that legitimately starts with another heading is left alone.
+ */
+export function stripTaskHeading(section: string, heading?: string): string {
+  const lines = section.split("\n");
+  let start = 0;
+  while (start < lines.length && lines[start].trim() === "") start++;
+
+  const first = lines[start] ?? "";
+  const isHeading = heading !== undefined ? first === heading : TASK_BODY_HEADINGS.some((re) => re.test(first));
+  if (start < lines.length && isHeading) start++;
+
+  return lines.slice(start).filter((line) => !isTaskMetaLine(line)).join("\n").trim();
+}
+
+export interface TaskSection {
+  /** The card code this section parses to (see deriveTaskCode). */
+  code: string;
+  /** Heading line index. */
+  start: number;
+  /** First line after the section (next `## ` or end of file). */
+  end: number;
+  heading: string;
+  title: string;
+}
+
+/**
+ * H2 task sections of a file, with the code each one parses to. Used to write an
+ * edited card back to its own section without touching anything else in the file.
+ */
+export function taskSections(content: string, filename: string): TaskSection[] {
+  const moduleName = moduleNameFor(filename);
+  const lines = content.split("\n");
+  const sections: TaskSection[] = [];
+  let autoIndex = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    let match: RegExpMatchArray | null = null;
+    for (const re of TASK_SECTION_HEADINGS) {
+      match = lines[i].match(re);
+      if (match) break;
+    }
+    if (!match) continue;
+
+    const rawId = match[1] ?? "";
+    const title = (match[2] ?? "").trim();
+    if (!title) continue;
+    if (!rawId) autoIndex++;
+
+    let end = lines.length;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].startsWith("## ")) {
+        end = j;
+        break;
+      }
+    }
+
+    sections.push({ code: deriveTaskCode(rawId, moduleName, autoIndex), start: i, end, heading: lines[i], title });
+    i = end - 1;
+  }
+
+  return sections;
+}
+
+export interface TaskSectionEdit {
+  /** Judul tanpa prefix kode; heading lama mempertahankan bentuknya sendiri. */
+  title: string;
+  body: string;
+  storyPoints: number | null;
+  assignee: string | null;
+}
+
+interface LocatedSection {
+  start: number;
+  end: number;
+  heading: string;
+  title: string;
+  /** H1 single-task, H2 card, or H3 sub-task — decides where the section ends. */
+  level: 1 | 2 | 3;
+}
+
+/**
+ * Menemukan section satu kartu di berkasnya.
+ *
+ * Kode hasil turunan tidak selalu cukup: berkas di subfolder (`master.md`,
+ * `phase/file.md`) memberi prefix modul dari nama folder, bukan nama berkas, dan
+ * kartu dari fallback H1/H3 tidak punya section H2 sama sekali. Karena itu
+ * pencarian jatuh ke judul heading — judul lama dulu (rencana ganti nama), lalu
+ * judul baru — sebelum menyerah.
+ */
+function locateTaskSection(
+  content: string,
+  filename: string,
+  code: string,
+  previousTitle?: string,
+  nextTitle?: string,
+): LocatedSection | null {
+  const byCode = taskSections(content, filename).find((section) => section.code === code);
+  if (byCode) return { ...byCode, level: 2 };
+
+  const lines = content.split("\n");
+  const wanted = [previousTitle, nextTitle]
+    .map((title) => title?.trim())
+    .filter((title): title is string => Boolean(title));
+
+  const matchesTitle = (value: string) => wanted.includes(value.trim());
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    const h1 = line.match(/^#\s+Task\s*(?:\\?\[?[A-Za-z0-9._-]+\]?\s*)?[:：—–-]\s*(.+)$/i);
+    if (h1 && matchesTitle(h1[1])) {
+      return { start: i, end: lines.length, heading: line, title: h1[1].trim(), level: 1 };
+    }
+
+    const h3 = line.match(/^###\s+\S+\s*[—–-]\s*(.+)$/);
+    if (h3 && matchesTitle(h3[1])) {
+      let end = lines.length;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].startsWith("### ") || lines[j].startsWith("## ") || lines[j].startsWith("---")) {
+          end = j;
+          break;
+        }
+      }
+      return { start: i, end, heading: line, title: h3[1].trim(), level: 3 };
+    }
+
+    for (const re of TASK_SECTION_HEADINGS) {
+      const match = line.match(re);
+      if (!match || !matchesTitle(match[2] ?? "")) continue;
+      let end = lines.length;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].startsWith("## ")) {
+          end = j;
+          break;
+        }
+      }
+      return { start: i, end, heading: line, title: (match[2] ?? "").trim(), level: 2 };
+    }
+  }
+
+  // Last resort: a heading line that carries the card's own ID, whatever its
+  // style — agent-written files use shapes like "# P3M22-T2 | Judul" that the
+  // canonical patterns above do not cover. The old title is still the text to
+  // replace inside that heading; if it is not there, the heading is left alone.
+  const moduleName = moduleNameFor(filename);
+  const rawId = code.startsWith(`${moduleName}-`) ? code.slice(moduleName.length + 1) : code;
+  if (rawId) {
+    for (let i = 0; i < lines.length; i++) {
+      const heading = lines[i].match(/^(#{1,6})\s+(.+)$/);
+      if (!heading || !heading[2].includes(rawId)) continue;
+
+      const level = heading[1].length;
+      let end = lines.length;
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j].match(/^(#{1,6})\s+/);
+        if (next && next[1].length <= level) {
+          end = j;
+          break;
+        }
+      }
+      return { start: i, end, heading: lines[i], title: previousTitle?.trim() ?? "", level: Math.min(level, 3) as 1 | 2 | 3 };
+    }
+  }
+
+  return null;
+}
+
+/** Replaces the value of a `| Story Point | 3 |` row or a `- Story Points: 3` bullet. */
+function replaceMetaValue(line: string, value: string): string {
+  if (/^\s*\|/.test(line)) {
+    const cells = line.split("|");
+    if (cells.length >= 4) {
+      cells[2] = ` ${value} `;
+      return cells.join("|");
+    }
+  }
+  return line.replace(/([:：]\s*).*$/, `$1${value}`);
+}
+
+/**
+ * Menulis satu kartu kembali ke section-nya di berkas `.md`.
+ *
+ * Yang berubah hanya: judul pada heading (bentuk heading dipertahankan), baris
+ * Story Points / Developer (atau ditambahkan bila belum ada), dan body. Sisa
+ * berkas — task lain, tabel ringkasan di atas, prosa — dibiarkan apa adanya.
+ *
+ * @returns isi berkas yang baru, atau null bila section kartu itu tidak ditemukan.
+ */
+export function rewriteTaskSection(
+  content: string,
+  filename: string,
+  code: string,
+  edit: TaskSectionEdit,
+  previousTitle?: string,
+): string | null {
+  const section = locateTaskSection(content, filename, code, previousTitle, edit.title);
+  if (!section) return null;
+
+  const lines = content.split("\n");
+  const sectionLines = lines.slice(section.start, section.end);
+  const heading = section.heading;
+
+  // Keep the heading's own shape (## Task ID: / ## ID: / # ID | …); only the
+  // title text is replaced, so a rename does not restyle the file. When the old
+  // title is not in the heading (agent rewrote it), the heading is left alone.
+  const cut = section.title ? heading.lastIndexOf(section.title) : -1;
+  const newHeading = cut >= 0 ? `${heading.slice(0, cut)}${edit.title}`.trimEnd() : heading;
+
+  const metaLines = sectionLines.slice(1).filter(isTaskMetaLine);
+  const hasStoryPoints = metaLines.some((line) => /story\s*points?/i.test(line));
+  const hasDeveloper = metaLines.some((line) => /developer/i.test(line));
+
+  const nextMeta = metaLines.map((line) => {
+    if (edit.storyPoints !== null && /story\s*points?/i.test(line)) return replaceMetaValue(line, String(edit.storyPoints));
+    if (edit.assignee !== null && /developer/i.test(line)) return replaceMetaValue(line, edit.assignee);
+    return line;
+  });
+  if (edit.storyPoints !== null && !hasStoryPoints) nextMeta.push(`- Story Points: ${edit.storyPoints}`);
+  if (edit.assignee !== null && !hasDeveloper) nextMeta.push(`- Developer: ${edit.assignee}`);
+
+  const block = [
+    newHeading,
+    "",
+    ...nextMeta,
+    ...(nextMeta.length > 0 ? [""] : []),
+    edit.body.trim(),
+  ]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+
+  const after = lines.slice(section.end);
+  return [
+    ...lines.slice(0, section.start),
+    ...block.split("\n"),
+    // Keep one blank line before the next card, so its heading is not glued to
+    // the paragraph above it (the body was trimmed).
+    ...(after.length > 0 ? [""] : []),
+    ...after,
+  ].join("\n");
+}
+
 export function scanAllTaskFiles(rootPath: string): { tasks: ParsedTask[]; skippedFiles: string[] } {
   const tasks: ParsedTask[] = [];
   const skippedFiles: string[] = [];
@@ -174,7 +468,7 @@ function parseMasterMd(content: string, phase: string, baseDir: string = "output
         parentCode: currentParent.code,
         status: "todo",
         phase,
-        contentMd: sectionContent,
+        contentMd: stripTaskHeading(sectionContent, lines[currentParent.startLine]),
         sourcePath: `${baseDir}/${phase}/master.md`,
         ...handoff,
       });
@@ -192,7 +486,7 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
   // singular (task_fe.md) and plural (tasks_001.md) prefixes — agents write
   // either; a numeric remainder (tasks_001) stays as the module so codes from
   // different files (001-1 vs 002-1) never collide in the dedupe.
-  const moduleName = filename.replace(/\.md$/i, "").replace(/^MASTER_TASK$/i, "task").replace(/^tasks?_/i, "") || "task";
+  const moduleName = moduleNameFor(filename);
 
   // Find story points table
   let inSpTable = false;
@@ -212,25 +506,13 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
     }
   }
 
-  // Find task sections and extract their content. The fsd-analyzer skill
-  // documents several heading variants and different models follow different
-  // ones, so accept all of them (H2 only):
-  //   A: "## Task FE-1: Title" — canonical; separator can be : ： — – -
-  //   B: "## Task: Title"      — no ID → deterministic auto-number
-  //   B2:"## Task [FE]: Title" — bracket role (escaped \[FE] from AI) -> auto-number
-  //   C: "## FE-1: Title"      — code-like ID without the "Task" keyword
-  const headingPatterns = [
-    /^##\s+Task\s+([A-Za-z0-9._-]+)\s*[:：—–-]\s*(.*)$/i,
-    // Empty group 1 keeps the (id, title) layout consistent across patterns
-    /^##\s+Task\s*[:：]\s*()(.+)$/i,
-    /^##\s+Task\s*(?:\\?\[?[A-Za-z]+\]?\s*)?[:：]\s*()(.+)$/i,
-    /^##\s+([A-Za-z]{1,12}-\d[\w.-]*)\s*[:：—–-]\s*(.+)$/,
-  ];
+  // Find task sections and extract their content; the heading variants live in
+  // TASK_SECTION_HEADINGS (shared with stripTaskHeading).
   let autoIndex = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     let sectionMatch: RegExpMatchArray | null = null;
-    for (const re of headingPatterns) {
+    for (const re of TASK_SECTION_HEADINGS) {
       sectionMatch = line.match(re);
       if (sectionMatch) break;
     }
@@ -241,15 +523,7 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
 
     // Codes that already carry the module/role prefix (FE-1 inside task_fe.md)
     // stay as-is; otherwise prepend the module (## Task 1: → be-1).
-    let code: string;
-    if (!rawId) {
-      code = `${moduleName}-${++autoIndex}`;
-    } else {
-      const prefix = rawId.toLowerCase();
-      code = prefix.startsWith(`${moduleName.toLowerCase()}-`) || prefix.startsWith(`${moduleName.toLowerCase()}_`) || prefix.startsWith(`${moduleName.toLowerCase()}.`)
-        ? rawId
-        : `${moduleName}-${rawId}`;
-    }
+    const code = deriveTaskCode(rawId, moduleName, rawId ? autoIndex : ++autoIndex);
 
     // Extract content from this ## heading to the next ## heading or end
     let sectionEnd = lines.length;
@@ -258,10 +532,18 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
     }
     const sectionContent = lines.slice(i, sectionEnd).join("\n");
 
-    // SP: prefer the task's own detail table, fall back to the summary spMap
+    // SP: prefer the task's own detail table, then the `- Story Points: 3`
+    // bullet that task cards actually use, then the summary spMap.
     // Tolerates "0.5 SP (2 jam)" — just capture the number after the pipe
     const spMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
-    const sp = spMatch ? parseFloat(spMatch[1]) : (rawId ? (spMap[rawId] ?? null) : null);
+    const spBullet = sectionContent.match(/^\s*[-*]\s*Story\s*Points?\s*[:：]\s*([\d.]+)/im);
+    const sp = spMatch
+      ? parseFloat(spMatch[1])
+      : spBullet
+        ? parseFloat(spBullet[1])
+        : rawId
+          ? (spMap[rawId] ?? null)
+          : null;
 
     // Assignee: from the detail table `| Developer | <name> |`, else null
     const devMatch = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
@@ -272,7 +554,8 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
       code, title, storyPoints: sp,
       assignee, module: moduleName, parentCode: null,
       status: "todo", phase: null,
-      contentMd: sectionContent,
+      // The heading and the metadata rows above duplicate the card's own fields.
+      contentMd: stripTaskHeading(sectionContent, line),
       sourcePath: `${baseDir}/${filename}`,
       ...handoff,
     });
@@ -312,10 +595,18 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
       }
       const sectionContent = lines.slice(i, sectionEnd).join("\n");
 
-      // SP: prefer section table, else **N SP**, else file-level — tolerates "0.5 SP (2 jam)"
+      // SP: prefer section table, then the `- Story Points: N` bullet, then
+      // **N SP**, else file-level — tolerates "0.5 SP (2 jam)"
       const spSectionMatch = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
+      const spBulletMatch = sectionContent.match(/^\s*[-*]\s*Story\s*Points?\s*[:：]\s*([\d.]+)/im);
       const spStarMatch = sectionContent.match(/\*\*([\d.]+)\s*SP\*\*/);
-      const sp = spSectionMatch ? parseFloat(spSectionMatch[1]) : (spStarMatch ? parseFloat(spStarMatch[1]) : (fileSp ?? null));
+      const sp = spSectionMatch
+        ? parseFloat(spSectionMatch[1])
+        : spBulletMatch
+          ? parseFloat(spBulletMatch[1])
+          : spStarMatch
+            ? parseFloat(spStarMatch[1])
+            : (fileSp ?? null);
 
       const devSectionMatch = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
       let assignee: string | null = devSectionMatch ? devSectionMatch[1].trim() : fileAssignee;
@@ -326,7 +617,7 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
         code, title: subTitle, storyPoints: sp !== null && !isNaN(sp) ? sp : null,
         assignee: assignee || null, module: moduleName, parentCode: null,
         status: "todo", phase: null,
-        contentMd: sectionContent,
+        contentMd: stripTaskHeading(sectionContent, lines[i]),
         sourcePath: `${baseDir}/${filename}`,
         ...handoff,
       });
@@ -357,7 +648,8 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
           }
           const sectionContent = lines.slice(h1Idx).join("\n");
           const spH1Match = sectionContent.match(/\|\s*Story Point\s*\|\s*([\d.]+)/i);
-          const sp = spH1Match ? parseFloat(spH1Match[1]) : (fileSp ?? null);
+          const spH1Bullet = sectionContent.match(/^\s*[-*]\s*Story\s*Points?\s*[:：]\s*([\d.]+)/im);
+          const sp = spH1Match ? parseFloat(spH1Match[1]) : spH1Bullet ? parseFloat(spH1Bullet[1]) : (fileSp ?? null);
           const devH1Match = sectionContent.match(/\|\s*Developer\s*\|\s*(.+)\|/i);
           let assignee: string | null = devH1Match ? devH1Match[1].trim() : fileAssignee;
           if (assignee === "—" || assignee === "-" || assignee?.toLowerCase() === "n/a") assignee = null;
@@ -366,7 +658,7 @@ function parseTaskFile(content: string, filename: string, baseDir: string = "out
             code, title, storyPoints: sp !== null && !isNaN(sp) ? sp : null,
             assignee: assignee || null, module: moduleName, parentCode: null,
             status: "todo", phase: null,
-            contentMd: sectionContent,
+            contentMd: stripTaskHeading(sectionContent, h1),
             sourcePath: `${baseDir}/${filename}`,
             ...handoff,
           });
@@ -478,7 +770,7 @@ function parsePhaseTaskFile(content: string, filename: string, phase: string, ba
         assignee,
         module: parentCode.split("-")[0] || phase,
         parentCode, status: "todo", phase,
-        contentMd: sectionContent,
+        contentMd: stripTaskHeading(sectionContent, line),
         sourcePath,
         ...handoff,
       });

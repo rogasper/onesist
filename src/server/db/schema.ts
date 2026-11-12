@@ -92,6 +92,9 @@ export const tasks = sqliteTable("tasks", {
   code: text("code"),
   title: text("title").notNull(),
   description: text("description"),
+  // Fields a human edited in the task modal (JSON array). The re-import from
+  // output/task must not overwrite these — it used to revert every manual edit.
+  manualFieldsJson: text("manual_fields_json"),
   status: text("status").default("todo"),
   storyPoints: integer("story_points"),
   assignee: text("assignee"),
