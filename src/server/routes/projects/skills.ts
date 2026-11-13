@@ -51,6 +51,8 @@ router.post("projects/:id/skills/install", async ({ params }) => {
     try {
       const { installProjectSkills } = await import("~/lib/project-skills");
       const result = await installProjectSkills(rootPath);
+      const { invalidateFileSearchIndex } = await import("~/lib/file-router");
+      invalidateFileSearchIndex(rootPath);
       db.update(projects).set({
         skillsStatus: result.ok ? "ready" : "failed",
         skillsError: result.ok ? null : result.failed.map((f) => `${f.name}: ${f.error}`).join("\n---\n"),

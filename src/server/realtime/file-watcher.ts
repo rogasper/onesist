@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { eventBus } from "./events";
-import { detectRoute } from "~/lib/file-router";
+import { detectRoute, invalidateFileSearchIndex } from "~/lib/file-router";
 import { diffSnapshot } from "./snapshot";
 
 /**
@@ -124,6 +124,7 @@ export function unregisterWatchRoot(rootPath: string) {
   watchRoots.delete(root);
   dropNativeWatchers(root);
   snapshots.delete(root);
+  invalidateFileSearchIndex(root);
   const timer = debounceTimers.get(root);
   if (timer) clearTimeout(timer);
   debounceTimers.delete(root);
@@ -203,6 +204,7 @@ async function scanRoot(root: string): Promise<void> {
       snapshots.set(root, next);
       const diff = diffSnapshot(prev, next);
       const changed = [...diff.created, ...diff.changed, ...diff.deleted];
+      if (changed.length > 0) invalidateFileSearchIndex(root);
       for (const abs of changed) {
         const relPath = path.relative(root, abs);
         eventBus.emitFileChanged(detectRoute(relPath), relPath, root);

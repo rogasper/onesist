@@ -18,7 +18,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { tool, type ToolSet } from "./ai";
-import { IGNORED_DIRS, TEXT_EXTS, detectRoute, readFile, searchProjectFiles } from "~/lib/file-router";
+import { IGNORED_DIRS, TEXT_EXTS, detectRoute, invalidateFileSearchIndex, readFile, searchProjectFilesAsync } from "~/lib/file-router";
 import { diffStat, resolveInRoot, type DiffStat } from "./paths";
 import { readSkill } from "./skills";
 import { appendMemory } from "./memory";
@@ -440,7 +440,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
       limit: z.number().int().min(1).max(LIMITS.grepResults).optional(),
     }),
     execute: async ({ query, mode, limit }) => {
-      const results = searchProjectFiles(ctx.root, query, mode ?? "content", limit ?? LIMITS.grepResults);
+      const results = await searchProjectFilesAsync(ctx.root, query, mode ?? "content", limit ?? LIMITS.grepResults);
       if (!results.length) return `Tidak ada hasil untuk "${query}".`;
       return results
         .map((r) => {
@@ -478,6 +478,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
           }
           fs.mkdirSync(path.dirname(abs), { recursive: true });
           fs.writeFileSync(abs, content, "utf-8");
+          invalidateFileSearchIndex(ctx.root);
           const stat = recordChange(ctx, rel, exists ? "update" : "create", before, content, "tool", {
             before: exists ? before : null,
             after: content,
@@ -508,6 +509,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
           }
           const after = content.slice(0, first) + new_string + content.slice(first + old_string.length);
           fs.writeFileSync(abs, after, "utf-8");
+          invalidateFileSearchIndex(ctx.root);
           const stat = recordChange(ctx, rel, "update", content, after, "tool", { before: content, after });
           return `Diubah: ${rel} (+${stat.added}/-${stat.removed} baris, hash=${hashContent(after)})`;
         },
@@ -561,6 +563,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
             });
             child.on("close", (code) => {
               clearTimeout(timer);
+              invalidateFileSearchIndex(ctx.root);
               attributeBashChanges(ctx, before, snapshotWorkspace(ctx.root));
               const body = truncate(out.trim() || "(tanpa output)", LIMITS.bashBytes);
               if (killed) resolve(`${body}\n\n[perintah dihentikan setelah ${timeout} ms]`);
@@ -779,6 +782,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
       const { abs } = resolveInRoot(ctx.root, rel);
       fs.mkdirSync(path.dirname(abs), { recursive: true });
       fs.writeFileSync(abs, shot.png);
+      invalidateFileSearchIndex(ctx.root);
       const note = ctx.supportsVision
         ? "Gambar terlampir untuk model."
         : "Model ini belum ditandai bisa melihat gambar; hanya path yang tersimpan.";

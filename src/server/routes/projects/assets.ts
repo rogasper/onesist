@@ -1,6 +1,7 @@
 import { json } from "../../http/response";
 import { Router } from "../../http/router";
 import { resolveRoot } from "../../http/route-utils";
+import { invalidateFileSearchIndex } from "~/lib/file-router";
 import { ASSETS_DIR, saveProjectImage } from "~/server/services/project-image";
 
 export const router = new Router();
@@ -24,8 +25,10 @@ router.post("projects/:id/assets/upload", async (ctx) => {
       /* an unreadable name is reported as a missing name below */
     }
     const buf = Buffer.from(await ctx.request.arrayBuffer());
-    const result = saveProjectImage(resolveRoot(ctx.params.id), ASSETS_DIR, originalName, buf);
+    const root = resolveRoot(ctx.params.id);
+    const result = saveProjectImage(root, ASSETS_DIR, originalName, buf);
     if (result.error) return json({ error: result.error }, result.status ?? 400);
+    invalidateFileSearchIndex(root);
     return json({ uploaded: true, path: result.relPath }, 201);
   } catch (e: any) {
     return json({ error: `Unggah gambar gagal: ${e?.message ?? e}` }, 500);
