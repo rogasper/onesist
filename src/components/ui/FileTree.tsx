@@ -180,13 +180,17 @@ export const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileT
   }));
 
   const query = searchQuery.trim().toLowerCase();
-  const searchResults = query
-    ? resolved.flatMap((s) =>
-        s.files
-          .filter((f) => f.name.toLowerCase().includes(query) || f.path.toLowerCase().includes(query))
-          .map((f) => ({ dir: s.dir, ...f }))
-      )
-    : [];
+  const searchResults = useMemo(
+    () =>
+      query
+        ? resolved.flatMap((s) =>
+            s.files
+              .filter((f) => f.name.toLowerCase().includes(query) || f.path.toLowerCase().includes(query))
+              .map((f) => ({ dir: s.dir, ...f }))
+          )
+        : [],
+    [resolved, query],
+  );
 
   const trees = useMemo(
     () => resolved.map((s) => ({ dir: s.dir, nodes: buildFileTree(s.dir, s.files) })),

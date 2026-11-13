@@ -16,8 +16,12 @@ import {
   PencilSimple,
 } from "@phosphor-icons/react";
 import type { FileSearchResult } from "~/lib/file-router";
+import { useFileChanged } from "~/lib/use-file-data";
 
 type SearchMode = "all" | "filename" | "content";
+
+const RECENT_CACHE_TTL_MS = 30_000;
+const SEARCH_DEBOUNCE_MS = 250;
 
 const TYPE_CONFIG: Record<
   string,
@@ -47,6 +51,11 @@ export function QuickOpenModal() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const recentCacheRef = useRef(new Map<string, { files: FileSearchResult[]; fetchedAt: number }>());
+
+  useFileChanged(() => {
+    recentCacheRef.current.clear();
+  });
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -86,6 +95,8 @@ export function QuickOpenModal() {
       setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
+      abortControllerRef.current?.abort();
+      setLoading(false);
       setQuery("");
       setResults([]);
     }
@@ -107,16 +118,74 @@ export function QuickOpenModal() {
       abortControllerRef.current.abort();
     }
 
+    if (!currentProjectId || (!cleanQuery && effectiveMode === "content")) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    setLoading(true);
+    // Empty query shows cached recent files immediately without reading file contents;
+    // when cold or invalidated, fetch filename-only once and cache per project.
+    if (!cleanQuery) {
+      const cached = recentCacheRef.current.get(currentProjectId);
+      if (cached && Date.now() - cached.fetchedAt < RECENT_CACHE_TTL_MS) {
+        setResults(cached.files);
+        setSelectedIndex(0);
+        setLoading(false);
+        return () => {
+          controller.abort();
+        };
+      }
+
+      setLoading(true);
+      void (async () => {
+        try {
+          const params = new URLSearchParams({
+            mode: "filename",
+            projectId: currentProjectId,
+            limit: "40",
+          });
+          const res = await fetch(`/api/files/search?${params.toString()}`, {
+            signal: controller.signal,
+            cache: "no-store",
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && !controller.signal.aborted) {
+              recentCacheRef.current.set(currentProjectId, { files: data, fetchedAt: Date.now() });
+              setResults(data);
+              setSelectedIndex(0);
+            }
+          }
+        } catch (err: any) {
+          if (err?.name !== "AbortError") {
+            // ignore aborts
+          }
+        } finally {
+          if (!controller.signal.aborted) {
+            setLoading(false);
+          }
+        }
+      })();
+
+      return () => {
+        controller.abort();
+      };
+    }
+
+    // Wait for typing to pause before showing the spinner and querying the server.
+    setLoading(false);
     const timer = setTimeout(async () => {
+      if (controller.signal.aborted) return;
+      setLoading(true);
       try {
         const params = new URLSearchParams();
-        if (cleanQuery) params.set("q", cleanQuery);
+        params.set("q", cleanQuery);
         if (effectiveMode !== "all") params.set("mode", effectiveMode);
-        if (currentProjectId) params.set("projectId", currentProjectId);
+        params.set("projectId", currentProjectId);
         params.set("limit", "40");
 
         const res = await fetch(`/api/files/search?${params.toString()}`, {
@@ -126,19 +195,21 @@ export function QuickOpenModal() {
 
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data)) {
+          if (Array.isArray(data) && !controller.signal.aborted) {
             setResults(data);
             setSelectedIndex(0);
           }
         }
       } catch (err: any) {
-        if (err.name !== "AbortError") {
+        if (err?.name !== "AbortError") {
           // ignore aborts
         }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
-    }, 120);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
       clearTimeout(timer);
@@ -212,7 +283,10 @@ export function QuickOpenModal() {
 
   if (!isOpen) return null;
 
-  const activeMode = query.startsWith("#") || query.startsWith("?") ? "content" : mode;
+  const trimmedQuery = query.trim();
+  const activeMode = trimmedQuery.startsWith("#") || trimmedQuery.startsWith("?") ? "content" : mode;
+  const displayQuery =
+    trimmedQuery.startsWith("#") || trimmedQuery.startsWith("?") ? trimmedQuery.slice(1).trim() : trimmedQuery;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 sm:pt-20 px-4">
@@ -283,9 +357,16 @@ export function QuickOpenModal() {
             </div>
           ) : results.length === 0 ? (
             <div className="py-12 text-center text-xs text-kumo-subtle">
-              {query ? (
+              {!currentProjectId ? (
+                <div className="space-y-1">
+                  <p className="text-kumo-default font-medium">Open a project to search files</p>
+                  <p className="text-[11px] text-kumo-subtle">
+                    Select a project from the sidebar or dashboard first
+                  </p>
+                </div>
+              ) : displayQuery ? (
                 <>
-                  <p className="text-kumo-default font-medium mb-1">No matches found for "{query}"</p>
+                  <p className="text-kumo-default font-medium mb-1">No matches found for "{displayQuery}"</p>
                   <p className="text-[11px] text-kumo-subtle">
                     Try typing with <span className="font-mono text-kumo-brand">#</span> to search inside file content
                   </p>

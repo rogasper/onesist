@@ -5,6 +5,7 @@ import { json, notFound } from "../../http/response";
 import { Router } from "../../http/router";
 import { getProject } from "../../http/route-utils";
 import { parseRtmMarkdown } from "~/lib/rtm-parser";
+import { invalidateFileSearchIndex } from "~/lib/file-router";
 import { db } from "~/server/db/client";
 import {
   businessRequirements,
@@ -286,6 +287,7 @@ router.post("projects/:id/rtm/export", ({ params, query }) => {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   const filename = fsd === "default" ? "RTM.md" : `RTM_${fsd}.md`;
   fs.writeFileSync(path.join(dir, filename), md, "utf-8");
+  invalidateFileSearchIndex(proj.rootPath);
   return json({ exported: true, path: `output/rtm/${filename}`, fsd, brs: brs.length, frs: frs.length });
 });
 

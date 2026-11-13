@@ -3,7 +3,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { json } from "../http/response";
 import { Router } from "../http/router";
-import { resolveRoot } from "../http/route-utils";
+import { getProject, resolveRoot } from "../http/route-utils";
 import { resolveInRoot } from "~/server/agent/paths";
 import { db } from "~/server/db/client";
 import { fsdSessions } from "~/server/db/schema";
@@ -16,19 +16,29 @@ import {
   scanDirectory,
   writeFile,
   getProjectSummary,
-  searchProjectFiles,
+  searchProjectFilesAsync,
 } from "~/lib/file-router";
 
 export const router = new Router();
 
 // GET /api/files/search
-router.get("files/search", ({ query }) => {
-  const q = query.get("q") || "";
+router.get("files/search", async ({ query, request }) => {
   const projectId = query.get("projectId");
-  const mode = (query.get("mode") as "all" | "filename" | "content") || "all";
-  const limit = Math.min(parseInt(query.get("limit") || "40", 10) || 40, 100);
-  const root = resolveRoot(projectId);
-  return json(searchProjectFiles(root, q, mode, limit));
+  if (!projectId) return json([]);
+  const proj = getProject(projectId);
+  if (!proj?.rootPath) return json([]);
+
+  const q = query.get("q") || "";
+  const rawMode = query.get("mode");
+  const mode: "all" | "filename" | "content" =
+    rawMode === "filename" || rawMode === "content" ? rawMode : "all";
+  const parsedLimit = parseInt(query.get("limit") || "40", 10);
+  const limit = Math.min(Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 40, 1), 100);
+
+  const results = await searchProjectFilesAsync(proj.rootPath, q, mode, limit, {
+    signal: request.signal,
+  });
+  return json(results);
 });
 
 // GET /api/files/list

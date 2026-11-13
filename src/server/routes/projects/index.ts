@@ -194,6 +194,10 @@ router.delete("projects/:id", async ({ params }) => {
   }
 
   db.delete(projects).where(eq(projects.id, id)).run();
+  if (existing.rootPath) {
+    const { invalidateFileSearchIndex } = await import("~/lib/file-router");
+    invalidateFileSearchIndex(existing.rootPath);
+  }
   return json({ message: "Deleted" });
 });
 
@@ -255,6 +259,8 @@ router.post("projects/import", async ({ request }) => {
     const result = await importProjectBundle(db, new Uint8Array(await file.arrayBuffer()), destPath);
     const { registerWatchRoot } = await import("~/server/realtime/file-watcher");
     registerWatchRoot(result.rootPath);
+    const { invalidateFileSearchIndex } = await import("~/lib/file-router");
+    invalidateFileSearchIndex(result.rootPath);
     return json(result, 201);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Import gagal" }, 400);

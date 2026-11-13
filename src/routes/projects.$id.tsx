@@ -39,7 +39,7 @@ import { subscribeChatTasks } from "~/lib/chat-task";
 import { subscribeTerminalLaunch } from "~/lib/terminal-launch";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
-import { useFileContent, useFileList, type FileEntry } from "~/lib/use-file-data";
+import { useFileContent, useFileList } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
 import { useSkillInstall, skillNotice } from "~/lib/use-skill-install";
 import { ProjectIdProvider } from "~/components/markdown/workspace-image";
@@ -669,10 +669,13 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
 
   // Show EVERYTHING under input/ and output/ (all subfolders + files) — not a
   // hardcoded subset. scanDirectory walks recursively.
-  const dirs = useMemo<Record<string, FileEntry[]>>(() => ({
-    input: inputList.files,
-    output: outputList.files,
-  }), [inputList.files, outputList.files]);
+  const fileSections = useMemo(
+    () => [
+      { dir: "input", files: inputList.files },
+      { dir: "output", files: outputList.files },
+    ],
+    [inputList.files, outputList.files],
+  );
 
   useEffect(() => {
     const pid = project?.id;
@@ -797,8 +800,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
     }
   }, [dirty, activeTabPath, onFileClick, onTabClose, setActiveTabPath, setOpenTabs]);
 
-  const totalFiles = Object.values(dirs).flat().length;
-  const DIR_ORDER = ["input", "output"];
+  const totalFiles = inputList.files.length + outputList.files.length;
 
   if (totalFiles === 0) {
     return (
@@ -854,7 +856,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
             // mounted when the user switches projects.
             key={project.id}
             ref={fileTreeRef}
-            sections={DIR_ORDER.map((dir) => ({ dir, files: dirs[dir] ?? [] }))}
+            sections={fileSections}
             defaultCollapsed
             activePath={activeTabPath}
             emptyText="(empty)"

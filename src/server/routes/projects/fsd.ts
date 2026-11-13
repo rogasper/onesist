@@ -4,6 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import { json, notFound } from "../../http/response";
 import { Router } from "../../http/router";
 import { resolveRoot, hashContent } from "../../http/route-utils";
+import { invalidateFileSearchIndex } from "~/lib/file-router";
 import { convertToMarkdown, fsdPaths, saveFsdUpload, scanFsdDir } from "../../services/fsd-service";
 import { db } from "~/server/db/client";
 import { fsdSessions } from "~/server/db/schema";
@@ -30,6 +31,7 @@ router.post("projects/:id/fsd", async ({ params, body }) => {
   if (fs.existsSync(fullPath)) return json({ error: `File already exists: ${safeName}` }, 409);
   try { fs.mkdirSync(fsdPaths(root).fsdDir, { recursive: true }); } catch {}
   fs.writeFileSync(fullPath, content, "utf-8");
+  invalidateFileSearchIndex(root);
   const hash = hashContent(content);
   const session = {
     id: crypto.randomUUID(),
@@ -64,8 +66,10 @@ router.post("projects/:id/fsd/upload", async (ctx) => {
     let originalName = "";
     try { originalName = Buffer.from(filenameRaw, "base64").toString("utf-8"); } catch {}
     const buf = Buffer.from(await ctx.request.arrayBuffer());
-    const result = saveFsdUpload(resolveRoot(ctx.params.id), originalName, buf);
+    const root = resolveRoot(ctx.params.id);
+    const result = saveFsdUpload(root, originalName, buf);
     if (result.error) return json({ error: result.error }, result.status ?? 400);
+    invalidateFileSearchIndex(root);
     return json({
       uploaded: result.uploaded,
       fileName: result.fileName,
@@ -106,6 +110,7 @@ router.post("projects/:id/fsd/convert-file", async ({ params, body }) => {
       }
       const output = `---\nsource_file: ${sourceName}\nsource_type: ${path.extname(sourceName).slice(1)}\nconverted_by: ${result.tool}\nconverted_at: ${new Date().toISOString()}\n---\n\n${result.markdown}`;
       fs.writeFileSync(outputPath, output, "utf-8");
+      invalidateFileSearchIndex(root);
       eventBus.emitFsdConversion(sourcePath, "converted", null, output.length);
     } catch (e: any) {
       eventBus.emitFsdConversion(sourcePath, "failed", e?.message ?? String(e));
@@ -134,6 +139,7 @@ router.delete("projects/:id/fsd/:sessionId", ({ params }) => {
     for (const p of paths) {
       try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
     }
+    invalidateFileSearchIndex(root);
   }
   db.delete(fsdSessions).where(eq(fsdSessions.id, sessionId)).run();
   return json({ deleted: true });
@@ -156,6 +162,7 @@ router.put("projects/:id/fsd/:sessionId", async ({ params, body }) => {
         const full = path.join(root, rel);
         fs.mkdirSync(path.dirname(full), { recursive: true });
         fs.writeFileSync(full, data.content, "utf-8");
+        invalidateFileSearchIndex(root);
       } catch {}
     }
     updates.fsdContent = data.content;
@@ -215,6 +222,7 @@ router.post("projects/:id/fsd/:sessionId/convert", async ({ params }) => {
       if (result.ok && result.markdown) {
         const finalMd = `---\nsource_file: ${path.basename(session.sourceFilePath)}\nsource_type: ${sourceType}\nconverted_by: ${tool}\nconverted_at: ${new Date().toISOString()}\n---\n\n# ${title}\n\n${result.markdown}`;
         fs.writeFileSync(mdFullPath, finalMd, "utf-8");
+        invalidateFileSearchIndex(root);
         const hash = hashContent(finalMd);
         db.update(fsdSessions).set({
           fsdContent: finalMd,
@@ -230,6 +238,7 @@ router.post("projects/:id/fsd/:sessionId/convert", async ({ params }) => {
         const error = result.error;
         const failedMd = `---\nsource_file: ${path.basename(session.sourceFilePath)}\nsource_type: ${sourceType}\nconverted_by: ${tool}\nconverted_at: ${new Date().toISOString()}\n---\n\n# ${title}\n\n> **Conversion failed.** The original file is preserved at \`${session.sourceFilePath}\`.\n> Error: ${error}\n\nYou can paste the content manually below.\n`;
         fs.writeFileSync(mdFullPath, failedMd, "utf-8");
+        invalidateFileSearchIndex(root);
         db.update(fsdSessions).set({
           fsdContent: failedMd,
           conversionStatus: "failed",
