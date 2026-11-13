@@ -1,13 +1,42 @@
+import path from "node:path";
 import { eq, and } from "drizzle-orm";
 import { json, notFound, badRequest } from "../../http/response";
 import { Router } from "../../http/router";
 import { defaultRoot, getProject } from "../../http/route-utils";
-import { scanAllTaskFiles } from "~/lib/task-parser";
+import { readFile, writeFile } from "~/lib/file-router";
+import { rewriteTaskSection, scanAllTaskFiles } from "~/lib/task-parser";
 import { db } from "~/server/db/client";
 import { taskRunRepos, taskRuns, tasks } from "~/server/db/schema";
 import { isTaskStatus } from "~/lib/task-status";
 
 export const router = new Router();
+
+/**
+ * Fields the task modal edits that the re-import also writes. Once a human
+ * touches one, it belongs to the human: `manual_fields_json` records it and the
+ * import leaves it alone (status, assignee and archived were always preserved).
+ */
+const MANUAL_FIELDS = ["title", "description", "storyPoints", "module", "phase"] as const;
+
+function manualFields(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether a submitted value equals what is stored (null/"" and numeric strings compared as one). */
+function sameFieldValue(field: string, next: unknown, current: unknown): boolean {
+  if (field === "storyPoints") {
+    const a = next === null || next === undefined || next === "" ? null : Number(next);
+    const b = current === null || current === undefined || current === "" ? null : Number(current);
+    return a === b;
+  }
+  return String(next ?? "").trim() === String(current ?? "").trim();
+}
 
 // GET /api/projects/:id/tasks
 router.get("projects/:id/tasks", ({ params }) => {
@@ -115,7 +144,10 @@ router.post("projects/:id/tasks/import", async ({ params }) => {
       values.phase = pt.phase;
     }
     if (existingTask) {
-      // Preserve user-owned fields: status, assignee, archived, and manual title/description edits
+      // Fields a human edited win over the file. The comment here always said so,
+      // but every field was overwritten — an edit in the task modal survived only
+      // until the next sync (the tab imports on mount and on file:changed).
+      for (const field of manualFields(existingTask.manualFieldsJson)) delete values[field];
       db.update(tasks).set(values).where(eq(tasks.id, existingTask.id)).run();
       updated++;
     } else {
@@ -190,10 +222,94 @@ router.put("projects/:id/tasks/:taskId", async ({ params, body }) => {
   if (data.execProviderId !== undefined) updates.execProviderId = data.execProviderId;
   if (data.execModel !== undefined) updates.execModel = data.execModel;
   if (data.reposJson !== undefined) updates.reposJson = data.reposJson;
+
+  // Mark what a human actually changed, so the next import from output/task
+  // leaves it alone. Only fields whose value differs are marked — the modal
+  // always sends every field, and saving just the status must not freeze the
+  // title, body and story points against the file. Union with the fields
+  // already marked, so editing the title cannot unmark an earlier edit.
+  const current = db.select().from(tasks).where(eq(tasks.id, params.taskId)).get() as any;
+  const touched = MANUAL_FIELDS.filter(
+    (field) => data[field] !== undefined && !sameFieldValue(field, data[field], current?.[field]),
+  );
+  if (touched.length > 0) {
+    updates.manualFieldsJson = JSON.stringify([...new Set([...manualFields(current?.manualFieldsJson), ...touched])]);
+  }
+
+  // The .md file is the source the Tasks tab re-imports from, so an edit that
+  // changes something the file carries is written back to that task's own
+  // section. A failed write does NOT block the save: the row is still stored and
+  // the response carries `fileSync`, so the UI can say the file is out of sync
+  // instead of losing the edit (a section the locator cannot find must not make
+  // the whole save fail).
+  const fileFieldsChanged =
+    touched.some((field) => field === "title" || field === "description" || field === "storyPoints") ||
+    (data.assignee !== undefined && !sameFieldValue("assignee", data.assignee, current?.assignee));
+
+  let fileSync: { synced: boolean; error?: string } | null = null;
+  if (fileFieldsChanged && current?.sourcePath) {
+    fileSync = writeTaskSectionToFile(params.id, { ...current, ...updates }, current?.title);
+    if (fileSync && !fileSync.synced) {
+      console.warn(`[tasks] .md write-back skipped for ${params.taskId} (${current.sourcePath}): ${fileSync.error}`);
+    }
+  }
+
   db.update(tasks).set(updates).where(eq(tasks.id, params.taskId)).run();
   const updated = db.select().from(tasks).where(eq(tasks.id, params.taskId)).get();
-  return json(updated);
+  return json({ ...updated, fileSync });
 });
+
+/** Judul tanpa prefix kode: `api-AP-1: Buat login` → `Buat login`. */
+function displayTaskTitle(title: unknown, code: unknown): string {
+  const full = String(title ?? "");
+  const prefix = code ? `${String(code)}: ` : "";
+  return prefix && full.startsWith(prefix) ? full.slice(prefix.length) : full;
+}
+
+/**
+ * Menulis kembali satu kartu ke section-nya di `sourcePath`.
+ *
+ * @returns null bila tidak ada yang perlu ditulis, atau status sinkronisasinya.
+ */
+function writeTaskSectionToFile(
+  projectId: string,
+  row: any,
+  previousTitle: unknown,
+): { synced: boolean; error?: string } | null {
+  if (!row?.sourcePath || !row?.code) return null;
+
+  const project = getProject(projectId);
+  const root = project?.rootPath || defaultRoot();
+  const content = readFile(root, row.sourcePath);
+  if (content === null) {
+    return { synced: false, error: `Berkas sumber task tidak ditemukan: ${row.sourcePath}` };
+  }
+
+  const code = String(row.code);
+  const next = rewriteTaskSection(
+    content,
+    path.basename(String(row.sourcePath)),
+    code,
+    {
+      title: displayTaskTitle(row.title, code),
+      body: String(row.description ?? ""),
+      storyPoints: row.storyPoints ?? null,
+      assignee: row.assignee ?? null,
+    },
+    displayTaskTitle(previousTitle, code),
+  );
+
+  if (next === null) {
+    return {
+      synced: false,
+      error: `Section task ini tidak ditemukan di ${row.sourcePath} — isi tersimpan di aplikasi, berkas .md tidak diperbarui.`,
+    };
+  }
+  if (next === content) return { synced: true };
+  return writeFile(root, row.sourcePath, next)
+    ? { synced: true }
+    : { synced: false, error: `Berkas ${row.sourcePath} tidak bisa ditulis — isi tersimpan di aplikasi.` };
+}
 
 // DELETE /api/projects/:id/tasks/:taskId
 router.delete("projects/:id/tasks/:taskId", ({ params }) => {

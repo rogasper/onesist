@@ -221,6 +221,8 @@ function applyMigrations(runSql: (sql: string) => unknown) {
     "ALTER TABLE tasks ADD COLUMN source_path TEXT",
     "ALTER TABLE tasks ADD COLUMN phase TEXT",
     "ALTER TABLE tasks ADD COLUMN archived integer DEFAULT 0 NOT NULL",
+    // Which fields a human edited in the task modal (JSON array) — see migrations/0030_*.sql
+    "ALTER TABLE tasks ADD COLUMN manual_fields_json TEXT",
     // tasks agentic handoff columns
     "ALTER TABLE tasks ADD COLUMN blocks_json TEXT",
     "ALTER TABLE tasks ADD COLUMN critical integer DEFAULT 0 NOT NULL",

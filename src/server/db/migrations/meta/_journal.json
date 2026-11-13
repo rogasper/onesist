@@ -211,6 +211,13 @@
       "when": 1794000000000,
       "tag": "0029_chat_suggestions",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1794300000000,
+      "tag": "0030_task_manual_fields",
+      "breakpoints": true
     }
   ]
 }

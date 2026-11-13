@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, PencilSimple, Check, CopySimple } from "@phosphor-icons/react";
 import { DialogTitle } from "@cloudflare/kumo";
 import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
+import { MdxEditorClient } from "~/components/mdx/MdxEditorClient";
 import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
+import { stripTaskHeading } from "~/lib/task-parser";
 import { copyRich, escapeHtml, htmlToPlainText, markdownToHtml } from "~/lib/rich-copy";
 import type { Task } from "~/shared/types";
 
@@ -41,7 +43,21 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
   const [phase, setPhase] = useState(task.phase ?? "");
   const [archived, setArchived] = useState(task.archived ?? false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [copied, setCopied] = useState<"rich" | "prompt" | null>(null);
+  /** Edit opens in the rich editor; Preview shows the rendered result (#65). */
+  const [preview, setPreview] = useState(true);
+  /**
+   * The rich editor re-serializes the body as soon as it mounts (table padding,
+   * `- [ ]` → `* [ ]`), so its value differs from the stored one without anyone
+   * typing — and Lexical swallows `input` events, so `onInput` never fires.
+   * A real key/paste/drop marks the body as edited immediately; a change that
+   * arrives after the editor has settled (toolbar actions like Insert Table)
+   * marks it too. Saving only the status therefore leaves the body alone.
+   */
+  const descriptionTouched = useRef(false);
+  const editorSettled = useRef(false);
+  const editorSettleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const code = task.code ?? task.title.split(":")[0]?.trim() ?? "";
@@ -57,8 +73,12 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
   const ac: string[] = (task as any).acceptanceCriteriaJson ? (JSON.parse((task as any).acceptanceCriteriaJson) as string[]) : [];
 
   useEffect(() => {
-    setTitle(task.title);
-    setDescription(task.description ?? "");
+    setTitle(task.code ? displayTitle : task.title);
+    // The stored body of an imported task still starts with its `## Task …`
+    // heading and the metadata rows; the card already shows both as fields.
+    setDescription(stripTaskHeading(task.description ?? ""));
+    descriptionTouched.current = false;
+    editorSettled.current = false;
     setStatus(task.status);
     setStoryPoints(task.storyPoints?.toString() ?? "");
     setAssignee(task.assignee ?? "");
@@ -66,6 +86,7 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     setPhase(task.phase ?? "");
     setArchived(task.archived ?? false);
     setEditing(false);
+    setPreview(true);
   }, [task.id, task.archived, task.phase]);
 
   useEffect(() => () => {
@@ -76,20 +97,50 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     onEditingChange?.(editing);
   }, [editing, onEditingChange]);
 
+  // The editor is mounted only in Edit mode; give it a moment to import and
+  // normalize the document before treating further changes as user edits.
+  useEffect(() => {
+    if (preview) return;
+    editorSettled.current = false;
+    editorSettleTimer.current = setTimeout(() => {
+      editorSettled.current = true;
+    }, 1200);
+    return () => {
+      if (editorSettleTimer.current) clearTimeout(editorSettleTimer.current);
+    };
+  }, [preview, task.id]);
+
+  const handleEditorChange = (value: string) => {
+    if (editorSettled.current) descriptionTouched.current = true;
+    setDescription(value);
+  };
+
   const handleSave = async () => {
     setSaving(true);
-    await onSave(task.id, {
-      title,
-      description,
-      status,
-      storyPoints: storyPoints ? parseInt(storyPoints, 10) : null,
-      assignee: assignee || null,
-      module: module_ || null,
-      phase: phase || null,
-      archived,
-    });
-    setSaving(false);
-    setEditing(false);
+    setSaveError("");
+    try {
+      await onSave(task.id, {
+        // The field edits the name; the code prefix is a property of the card.
+        title: task.code ? `${task.code}: ${title.trim()}` : title.trim(),
+        // Only sent when the body was actually edited (see descriptionTouched).
+        ...(descriptionTouched.current ? { description } : {}),
+        status,
+        // Story points can be fractional (the parser accepts "0.5 SP"); parseInt
+        // silently turned 3.5 into 3 on every save.
+        storyPoints: storyPoints ? Number.parseFloat(storyPoints) : null,
+        assignee: assignee || null,
+        module: module_ || null,
+        phase: phase || null,
+        archived,
+      });
+      setEditing(false);
+    } catch (error) {
+      // The .md write can fail (missing file, permissions) and the server refuses
+      // the save then — keep the modal open with the reason instead of closing.
+      setSaveError(error instanceof Error ? error.message : "Gagal menyimpan task.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleToggleArchive = async () => {
@@ -162,7 +213,7 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     );
   };
 
-  const contentMd = editing ? description : (task.description ?? "");
+  const contentMd = editing ? description : stripTaskHeading(task.description ?? "");
 
   return (
     <div className="flex flex-col min-h-0 max-h-[85vh] bg-kumo-base">
@@ -183,15 +234,64 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {saveError ? (
+              <div className="rounded border border-red-400/30 bg-red-400/10 px-2 py-1.5 text-[11px] text-red-400">
+                {saveError}
+              </div>
+            ) : null}
             <div>
               <label className="text-[10px] text-kumo-subtle uppercase tracking-wider block mb-1">Title</label>
               <input value={title} onChange={(e) => setTitle(e.target.value)}
                 className="w-full bg-kumo-elevated border border-kumo-line rounded px-2 py-1 text-xs text-kumo-default outline-none focus:border-kumo-brand" />
             </div>
             <div>
-              <label className="text-[10px] text-kumo-subtle uppercase tracking-wider block mb-1">Content (markdown)</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={16}
-                className="w-full bg-kumo-elevated border border-kumo-line rounded px-2 py-1 text-xs text-kumo-default font-mono outline-none focus:border-kumo-brand resize-none leading-relaxed" />
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] text-kumo-subtle uppercase tracking-wider">Content (markdown)</label>
+                <div className="flex items-center gap-0.5">
+                  {(["preview", "edit"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setPreview(mode === "preview")}
+                      className={`px-2 py-0.5 rounded text-[10px] capitalize transition-colors ${
+                        (mode === "preview") === preview
+                          ? "bg-kumo-elevated text-kumo-default border border-kumo-line"
+                          : "text-kumo-subtle hover:text-kumo-default border border-transparent"
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {preview ? (
+                <div className="min-h-[160px] rounded border border-kumo-line bg-kumo-elevated/40 p-2 spec-markdown text-[12px] leading-relaxed">
+                  {description.trim() ? (
+                    <MarkdownViewer content={description} />
+                  ) : (
+                    <span className="text-[11px] text-kumo-subtle italic">
+                      Belum ada isi — pilih Edit untuk menulis.
+                    </span>
+                  )}
+                </div>
+              ) : (
+                // The same rich editor the FSD and wiki pages use: toolbar and
+                // formatted text, so nobody has to type markdown syntax (#65).
+                <div
+                  className="h-[320px] rounded border border-kumo-line overflow-hidden bg-kumo-base"
+                  onKeyDown={() => {
+                    descriptionTouched.current = true;
+                  }}
+                  onPaste={() => {
+                    descriptionTouched.current = true;
+                  }}
+                  onDrop={() => {
+                    descriptionTouched.current = true;
+                  }}
+                >
+                  <MdxEditorClient content={description} onChange={handleEditorChange} projectId={task.projectId} />
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -203,7 +303,7 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
               </div>
               <div>
                 <label className="text-[10px] text-kumo-subtle uppercase tracking-wider block mb-1">Story Points</label>
-                <input value={storyPoints} onChange={(e) => setStoryPoints(e.target.value)} type="number" min="0"
+                <input value={storyPoints} onChange={(e) => setStoryPoints(e.target.value)} type="number" min="0" step="0.5"
                   className="w-full bg-kumo-elevated border border-kumo-line rounded px-2 py-1 text-xs text-kumo-default outline-none focus:border-kumo-brand" />
               </div>
             </div>
@@ -264,7 +364,7 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
           <div className="flex items-center justify-between px-3 py-2 border-b border-kumo-line shrink-0">
             <DialogTitle className="text-xs font-medium text-kumo-default">{code || "Task detail"}</DialogTitle>
             <div className="flex items-center gap-1">
-              <button onClick={() => setEditing(true)} className="text-kumo-subtle hover:text-kumo-default transition-colors" title="Edit">
+              <button onClick={() => { setPreview(false); setEditing(true); }} className="text-kumo-subtle hover:text-kumo-default transition-colors" title="Edit">
                 <PencilSimple size={13} />
               </button>
               <button onClick={onClose} className="text-kumo-subtle hover:text-kumo-default transition-colors" title="Close">
