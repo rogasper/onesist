@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.5.8 — Edit task tidak lagi dikembalikan oleh import, dan pencarian file lebih ringan
+
+Rilis patch untuk dua hal: perubahan task yang hilang setelah import, dan pencarian file yang berat saat mengetik.
+
+### Fix — Task (#65)
+- **Edit lewat rich editor, bukan markdown mentah.** Blok Content di modal task memakai editor yang sama dengan FSD/wiki (`MdxEditorClient`) dengan tab Preview. Story point tetap desimal (`3.5` tidak lagi menjadi `3`), dan field Title hanya berisi nama tanpa prefix kode — prefix ditambahkan kembali saat disimpan.
+- **Perubahan manusia tidak ditimpa import.** `tasks.manual_fields_json` (migrasi `0030` + ALTER runtime) mencatat field yang benar-benar diubah; import melewatinya alih-alih mengembalikannya ke isi file. Field hanya ditandai bila nilainya berbeda, jadi menyimpan status saja tidak membekukan judul/body/SP.
+- **Isi kartu tidak lagi duplikat.** `stripTaskHeading()` membuang heading `## Task …` dan baris Story Points / Developer dari body yang diedit, di semua jalur parser (H2, H3, dan H1). Bullet `- Story Points: N` yang dipakai kartu nyata sekarang terbaca — sebelumnya masuk sebagai `null` dan terhapus tiap sync.
+- **Perubahan ditulis balik ke file.** Menyimpan title, body, SP, atau assignee menulis ulang section kartu itu di `sourcePath` — heading, baris Story Points / Developer, dan body — sementara sisa file tetap byte-identik. Locator mencoba kode turunan, lalu judul heading, lalu heading mana pun yang membawa ID kartu. Section yang tidak ditemukan tidak lagi menggagalkan save: baris tetap tersimpan dan response membawa `fileSync`, yang ditampilkan Tasks tab sebagai warning.
+
+### Perf — Pencarian file (#64)
+- **Index file di-cache.** `src/lib/file-router.ts` menyimpan index per root dengan LRU + TTL, dan invalidasi berbasis generation dari mutasi file, event watcher, agent tools, dan route project.
+- **Folder non-kode diabaikan.** Daftar `IGNORED_DIRS` diperluas: `build`, `vendor`, `.venv`, `venv`, `__pycache__`, `out`, `.output`, `.svelte-kit`, `.nuxt`, `Pods`, dan `.idea`.
+- **Pencarian async dan dibatasi.** `searchProjectFilesAsync` memakai walk async, worker pool baca terbatas, `AbortSignal`, dan regex scan tanpa salinan; nama file yang cocok tidak lagi membaca isi, query kosong tidak membaca apa pun, dan hasilnya deterministik.
+- **`GET /api/files/search` async** dan tidak lagi jatuh ke `defaultRoot()` saat `projectId` tidak valid.
+- **Quick open lebih responsif.** `QuickOpenModal` meng-cache hasil query kosong (invalidasi lewat `useFileChanged`), menunda spinner/fetch 250 ms, dan memoisasi section FileTree serta hasil pencarian di Overview.
+
+### Verifikasi
+- `bun run typecheck` bersih; `bun test src`: **900 tes di 172 berkas** lulus; `bun run build:server` sukses.
+- Editor task diuji di browser sungguhan (dev server + project berisi data): toolbar tampil, ketikan bertahan, teks yang diketik selamat dari re-import, dan file `.md` di disk ditulis ulang tanpa mengubah kartu lain.
+- Catatan: perilaku rich editor di WebView desktop belum diuji ulang dari mesin pengembang.
+
+### Catatan teknis
+- Migrasi baru: `0030_task_manual_fields` menambah kolom `tasks.manual_fields_json`.
+- Tidak ada dependency baru.
+
 ## v0.5.7 — Import project besar bisa diunggah
 
 Rilis patch untuk import ZIP di atas 128 MB yang selalu berhenti dengan "Import gagal".
