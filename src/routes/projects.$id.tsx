@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useLocation, useSearch } from "@tanstack/react-router";
 import { Badge } from "@cloudflare/kumo";
-import { ArrowSquareOut, Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
+import { ArrowSquareOut, Cube, Terminal as TerminalIcon, ChatCircle as ChatIcon, FileText, FolderOpen, X, CaretLeft, PencilSimple, Columns, Eye, FloppyDisk, XCircle, CheckCircle, MagnifyingGlass, CornersIn, CornersOut } from "@phosphor-icons/react";
 import { openPaneWindow } from "~/lib/window";
 import { windowErrorText } from "~/lib/window-error";
 import { InlineAlert } from "~/components/ui/InlineAlert";
@@ -38,6 +38,7 @@ import { subscribeQuotes } from "~/lib/chat-quote";
 import { subscribeChatTasks } from "~/lib/chat-task";
 import { subscribeTerminalLaunch } from "~/lib/terminal-launch";
 import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
+import { exitFocusMode, isFocusMode, isFocusModeToggleKey, toggleFocusMode, useFocusMode } from "~/lib/focus-mode";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList } from "~/lib/use-file-data";
 import { useFileContextMenu } from "~/lib/use-file-context-menu";
@@ -87,6 +88,30 @@ function ProjectLayout({ project }: { project: any }) {
   const location = useLocation();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+  // Focus (reading) mode: header, tab strip, stat cards and explorer step aside. It belongs to
+  // this project view, so leaving the route drops it instead of following the user elsewhere.
+  const focusActive = useFocusMode();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isFocusModeToggleKey({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey })) {
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+        e.preventDefault();
+        toggleFocusMode();
+        return;
+      }
+      if (e.key !== "Escape" || !isFocusMode()) return;
+      // The sidebar peek's capture handler closes the peek first and marks the key handled;
+      // a dialog or quick-open closes itself the same way.
+      if (e.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      exitFocusMode();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      exitFocusMode();
+    };
+  }, []);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const chatStorageKey = project?.id ? `onesist:project:${project.id}:chat-open` : null;
   const [chatOpen, setChatOpen] = useState(() => {
@@ -399,8 +424,9 @@ function ProjectLayout({ project }: { project: any }) {
   const notice = skillNotice(skill.state);
 
   return (
-    <div className="flex h-full">
+    <div className="relative flex h-full">
       <div className="flex-1 min-w-0 flex flex-col">
+        {!focusActive && (
         <div className="mb-3">
           <div className="text-xs text-kumo-subtle mb-1">
             <Link to="/" className="text-kumo-subtle hover:text-kumo-default no-underline">Projects</Link>
@@ -455,11 +481,23 @@ function ProjectLayout({ project }: { project: any }) {
                   Terminal
                 </span>
               </AppButton>
+              <AppButton
+                onClick={toggleFocusMode}
+                variant="chip"
+                size="sm"
+                icon={<CornersOut size={12} />}
+                className="px-3"
+                title="Mode fokus: sembunyikan chrome supaya dokumen penuh (Ctrl/⌘+Shift+F)"
+              >
+                Focus
+              </AppButton>
               <PageHelpButton help="overview" />
             </div>
           </div>
         </div>
+        )}
 
+        {!focusActive && (
         <div className="flex items-center gap-2 mb-3 min-w-0">
         <div className="flex flex-1 items-center gap-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TAB_ITEMS.map((t) => (
@@ -509,9 +547,10 @@ function ProjectLayout({ project }: { project: any }) {
             </AppButton>
           ) : null}
         </div>
+        )}
 
-        {windowError ? <InlineAlert className="mb-3">{windowError}</InlineAlert> : null}
-        {notice && (
+        {!focusActive && windowError ? <InlineAlert className="mb-3">{windowError}</InlineAlert> : null}
+        {!focusActive && notice && (
           <div className={`mb-4 px-3 py-2 rounded border text-xs flex items-center gap-2 ${
             notice.tone === "red"
               ? "border-red-500/30 bg-red-500/10 text-red-400"
@@ -561,6 +600,21 @@ function ProjectLayout({ project }: { project: any }) {
           </ProjectIdProvider>
         </div>
       </div>
+
+      {/* The only way out that is visible after the chrome is gone (Esc and Ctrl/Cmd+Shift+F
+          work too). Sits in the page, not the window corner, so it never covers the chat dock. */}
+      {focusActive && (
+        <button
+          type="button"
+          onClick={exitFocusMode}
+          title="Keluar mode fokus (Esc)"
+          className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full border border-kumo-line bg-kumo-base/90 px-3 py-1.5 text-[11px] text-kumo-subtle shadow-sm backdrop-blur transition-colors hover:text-kumo-default hover:bg-kumo-elevated cursor-pointer"
+        >
+          <CornersIn size={12} />
+          Keluar fokus
+          <kbd className="text-[9px] font-mono px-1 rounded bg-kumo-elevated text-kumo-subtle border border-kumo-line/60">Esc</kbd>
+        </button>
+      )}
 
       {/* Docked at the window's right edge (not inside the page), so the React tree and the
           streams stay in this route while the DOM sits in the app's right dock. */}
@@ -659,6 +713,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
   onFileClick: (file: { name: string; path: string }) => void;
   onTabClose: (path: string) => void;
 }) {
+  const focusActive = useFocusMode();
   const [fileSummary, setFileSummary] = useState<Record<string, number>>({});
   const [fileExplorerCollapsed, setFileExplorerCollapsed] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
@@ -823,17 +878,20 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
     <>
     <div className="flex flex-col h-full">
       {/* Stat cards */}
+      {!focusActive && (
       <div className="grid grid-cols-4 gap-3 mb-3 shrink-0">
         <StatCard label="FSD Files" value={fileSummary.fsd ? String(fileSummary.fsd) : null} />
         <StatCard label="Spec Files" value={fileSummary.spec ? String(fileSummary.spec) : null} />
         <StatCard label="ERD Files" value={fileSummary.erd ? String(fileSummary.erd) : null} />
         <StatCard label="Tasks" value={fileSummary.task ? String(fileSummary.task) : null} />
       </div>
+      )}
 
       {/* Split: file browser (left) + content (right) */}
       <div className="flex flex-1 min-h-0 glass-container overflow-hidden rounded-xl">
-        {/* Left: file browser */}
-        <ExplorerShell
+        {/* Left: file browser. In focus mode it is gone entirely (a 28px rail is still chrome);
+            the reader bar's "Files" button opens Quick Open instead. */}
+        {!focusActive && <ExplorerShell
           collapsed={fileExplorerCollapsed}
           onToggle={() => setFileExplorerCollapsed(false)}
           label="Files"
@@ -865,12 +923,12 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
             onDirContextMenu={(e, dir) => openMenu(e, { kind: "dir", dir })}
             onRename={handleRename}
           />
-        </ExplorerShell>
+        </ExplorerShell>}
 
         {/* Right: tab bar + content viewer */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
           {/* Tab bar */}
-          {openTabs.length > 0 ? (
+          {focusActive ? null : openTabs.length > 0 ? (
             <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-kumo-line/50 bg-kumo-elevated/20 shrink-0">
               <div className="flex items-center gap-1.5 overflow-x-auto min-w-0 flex-1 no-scrollbar">
                 {openTabs.map((t) => (
@@ -955,6 +1013,33 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
               />
             )}
           </div>
+
+          {/* Floating reader bar: the tab strip is hidden in focus mode, but a dirty document
+              must keep its Save and its Unsaved status on screen. */}
+          {focusActive && activeTabPath && isTextFile && (
+            <div className="absolute bottom-3 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-full border border-kumo-line bg-kumo-base/90 px-3 py-1.5 shadow-lg backdrop-blur">
+              <FileText size={12} className="shrink-0 text-kumo-subtle" />
+              <span className="max-w-56 truncate text-[11px] text-kumo-subtle" title={activeTabPath}>
+                {activeTabPath.split("/").pop()}
+              </span>
+              {dirty && (
+                <span className="flex shrink-0 items-center gap-1 text-[10px] text-amber-400"><XCircle size={10} /> Unsaved</span>
+              )}
+              {saving && (
+                <span className="flex shrink-0 items-center gap-1 text-[10px] text-kumo-subtle animate-pulse"><CheckCircle size={10} /> Saving…</span>
+              )}
+              <span className="mx-0.5 h-3 w-px shrink-0 bg-kumo-line" />
+              <AppButton onClick={() => void handleSave()} disabled={saving || !dirty} variant="chip" size="xs" icon={<FloppyDisk size={11} />} className="px-2" title="Save (Ctrl/Cmd+S)">Save</AppButton>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
+                title="Buka file lain (Ctrl/Cmd+P)"
+                className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] text-kumo-subtle transition-colors hover:bg-kumo-elevated hover:text-kumo-default cursor-pointer"
+              >
+                <MagnifyingGlass size={11} /> Files
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
