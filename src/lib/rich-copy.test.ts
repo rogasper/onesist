@@ -55,3 +55,11 @@ test("entities are decoded in plain text", () => {
 test("each block element starts its own line", () => {
   expect(htmlToPlainText("<p>satu</p><p>dua</p>")).toBe("satu\ndua");
 });
+
+test("GFM task checklists keep their checkbox state in HTML and plain text", () => {
+  const html = markdownToHtml("- [ ] Belum selesai\n- [x] Sudah selesai");
+  expect(html).toContain('type="checkbox"');
+  const text = htmlToPlainText(html);
+  expect(text).toContain("- [ ] Belum selesai");
+  expect(text).toContain("- [x] Sudah selesai");
+});

@@ -144,7 +144,11 @@ function visibleRows(thread: { id: string; summaryUptoSeq: number | null }): Mes
 }
 
 /** The system prompt of a thread. One builder, shared by the turn and the context meter. */
-function threadSystemPrompt(current: NonNullable<ReturnType<typeof getThread>>, root: string): string {
+function threadSystemPrompt(
+  current: NonNullable<ReturnType<typeof getThread>>,
+  root: string,
+  externalMcpServers?: { name: string; url?: string | null; instructions?: string }[],
+): string {
   return buildSystemPrompt({
     projectName: (db.select().from(projects).where(eq(projects.id, current.projectId)).get() as any)?.name ?? "Project",
     root,
@@ -162,6 +166,7 @@ function threadSystemPrompt(current: NonNullable<ReturnType<typeof getThread>>, 
     // resolved again when `task` runs, so a definition added mid-conversation is
     // usable without a restart.
     subagents: subagentSummaries(resolveSubagents(root, getAppSubagents()).subagents),
+    externalMcpServers,
   });
 }
 
@@ -542,8 +547,6 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
   const stored = toUIMessages(visibleRows(current)).filter((m) => m.role !== "system") as UIMessage[];
   const modelMessages = lastUser && !stored.some((m) => m.id === lastUser.id) ? [...stored, lastUser as UIMessage] : stored;
 
-  const system = threadSystemPrompt(current, root) + (workspace.note ? `\n\n${workspace.note}` : "");
-
   const runId = makeRunId();
   let errorText: string | null = null;
   /** Highest step number the loop reported (FR-B11). */
@@ -593,7 +596,9 @@ async function startThreadTurn(threadId: string, uiMessages: UIMessage[], client
       // Only a native turn can carry external MCP tools, so a CLI turn must not
       // pay for connecting to every enabled server.
       const lastUserText = lastUser ? messageText(lastUser) : "";
-      const { tools: externalTools } = await loadMcpToolsForTurn(lastUserText);
+      const { tools: externalTools, serverSummaries } = await loadMcpToolsForTurn(lastUserText);
+      const system =
+        threadSystemPrompt(current, root, serverSummaries) + (workspace.note ? `\n\n${workspace.note}` : "");
 
       result = await startTurn({
         runId,

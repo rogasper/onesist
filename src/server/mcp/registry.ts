@@ -5,6 +5,7 @@
  */
 import { buildDbTools } from "~/server/agent/db/tools";
 import { buildCodeSearchTool } from "~/server/agent/index/tool";
+import { buildTaskCardTool } from "~/server/agent/task-card-tool";
 import { mcpToolFromAi } from "./from-ai-tool";
 import type { McpTool } from "./protocol";
 import { buildThreadTools } from "./thread-tools";
@@ -15,17 +16,20 @@ export const MCP_TOOL_NAMES = [
   "onesist_code_search",
   "onesist_thread_list",
   "onesist_thread_read",
+  "onesist_task_card",
 ] as const;
 
 export function buildProjectMcpTools(projectId: string, root: string): McpTool[] {
   const { dbSchema, dbQuery } = buildDbTools({ projectId, permissionMode: "readonly" });
   const codeSearch = buildCodeSearchTool({ projectId, root });
   const { threadList, threadRead } = buildThreadTools(projectId);
+  const { taskExternalCard } = buildTaskCardTool(projectId);
   return [
     mcpToolFromAi("onesist_db_schema", dbSchema),
     mcpToolFromAi("onesist_db_query", dbQuery),
     mcpToolFromAi("onesist_code_search", codeSearch),
     mcpToolFromAi("onesist_thread_list", threadList),
     mcpToolFromAi("onesist_thread_read", threadRead),
+    mcpToolFromAi("onesist_task_card", taskExternalCard),
   ];
 }

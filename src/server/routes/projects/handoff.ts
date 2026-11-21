@@ -5,6 +5,8 @@ import { json, notFound, badRequest } from "../../http/response";
 import { Router } from "../../http/router";
 import { getProject, defaultRoot } from "../../http/route-utils";
 import { readFile, scanDirectory, findMasterFile, buildCombinedMissingPrompt } from "~/lib/file-router";
+import { formatExternalTaskCard } from "~/lib/external-task-card";
+import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
 import { db } from "~/server/db/client";
 import { tasks } from "~/server/db/schema";
 
@@ -88,6 +90,35 @@ function createZip(files: Record<string, Uint8Array | string>): Uint8Array {
 function csvEscape(v: string): string {
   if (v.includes('"') || v.includes(",") || v.includes("\n")) return `"${v.replace(/"/g, '""')}"`;
   return v;
+}
+
+/** Shared Monday CSV builder (#69) — uses the same sanitized external card formatter as Copy HTML and Monday MCP. */
+function buildMondayCsv(allTasks: any[]): string {
+  const header = ["Group", "Name", "Description", "Status", "Person", "Numbers (SP)", "Dependency", "Tags"];
+  const rows: string[][] = [header];
+  for (const t of allTasks) {
+    const card = formatExternalTaskCard(t);
+    let deps: string[] = [];
+    if (t.dependenciesJson) {
+      try {
+        const parsed = JSON.parse(t.dependenciesJson);
+        if (Array.isArray(parsed)) deps = parsed.filter((d): d is string => typeof d === "string" && d.trim().length > 0);
+      } catch {}
+    }
+    const labels = [t.module, t.phase].filter(Boolean).join(" ");
+    const statusLabel = STATUS_LABELS[normalizeStatus(t.status)] ?? t.status;
+    rows.push([
+      card.group || "No Phase",
+      card.title.slice(0, 200),
+      card.text,
+      statusLabel,
+      t.assignee || "",
+      t.storyPoints != null ? String(t.storyPoints) : "",
+      deps.join(", "),
+      labels,
+    ]);
+  }
+  return rows.map((r) => r.map(csvEscape).join(",")).join("\n");
 }
 
 function buildPromptMd(task: any, specSnippet: string, erdSnippet: string): string {
@@ -224,47 +255,41 @@ router.get("projects/:id/handoff", async ({ params, query }) => {
     return json({ project: projectName, version, date, tasks: tasksJson });
   }
 
-  if (format === "jira-csv" || format === "monday-csv") {
-    const isJira = format === "jira-csv";
-    const header = isJira
-      ? ["Issue Key", "Summary", "Description", "Issue Type", "Story Points", "Assignee", "Labels", "Priority", "Sprint/Phase", "Linked Issues (Depends On)"]
-      : ["Group", "Name", "Description", "Status", "Person", "Numbers (SP)", "Dependency", "Tags"];
+  if (format === "monday-csv") {
+    const csv = buildMondayCsv(allTasks);
+    const filename = `monday-import-${projectName}-${date}.csv`;
+    return new Response(csv, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  if (format === "jira-csv") {
+    const header = ["Issue Key", "Summary", "Description", "Issue Type", "Story Points", "Assignee", "Labels", "Priority", "Sprint/Phase", "Linked Issues (Depends On)"];
     const rows: string[][] = [header];
     for (const t of tasksJson) {
       const summary = `${t.code}: ${t.title.replace(/^.*?:\s*/, "")}`.slice(0, 200);
-      // Description: Context + AC + Flow snippet (truncate for CSV)
-      const acStr = t.acceptanceCriteria.length > 0 ? t.acceptanceCriteria.map((a: string) => `- [ ] ${a}`).join("\n") : "";
       const desc = `${t.descriptionMd || ""}`.slice(0, 3000);
       const labels = [t.module, t.phase].filter(Boolean).join(" ");
       const priority = t.risk === "High" ? "High" : t.risk === "Medium" ? "Medium" : t.critical ? "High" : "Low";
-      if (isJira) {
-        rows.push([
-          t.code || "",
-          summary,
-          desc,
-          "Task",
-          String(t.storyPoints ?? ""),
-          t.assignee || "",
-          labels,
-          priority,
-          t.phase || t.module || "",
-          t.dependencies.join(", "),
-        ]);
-      } else {
-        rows.push([
-          t.phase || t.module || "No Phase",
-          summary,
-          desc,
-          t.status,
-          t.assignee || "",
-          String(t.storyPoints ?? ""),
-          t.dependencies.join(", "),
-          labels,
-        ]);
-      }
+      rows.push([
+        t.code || "",
+        summary,
+        desc,
+        "Task",
+        String(t.storyPoints ?? ""),
+        t.assignee || "",
+        labels,
+        priority,
+        t.phase || t.module || "",
+        t.dependencies.join(", "),
+      ]);
     }
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
-    const filename = isJira ? `jira-import-${projectName}-${date}.csv` : `monday-import-${projectName}-${date}.csv`;
+    const filename = `jira-import-${projectName}-${date}.csv`;
     return new Response(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
@@ -400,21 +425,17 @@ Generated: ${date}
   files["manifest.json"] = JSON.stringify(manifest, null, 2);
 
   // Also include CSVs inside zip for convenience
-  // Generate CSV strings for inclusion
   const jiraHeader = ["Issue Key", "Summary", "Description", "Issue Type", "Story Points", "Assignee", "Labels", "Priority", "Sprint/Phase", "Linked Issues (Depends On)"];
   const jiraRows: string[][] = [jiraHeader];
-  const mondayHeader = ["Group", "Name", "Description", "Status", "Person", "Numbers (SP)", "Dependency", "Tags"];
-  const mondayRows: string[][] = [mondayHeader];
   for (const t of tasksJson) {
     const summary = `${t.code}: ${t.title.replace(/^.*?:\s*/, "")}`.slice(0, 200);
     const desc = `${t.descriptionMd || ""}`.slice(0, 2000).replace(/\n/g, " ");
     const labels = [t.module, t.phase].filter(Boolean).join(" ");
     const priority = t.risk === "High" ? "High" : t.risk === "Medium" ? "Medium" : t.critical ? "High" : "Low";
     jiraRows.push([t.code || "", summary, desc, "Task", String(t.storyPoints ?? ""), t.assignee || "", labels, priority, t.phase || t.module || "", t.dependencies.join(", ")]);
-    mondayRows.push([t.phase || t.module || "No Phase", summary, desc, t.status, t.assignee || "", String(t.storyPoints ?? ""), t.dependencies.join(", "), labels]);
   }
   files["jira-import.csv"] = jiraRows.map((r) => r.map(csvEscape).join(",")).join("\n");
-  files["monday-import.csv"] = mondayRows.map((r) => r.map(csvEscape).join(",")).join("\n");
+  files["monday-import.csv"] = buildMondayCsv(allTasks);
 
   let zipBytes: Uint8Array;
   try {

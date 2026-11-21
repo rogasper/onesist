@@ -35,15 +35,26 @@ export function htmlToPlainText(html: string): string {
   const lists: { kind: string; n: number }[] = [];
   const re = /<(\/?)([a-zA-Z0-9]+)([^>]*)>|([^<]+)/g;
   let m: RegExpExecArray | null;
+  let trimLeadingSpace = false;
   while ((m = re.exec(html))) {
     if (m[4] !== undefined) {
-      buf += m[4].replace(/&(?:amp|lt|gt|quot|#x27|#39);/g, (e) => ENTITIES[e] ?? e);
+      let chunk = m[4].replace(/&(?:amp|lt|gt|quot|#x27|#39);/g, (e) => ENTITIES[e] ?? e);
+      if (trimLeadingSpace) {
+        chunk = chunk.replace(/^[ \t]+/, "");
+        trimLeadingSpace = false;
+      }
+      buf += chunk;
       continue;
     }
     const closing = m[1] === "/";
     const tag = m[2].toLowerCase();
+    const attrs = m[3] ?? "";
     if (tag === "br") {
       flush();
+    } else if (tag === "input" && !closing && /type=["']?checkbox["']?/i.test(attrs)) {
+      const checked = /\bchecked(?:\s*=|\b)/i.test(attrs);
+      buf += checked ? "[x] " : "[ ] ";
+      trimLeadingSpace = true;
     } else if (tag === "ul" || tag === "ol") {
       if (closing) lists.pop();
       else lists.push({ kind: tag, n: 0 });

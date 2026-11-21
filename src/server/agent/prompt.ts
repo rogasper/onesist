@@ -67,6 +67,12 @@ export function scanInventory(root: string): WorkspaceInventory {
   return { byDir, masterPresent };
 }
 
+export interface ExternalMcpServerSummary {
+  name: string;
+  url?: string | null;
+  instructions?: string;
+}
+
 export interface SystemPromptInput {
   projectName: string;
   root: string;
@@ -81,6 +87,12 @@ export interface SystemPromptInput {
   subagents?: { name: string; description: string }[];
   /** Project memory (Phase 2). */
   memory?: string | null;
+  /** Connected external MCP servers for this turn (GitHub, Figma, Miro, Monday, custom). */
+  externalMcpServers?: ExternalMcpServerSummary[];
+}
+
+export function isMondayMcpServer(server: Pick<ExternalMcpServerSummary, "name" | "url">): boolean {
+  return /monday/i.test(server.name) || /monday\.com/i.test(server.url ?? "");
 }
 
 function workspaceSection(root: string, inv: WorkspaceInventory): string {
@@ -120,7 +132,22 @@ Tab yang membaca DATABASE, bukan berkas — tulisannya baru muncul setelah data 
   Menulis berkas di output/task atau output/rtm TIDAK langsung mengubah tab. Setelah artefaknya selesai,
   panggil impornya lewat \`app_write\` — \`POST projects/<projectId>/tasks/import\` untuk Tasks (sekaligus
   menghapus task yang berkasnya sudah hilang) atau \`POST projects/<projectId>/rtm/import/apply\` untuk RTM —
-  lalu sebutkan hasilnya. Tanpa impor, tab masih perlu tombol Import manual: sampaikan itu ke user.`;
+  lalu sebutkan hasilnya. Tanpa impor, tab masih perlu tombol Import manual: sampaikan itu ke user.
+  Untuk mengirim atau memformat task ke Monday / pihak eksternal, pakai tool \`task_external_card\` — jangan
+  menyalin markdown mentah dari \`output/task/*.md\` atau \`db_query\`.`;
+
+const MONDAY_MCP_TASK_CARD_RULES = `## Aturan kirim task ke Monday (MCP)
+
+Saat membuat atau memperbarui item/subitem/update task di Monday lewat tool MCP Monday:
+- **WAJIB** panggil \`task_external_card\` terlebih dahulu (dengan \`code\`, \`codes\`, atau \`task_id\`) untuk memperoleh kartu task eksternal standar yang sama dengan tombol Copy dan Export Monday CSV. Baca skill \`monday-task\` lewat \`skill_read\` bila perlu panduan lengkap pola board (Item → Update vs Parent Item → Subitem → Update).
+- Gunakan hasil dari \`task_external_card\`:
+  - \`title\` (\`{code}: {title}\`, sekali saja — tanpa duplikasi \`## Task ...\`) untuk nama item atau subitem;
+  - \`group\` untuk Group board (bila relevan);
+  - \`fields\` (hanya field terisi: Assignee, Status, Story Points, Depends On, Blocks — tanpa placeholder \`—\` atau \`Unassigned\`) untuk kolom board/subitem;
+  - \`html\` untuk isi **Monday Update** (bawaan untuk detail item maupun subitem; heading, list, tabel, checklist HTML);
+  - \`text\` hanya bila user meminta menaruh isi di kolom Description/Long Text teks biasa.
+- **DILARANG** menyalin markdown mentah dari \`output/task/*.md\` atau \`db_query\` langsung ke Monday.
+- **DILARANG** mencantumkan \`Files Scope\`, \`Spec Ref\`, \`ERD Ref\`, \`RTM Ref\`, \`Source\`, maupun path/nama file internal Onesist (\`output/\`, \`input/\`, \`.agents/\`, \`data.db\`, \`MASTER_*.md\`, \`task_*.md\`, \`spec_*.md\`, \`erd_*.dbml\`, \`tasks.json\`, \`*.prompt.md\`) di item, subitem, atau update Monday.`;
 
 const UNTRUSTED_CONTENT_RULES = `## Konten tidak tepercaya
 
@@ -239,6 +266,16 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
         `Beberapa \`task\` dalam satu langkah boleh jalan bersamaan. Subagent tidak bisa menulis: perubahan berkas tetap kamu yang lakukan.`,
       ...input.subagents.map((s) => `- \`${s.name}\`: ${s.description}`),
     );
+  }
+
+  if (input.externalMcpServers?.length) {
+    const serverLines = input.externalMcpServers.map((s) =>
+      s.instructions?.trim() ? `- \`${s.name}\`: ${s.instructions.trim()}` : `- \`${s.name}\``,
+    );
+    parts.push("", `## Server MCP eksternal terhubung`, ...serverLines);
+    if (input.externalMcpServers.some(isMondayMcpServer)) {
+      parts.push("", MONDAY_MCP_TASK_CARD_RULES);
+    }
   }
 
   if (input.memory?.trim()) {

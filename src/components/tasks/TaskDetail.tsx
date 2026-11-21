@@ -5,7 +5,8 @@ import { MarkdownViewer } from "~/components/mermaid/DiagramRenderer";
 import { MdxEditorClient } from "~/components/mdx/MdxEditorClient";
 import { STATUS_LABELS, normalizeStatus } from "~/lib/task-status";
 import { stripTaskHeading } from "~/lib/task-parser";
-import { copyRich, escapeHtml, htmlToPlainText, markdownToHtml } from "~/lib/rich-copy";
+import { copyRich } from "~/lib/rich-copy";
+import { formatExternalTaskCard } from "~/lib/external-task-card";
 import type { Task } from "~/shared/types";
 
 interface TaskDetailProps {
@@ -149,27 +150,10 @@ export function TaskDetail({ task, developers, phases = [], onSave, onDelete, on
     setSaving(false);
   };
 
-  /** The copy for Monday and Jira (U5): the fields as a table, then the description as rendered. */
+  /** The human-facing copy for Monday and Jira (#69): shared minimal HTML + synced plain text without internal Onesist paths. */
   const buildRichCopy = (): { html: string; text: string } => {
-    const row = (label: string, value: string | null | undefined) =>
-      value ? `<tr><td><strong>${escapeHtml(label)}</strong></td><td>${escapeHtml(value)}</td></tr>` : "";
-    const fields = [
-      row("Assignee", task.assignee || "Unassigned"),
-      row("Status", STATUS_OPTIONS.find((s) => s.value === task.status)?.label ?? task.status),
-      row("Story Points", task.storyPoints != null ? String(task.storyPoints) : "—"),
-      row("Module", task.module || "—"),
-      row("Phase", task.phase),
-      row("Depends On", deps.length ? deps.join(", ") : ""),
-      row("Blocks", blocks.length ? blocks.join(", ") : ""),
-      row("Risk", (task as any).risk),
-      row("Critical", (task as any).critical ? "Yes" : ""),
-      row("Files Scope", filesScope.length ? filesScope.join(", ") : ""),
-      row("Spec Ref", (task as any).specRef),
-      row("ERD Ref", (task as any).erdRef),
-      row("Source", task.sourcePath),
-    ].join("");
-    const html = `<h2>${escapeHtml(`${code}: ${displayTitle}`)}</h2><table border="1" style="border-collapse:collapse"><tbody>${fields}</tbody></table>${markdownToHtml(task.description ?? "")}`;
-    return { html, text: htmlToPlainText(html) };
+    const card = formatExternalTaskCard(task);
+    return { html: card.html, text: card.text };
   };
 
   const buildAgentPrompt = () => {
