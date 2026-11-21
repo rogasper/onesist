@@ -11,6 +11,7 @@ import { useState } from "react";
 import { ArrowsClockwise } from "@phosphor-icons/react";
 import { applyTheme, useAppTheme } from "~/lib/theme";
 import { loadTerminalPrefs, saveTerminalPrefs, type TerminalPrefs } from "~/lib/terminal-prefs";
+import { setSidebarAutoHide, useSidebarAutoHide } from "~/lib/sidebar-state";
 import { isDesktopShell } from "~/lib/run-notification";
 import { requestUpdateCheck } from "~/components/UpdateBanner";
 import { AppButton } from "~/components/ui/AppButton";
@@ -33,6 +34,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function AppearancePanel() {
   const theme = useAppTheme();
+  const sidebarAutoHide = useSidebarAutoHide();
   const [prefs, setPrefs] = useState<TerminalPrefs>(loadTerminalPrefs);
 
   const update = (patch: Partial<TerminalPrefs>) => {
@@ -57,6 +59,34 @@ export function AppearancePanel() {
               {t}
             </AppButton>
           ))}
+        </div>
+      </Field>
+
+      <Field label="Sidebar">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex gap-2">
+            <AppButton
+              variant="chip"
+              size="sm"
+              active={!sidebarAutoHide}
+              onClick={() => setSidebarAutoHide(false)}
+              className="px-3"
+            >
+              Pin (tetap tampil)
+            </AppButton>
+            <AppButton
+              variant="chip"
+              size="sm"
+              active={sidebarAutoHide}
+              onClick={() => setSidebarAutoHide(true)}
+              className="px-3"
+            >
+              Auto-hide
+            </AppButton>
+          </div>
+          <p className="text-[11px] text-kumo-subtle">
+            Saat auto-hide aktif, sidebar sembunyi otomatis dan muncul sebagai overlay ketika kursor menyentuh tepi kiri.
+          </p>
         </div>
       </Field>
 

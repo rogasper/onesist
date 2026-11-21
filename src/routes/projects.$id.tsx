@@ -37,7 +37,7 @@ import {
 import { subscribeQuotes } from "~/lib/chat-quote";
 import { subscribeChatTasks } from "~/lib/chat-task";
 import { subscribeTerminalLaunch } from "~/lib/terminal-launch";
-import { foldSidebarForChat, restoreSidebarAfterChat } from "~/lib/sidebar-state";
+import { foldSidebarForChat, hasBlockingOverlay, restoreSidebarAfterChat } from "~/lib/sidebar-state";
 import { exitFocusMode, isFocusMode, isFocusModeToggleKey, toggleFocusMode, useFocusMode } from "~/lib/focus-mode";
 import { TerminalErrorBoundary } from "~/components/agent/TerminalErrorBoundary";
 import { useFileContent, useFileList } from "~/lib/use-file-data";
@@ -94,16 +94,16 @@ function ProjectLayout({ project }: { project: any }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isFocusModeToggleKey({ key: e.key, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey })) {
-        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+        if (hasBlockingOverlay()) return;
         e.preventDefault();
         toggleFocusMode();
         return;
       }
       if (e.key !== "Escape" || !isFocusMode()) return;
       // The sidebar peek's capture handler closes the peek first and marks the key handled;
-      // a dialog or quick-open closes itself the same way.
+      // dialogs, quick open, context menus, and editor popovers close themselves first too.
       if (e.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (hasBlockingOverlay()) return;
       exitFocusMode();
     };
     window.addEventListener("keydown", onKey);
@@ -424,7 +424,7 @@ function ProjectLayout({ project }: { project: any }) {
   const notice = skillNotice(skill.state);
 
   return (
-    <div className="relative flex h-full">
+    <div data-focus-mode={focusActive ? "" : undefined} className="relative flex h-full">
       <div className="flex-1 min-w-0 flex flex-col">
         {!focusActive && (
         <div className="mb-3">
@@ -1014,14 +1014,20 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
             )}
           </div>
 
-          {/* Floating reader bar: the tab strip is hidden in focus mode, but a dirty document
-              must keep its Save and its Unsaved status on screen. */}
+          {/* Floating reader/editor bar: the tab strip is hidden in focus mode, but switching
+              between Edit / Split / Preview and seeing Save / Unsaved stays accessible. */}
           {focusActive && activeTabPath && isTextFile && (
-            <div className="absolute bottom-3 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-full border border-kumo-line bg-kumo-base/90 px-3 py-1.5 shadow-lg backdrop-blur">
+            <div className="absolute bottom-3 right-3 z-20 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full bg-kumo-base/90 px-3 py-1.5 shadow-lg ring-1 ring-kumo-line backdrop-blur">
               <FileText size={12} className="shrink-0 text-kumo-subtle" />
-              <span className="max-w-56 truncate text-[11px] text-kumo-subtle" title={activeTabPath}>
+              <span className="max-w-48 truncate text-[11px] text-kumo-subtle" title={activeTabPath}>
                 {activeTabPath.split("/").pop()}
               </span>
+              <span className="mx-0.5 h-3 w-px shrink-0 bg-kumo-line" />
+              <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Mode editor">
+                <AppButton variant="chip" size="xs" active={editorMode === "edit"} onClick={() => setEditorMode("edit")} icon={<PencilSimple size={11} />} className="px-2" title="Edit" aria-label="Edit" aria-pressed={editorMode === "edit"} />
+                <AppButton variant="chip" size="xs" active={editorMode === "split"} onClick={() => setEditorMode("split")} icon={<Columns size={11} />} className="px-2" title="Split view" aria-label="Split view" aria-pressed={editorMode === "split"} />
+                <AppButton variant="chip" size="xs" active={editorMode === "preview"} onClick={() => setEditorMode("preview")} icon={<Eye size={11} />} className="px-2" title="Preview" aria-label="Preview" aria-pressed={editorMode === "preview"} />
+              </div>
               {dirty && (
                 <span className="flex shrink-0 items-center gap-1 text-[10px] text-amber-400"><XCircle size={10} /> Unsaved</span>
               )}
@@ -1034,7 +1040,7 @@ function OverviewContent({ project, openTabs, setOpenTabs, activeTabPath, setAct
                 type="button"
                 onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
                 title="Buka file lain (Ctrl/Cmd+P)"
-                className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] text-kumo-subtle transition-colors hover:bg-kumo-elevated hover:text-kumo-default cursor-pointer"
+                className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] text-kumo-subtle hover:bg-kumo-elevated hover:text-kumo-default cursor-pointer"
               >
                 <MagnifyingGlass size={11} /> Files
               </button>

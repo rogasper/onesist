@@ -44,6 +44,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   return (
     <div
       ref={ref}
+      role="menu"
       className="fixed z-50 rounded-lg border border-kumo-line bg-kumo-elevated shadow-lg py-1 text-xs"
       style={{ left: clampedX, top: clampedY, minWidth: menuWidth }}
     >
