@@ -66,7 +66,7 @@ test("initialize names the server", async () => {
   expect(body.result.serverInfo.name).toBe("onesist");
 });
 
-test("tools/list returns the five read-only tools", async () => {
+test("tools/list returns the read-only tools", async () => {
   const body = (await (await post({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json()) as any;
   expect(body.result.tools.map((t: any) => t.name)).toEqual([...MCP_TOOL_NAMES]);
 });
@@ -75,6 +75,24 @@ test("tools/call reads a chat thread of this project", async () => {
   const body = (await (await post({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "onesist_thread_read", arguments: { thread_id: threadId } } })).json()) as any;
   expect(body.result.isError).toBe(false);
   expect(body.result.content[0].text).toContain("Tabel users perlu kolom email");
+});
+
+test("tools/call formats a sanitized Monday-ready task card via onesist_task_card", async () => {
+  db.run(
+    sql`INSERT OR REPLACE INTO tasks (id, project_id, code, title, description, status, story_points, assignee, phase, source_path, spec_ref)
+        VALUES ('mcp-t1', 'p-mcp', 'MCP-1', 'MCP-1: Create order', '## Task MCP-1: Create order\n\n| Field | Detail |\n|---|---|\n| Spec Ref | output/spec/spec_order.md |\n\n### Scope\n- Validasi order (lihat input/fsd/order.md)\n', 'todo', 2, 'Dina', 'Phase 1', 'output/task/task_order.md', 'output/spec/spec_order.md')`,
+  );
+  const body = (await (
+    await post({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "onesist_task_card", arguments: { code: "MCP-1" } } })
+  ).json()) as any;
+  expect(body.result.isError).toBe(false);
+  const payload = JSON.parse(body.result.content[0].text);
+  expect(payload.cards).toHaveLength(1);
+  expect(payload.cards[0].title).toBe("MCP-1: Create order");
+  expect(payload.cards[0].html).not.toContain("output/");
+  expect(payload.cards[0].html).not.toContain("input/");
+  expect(payload.cards[0].html).not.toContain("Spec Ref");
+  expect(payload.cards[0].text).toContain("Validasi order");
 });
 
 test("a notification is 202 with an empty body", async () => {

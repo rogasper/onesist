@@ -194,7 +194,9 @@ function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T>
   });
 }
 
-export async function loadMcpToolsForTurn(messageText?: string): Promise<{ tools: Record<string, Tool>; serverSummaries: { name: string; instructions?: string }[] }> {
+export async function loadMcpToolsForTurn(
+  messageText?: string,
+): Promise<{ tools: Record<string, Tool>; serverSummaries: { name: string; url?: string | null; instructions?: string }[] }> {
   const rows = db.select().from(mcpServers).where(eq(mcpServers.enabled, true)).all();
   if (!rows.length) return { tools: {}, serverSummaries: [] };
 
@@ -208,7 +210,7 @@ export async function loadMcpToolsForTurn(messageText?: string): Promise<{ tools
   }
 
   const tools: Record<string, Tool> = {};
-  const serverSummaries: { name: string; instructions?: string }[] = [];
+  const serverSummaries: { name: string; url?: string | null; instructions?: string }[] = [];
 
   for (const row of rows) {
     const isMentioned = mentionedServers.size === 0 || mentionedServers.has(row.name.toLowerCase());
@@ -220,7 +222,7 @@ export async function loadMcpToolsForTurn(messageText?: string): Promise<{ tools
         12_000,
         `Server MCP "${row.name}"`,
       );
-      serverSummaries.push({ name: row.name, instructions: instructions ?? row.instructions ?? undefined });
+      serverSummaries.push({ name: row.name, url: row.url ?? null, instructions: instructions ?? row.instructions ?? undefined });
       for (const [tName, tDef] of Object.entries(serverTools)) {
         tools[`${row.name}__${tName}`] = tDef;
       }

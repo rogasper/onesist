@@ -27,6 +27,7 @@ import { db } from "~/server/db/client";
 import { mcpServers } from "~/server/db/schema";
 import { eq } from "drizzle-orm";
 import { buildDbTools } from "./db/tools";
+import { buildTaskCardTool } from "./task-card-tool";
 import { BrowserError, capture as captureInBrowser } from "~/server/browser/manager";
 import type { ChangeSource, FileOp } from "./types";
 
@@ -809,6 +810,8 @@ export function buildTools(ctx: ToolContext): ToolSet {
     },
   });
 
+  const { taskExternalCard } = buildTaskCardTool(ctx.projectId);
+
   const tools: ToolSet = {
     ...(ctx.externalTools ?? {}),
     read_file: readFileTool,
@@ -823,6 +826,7 @@ export function buildTools(ctx: ToolContext): ToolSet {
     code_search: codeSearchTool,
     db_schema: dbSchema,
     db_query: dbQuery,
+    task_external_card: taskExternalCard,
     task: taskTool,
   };
   if (memoryWriteTool) tools.memory_write = memoryWriteTool;

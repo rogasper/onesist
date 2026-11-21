@@ -39,6 +39,11 @@ export const REQUIRED_SKILLS: SkillDef[] = [
     source: "https://github.com/rogasper/onesist",
     dir: "query-writer",
   },
+  {
+    name: "monday-task",
+    source: "https://github.com/rogasper/onesist",
+    dir: "monday-task",
+  },
 ];
 
 function skillDir(projectRoot: string, name: string): string {
