@@ -392,6 +392,12 @@ html:not([data-mode="dark"]) .glass-container {
   padding: 2px 0 6px;
 }
 
+/* Keep MDXEditor's right-aligned Rich/Diff/Source toggle clear of the floating "Keluar fokus"
+   chip anchored at the top-right corner during Focus Mode. */
+[data-focus-mode] .mdxeditor .mdxeditor-toolbar {
+  padding-right: 9.5rem;
+}
+
 .mdxeditor .mdxeditor-toolbar .mdxeditor-button[aria-label] {
   color: var(--baseTextContrast, #abb2bf);
 }
@@ -693,4 +699,37 @@ html:not([data-mode="dark"]) .mdxeditor .cm-editor .cm-activeLineGutter {
 .fixed[data-sidebar="content-container"],
 .fixed[data-sidebar="sidebar"] {
   top: var(--update-banner-h, 0px);
+}
+
+/* Auto-hide / focus-mode overlay sidebar: keeps full width and slides left-to-right on the
+   compositor (`transform` + `opacity`) so the main document never reflows and text never squishes. */
+.sidebar-peek-panel {
+  position: absolute !important;
+  inset-block: 0 !important;
+  left: 0 !important;
+  z-index: 40 !important;
+  width: var(--sidebar-width) !important;
+  will-change: transform, opacity;
+}
+.sidebar-peek-panel.sidebar-peek-closed {
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.sidebar-peek-panel.sidebar-peek-open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-peek-panel.sidebar-peek-open {
+    transition:
+      transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 90ms ease-out !important;
+  }
+  .sidebar-peek-panel.sidebar-peek-closed {
+    transition:
+      transform 220ms cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 70ms ease-out 150ms !important;
+  }
 }

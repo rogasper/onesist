@@ -9,7 +9,7 @@ import {
 import { openProjectWindow } from "~/lib/window";
 import type { QueryClient } from "@tanstack/react-query";
 import { Sidebar, useSidebar } from "@cloudflare/kumo";
-import { House, Folder, Gear, Sun, Moon, ArrowUp, MagnifyingGlass, SidebarSimple, PushPin } from "@phosphor-icons/react";
+import { House, Folder, Gear, Sun, Moon, ArrowUp, MagnifyingGlass, SidebarSimple } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { applyTheme, getStoredTheme, toggleTheme, type AppTheme } from "~/lib/theme";
 import { useGlobalDropGuard } from "~/lib/file-drop";
@@ -20,7 +20,23 @@ import { InstanceWatch } from "~/components/system/InstanceWatch";
 import { QuickOpenModal } from "~/components/ui/QuickOpenModal";
 import { ProjectNotFound } from "~/components/ui/ProjectNotFound";
 import { RIGHT_DOCK_ID } from "~/components/layout/RightDock";
-import { getSidebarChoice, isSidebarToggleKey, setSidebarOpen, useSidebarChoice, useSidebarOpen } from "~/lib/sidebar-state";
+import {
+  PEEK_ENTER_DELAY_MS,
+  PEEK_LEAVE_DELAY_MS,
+  getSidebarOpen,
+  hasBlockingOverlay,
+  hydrateSidebarState,
+  isPointerInEdgeZone,
+  isPointerInPeekBounds,
+  isSidebarToggleKey,
+  setSidebarAutoHide,
+  setSidebarOpen,
+  shouldEnableSidebarPeek,
+  shouldStartSidebarPeek,
+  useSidebarAutoHide,
+  useSidebarChoice,
+  useSidebarOpen,
+} from "~/lib/sidebar-state";
 import { isFocusMode, isFocusSidebarPinned, setFocusSidebarPinned, useFocusMode, useFocusSidebarPinned } from "~/lib/focus-mode";
 import "~/styles.css";
 
@@ -35,69 +51,105 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   component: RootComponent,
   notFoundComponent: ProjectNotFound,
 });
-function AppSidebarHeader({ overlay }: { overlay: boolean }) {
-  const { state, isMobile, setOpen } = useSidebar();
+
+function SidebarPanelIcon({ pinned }: { pinned: boolean }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      className="shrink-0"
+    >
+      <path d="M21.25 6.72v10.56a2.97 2.97 0 0 1-2.97 2.97H5.72a2.97 2.97 0 0 1-2.97-2.97V6.72a2.97 2.97 0 0 1 2.97-2.97h12.56a2.97 2.97 0 0 1 2.97 2.97" />
+      <path
+        d="M6.25 7.25v9.5"
+        style={{ transform: pinned ? "translateX(1px)" : "translateX(10.5px)" }}
+        className="motion-safe:transition-transform motion-safe:duration-200"
+      />
+    </svg>
+  );
+}
+
+function AppSidebarHeader({
+  overlay,
+  isPinned,
+  onPinToggle,
+  onCollapseClick,
+}: {
+  overlay: boolean;
+  isPinned: boolean;
+  onPinToggle: () => void;
+  onCollapseClick: () => void;
+}) {
+  const { state, isMobile, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed" && !isMobile;
-  // Inside focus mode the peek is temporary by default; the pin makes it stick. It is not
-  // offered outside the mode, where the sidebar already follows the user's own open/closed choice.
-  const focusActive = useFocusMode();
-  const focusPinned = useFocusSidebarPinned();
   const isDesktop =
     typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
   return (
     <Sidebar.Header>
-      {/* One control slot, ChatGPT-style: while the sidebar is visible this square is the
-          collapse control; when it is closed the same square (same position, same size) is
-          the floating logo button below. Only on non-overlay windows — the overlay build
-          keeps its toggle in the title bar strip instead. setSidebarOpen, not the kumo
-          setter, so the click counts as the user's choice and is remembered. */}
-      <div className={`flex items-center gap-2 py-2 ${overlay ? 'px-3' : 'pl-2 pr-3'} ${isCollapsed ? 'justify-center' : ''}`}>
-        {overlay ? (
-          /* The brand mark doubles as the collapse control: hover swaps it to the panel
-             icon so it reads as clickable instead of a dead logo, click collapses. */
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            title="Sembunyikan sidebar (Ctrl/⌘B)"
-            aria-label="Sembunyikan sidebar"
-            className="group/logo relative grid size-7 shrink-0 place-items-center rounded hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
-          >
-            <img
-              src="/logo-icon.png"
-              alt="Onesist"
-              className="h-6 w-6 object-contain transition-opacity group-hover/logo:opacity-0"
-            />
-            <SidebarSimple
-              size={14}
-              className="absolute text-kumo-subtle opacity-0 transition-opacity group-hover/logo:opacity-100"
-            />
-          </button>
-        ) : (
-          <img src="/logo-icon.png" alt="Onesist" className="h-6 w-6 object-contain shrink-0" />
-        )}
-        {!isCollapsed && <span className="text-sm font-semibold text-kumo-default truncate flex-1 min-w-0">ONESIST</span>}
-        {focusActive && !isCollapsed && (
-          <button
-            type="button"
-            onClick={() => setFocusSidebarPinned(!focusPinned)}
-            title={focusPinned ? "Lepas pin: sidebar sembunyi lagi saat kursor pergi" : "Pin sidebar: tetap terbuka selama mode fokus"}
-            aria-label={focusPinned ? "Lepas pin sidebar" : "Pin sidebar"}
-            aria-pressed={focusPinned}
-            className={`flex items-center justify-center size-7 rounded transition-colors cursor-pointer shrink-0 hover:bg-kumo-elevated/60 ${focusPinned ? "text-kumo-brand" : "text-kumo-subtle hover:text-kumo-default"}`}
-          >
-            <PushPin size={14} weight={focusPinned ? "fill" : "regular"} />
-          </button>
-        )}
-        {isDesktop && !isCollapsed && (
-          <button
-            type="button"
-            onClick={() => requestUpdateCheck()}
-            title="Check for updates"
-            className="flex items-center justify-center size-7 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 transition-colors cursor-pointer shrink-0"
-          >
-            <ArrowUp size={14} />
-          </button>
+      <div className={`flex w-full items-center gap-2 ${isCollapsed ? "justify-center" : "justify-between"}`}>
+        <div className="flex items-center gap-2 min-w-0">
+          {overlay ? (
+            /* The brand mark doubles as the collapse control: hover swaps it to the panel
+               icon so it reads as clickable instead of a dead logo, click collapses. */
+            <button
+              type="button"
+              onClick={onCollapseClick}
+              title="Sembunyikan sidebar (Ctrl/⌘B)"
+              aria-label="Sembunyikan sidebar"
+              className="group/logo relative grid size-7 shrink-0 place-items-center rounded hover:bg-kumo-elevated/60 cursor-pointer"
+            >
+              <img
+                src="/logo-icon.png"
+                alt="Onesist"
+                className="h-6 w-6 object-contain transition-opacity group-hover/logo:opacity-0"
+              />
+              <SidebarSimple
+                size={14}
+                className="absolute text-kumo-subtle opacity-0 transition-opacity group-hover/logo:opacity-100"
+              />
+            </button>
+          ) : (
+            <img src="/logo-icon.png" alt="Onesist" className="h-6 w-6 object-contain shrink-0" />
+          )}
+          {!isCollapsed && <span className="text-sm font-semibold text-kumo-default truncate min-w-0">ONESIST</span>}
+        </div>
+        {!isCollapsed && (
+          <div className="flex items-center gap-1 shrink-0">
+            {isDesktop && (
+              <button
+                type="button"
+                onClick={() => requestUpdateCheck()}
+                title="Check for updates"
+                className="flex items-center justify-center size-7 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 cursor-pointer shrink-0"
+              >
+                <ArrowUp size={14} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={isMobile ? toggleSidebar : onPinToggle}
+              title={
+                isMobile
+                  ? "Tutup sidebar"
+                  : isPinned
+                    ? "Auto-hide sidebar: sembunyi otomatis dan muncul saat kursor di tepi kiri"
+                    : "Pin sidebar: tetap terbuka setelah kursor pergi"
+              }
+              aria-label={isMobile ? "Tutup sidebar" : "Pin sidebar"}
+              aria-pressed={isMobile ? undefined : isPinned}
+              className="flex items-center justify-center size-8 rounded-lg text-kumo-subtle hover:text-kumo-default hover:bg-(--sidebar-active-bg) cursor-pointer shrink-0"
+            >
+              <SidebarPanelIcon pinned={isMobile ? true : isPinned} />
+            </button>
+          </div>
         )}
       </div>
     </Sidebar.Header>
@@ -127,19 +179,22 @@ function AppSidebarFooter() {
             type="button"
             onClick={onToggleTheme}
             title={mounted ? (theme === "dark" ? "Switch to light mode" : "Switch to dark mode") : "Toggle theme"}
-            className="flex items-center gap-2 px-2 py-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 transition-colors cursor-pointer"
+            className="flex items-center gap-2 px-2 py-1 rounded text-kumo-subtle hover:text-kumo-default hover:bg-kumo-elevated/60 cursor-pointer"
           >
             {mounted && theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             <span className="text-xs">{mounted ? (theme === "dark" ? "Light mode" : "Dark mode") : "Theme"}</span>
           </button>
         )}
-        <Sidebar.Trigger />
       </div>
     </Sidebar.Footer>
   );
 }
 const SIDEBAR_OPEN_KEY = "onesist:sidebar:open";
+const SIDEBAR_AUTO_HIDE_KEY = "onesist:sidebar:auto-hide";
 const SIDEBAR_WIDTH_KEY = "onesist:sidebar:width";
+// Slightly longer than the 220ms slide-out transform so the sidebar keeps its full expanded
+// layout until it has finished leaving the viewport.
+const PEEK_EXIT_ANIM_MS = 250;
 // Height of the overlay title bar strip on the macOS main window (traffic lights + toggle).
 const TITLEBAR_H = 32;
 // Which window gets the overlay title bar UI, decided once, synchronously: the macOS desktop
@@ -162,82 +217,311 @@ function writeStored(key: string, value: string): void {
 }
 
 function SidebarPersistence() {
-  const { state, width, setOpen, setWidth } = useSidebar();
+  const { state, width, setWidth } = useSidebar();
+  const [hydrated, setHydrated] = useState(false);
   const applied = useRef(false);
 
   useEffect(() => {
     if (applied.current) return;
     applied.current = true;
     const open = readStored(SIDEBAR_OPEN_KEY);
-    if (open !== null) setOpen(open === "true");
+    const autoHide = readStored(SIDEBAR_AUTO_HIDE_KEY);
+    hydrateSidebarState({
+      open: open === null ? null : open === "true",
+      autoHide: autoHide === null ? null : autoHide === "true",
+    });
     const w = readStored(SIDEBAR_WIDTH_KEY);
     if (w !== null) {
       const n = Number(w);
       if (Number.isFinite(n) && n > 0) setWidth(n);
     }
-  }, [setOpen, setWidth]);
+    setHydrated(true);
+  }, [setWidth]);
 
-  // The user's choice is remembered, not the state on screen: a fold made by the chat is not a choice.
+  // The user's choices are remembered, not transient folds (chat fold or focus mode).
   const choice = useSidebarChoice();
+  const autoHide = useSidebarAutoHide();
   useEffect(() => {
+    if (!hydrated) return;
     writeStored(SIDEBAR_OPEN_KEY, choice ? "true" : "false");
-  }, [choice]);
+  }, [hydrated, choice]);
 
   useEffect(() => {
-    if (state === "expanded") writeStored(SIDEBAR_WIDTH_KEY, String(width));
-  }, [state, width]);
+    if (!hydrated) return;
+    writeStored(SIDEBAR_AUTO_HIDE_KEY, autoHide ? "true" : "false");
+  }, [hydrated, autoHide]);
+
+  useEffect(() => {
+    if (hydrated && state === "expanded") writeStored(SIDEBAR_WIDTH_KEY, String(width));
+  }, [hydrated, state, width]);
 
   return null;
 }
 
 /**
- * The left-edge hot zone that reveals the sidebar while focus mode folds it.
+ * Left-edge hover reveal and overlay sidebar wrapper.
  *
- * kumo ships the peek itself (peekable / startPeek / state "peeking"), but its trigger is the
- * sidebar's own content container - 0px wide when collapsible="offcanvas" is closed, so it can
- * never be hovered from the window edge. This strip is that missing trigger. The peek expands as
- * an overlay (the collapsed container is absolute), so the document never reflows because the
- * pointer crossed the edge.
- *
- * Opt-in on purpose: the hover peek was removed in 100d8c2 and stays gone in normal work. It
- * only exists while focus mode is on and the sidebar is not pinned.
+ * Works in both normal mode (when Auto-hide / unpinned is active) and Focus Mode (where the
+ * sidebar auto-hides temporarily until pinned). Rather than relying on kumo's internal `peekable`
+ * state — whose provider `useMemo` omits `peekable` from its deps and whose `onMouseLeave` snaps
+ * closed with 0ms grace — this drives the overlay with compositor-only `transform` + `opacity`
+ * transitions, a 12px left-edge hot zone plus window edge tracking, a 50ms enter dwell (safe
+ * across dual monitors), and a 220ms leave grace delay with hysteresis.
  */
-function FocusSidebarPeek() {
-  const { peekable, open, isPeeking, startPeek, stopPeek } = useSidebar();
-  const [finePointer, setFinePointer] = useState(false);
-  useEffect(() => {
-    setFinePointer(window.matchMedia("(pointer: fine)").matches);
+function AppSidebarShell({
+  dockedOpen,
+  autoHide,
+  focusActive,
+  focusPinned,
+  finePointer,
+  peeking,
+  onOpenPeek,
+  onClosePeek,
+  children,
+}: {
+  dockedOpen: boolean;
+  autoHide: boolean;
+  focusActive: boolean;
+  focusPinned: boolean;
+  finePointer: boolean;
+  peeking: boolean;
+  onOpenPeek: () => void;
+  onClosePeek: () => void;
+  children: React.ReactNode;
+}) {
+  const { isMobile, width, isResizing } = useSidebar();
+  const asideRef = useRef<HTMLElement | null>(null);
+  const enterTimerRef = useRef<number | null>(null);
+  const leaveTimerRef = useRef<number | null>(null);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const isResizingRef = useRef(isResizing);
+  isResizingRef.current = isResizing;
+  // Tracks the last known pointer X and whether the pointer must leave the edge strip before
+  // re-triggering peek (prevents instant re-open when pressing Esc with the cursor still at x <= 12).
+  const lastPointerXRef = useRef<number | null>(null);
+  const requireEdgeExitRef = useRef(false);
+  const prevPeekingRef = useRef(peeking);
+
+  const peekEnabled = shouldEnableSidebarPeek({
+    dockedOpen,
+    autoHide,
+    focusActive,
+    focusPinned,
+    finePointer,
+    isMobile,
+  });
+
+  const clearEnterTimer = useCallback(() => {
+    if (enterTimerRef.current !== null) {
+      window.clearTimeout(enterTimerRef.current);
+      enterTimerRef.current = null;
+    }
   }, []);
 
-  // Esc closes the peek before it leaves focus mode: capture phase and preventDefault, so the
-  // project's bubble-phase handler sees the key as handled.
+  const clearLeaveTimer = useCallback(() => {
+    if (leaveTimerRef.current !== null) {
+      window.clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+  }, []);
+
+  // Latch edge re-arming when peek closes while the pointer is still sitting on the left edge.
   useEffect(() => {
-    if (!isPeeking) return;
-    const onKey = (e: KeyboardEvent) => {
+    const wasPeeking = prevPeekingRef.current;
+    prevPeekingRef.current = peeking;
+    if (wasPeeking && !peeking) {
+      const lastX = lastPointerXRef.current;
+      const topOffset = asideRef.current?.getBoundingClientRect().top ?? 0;
+      if (lastX !== null && isPointerInEdgeZone({ clientX: lastX, clientY: topOffset, topOffset })) {
+        requireEdgeExitRef.current = true;
+      }
+    }
+  }, [peeking]);
+
+  // Drop any active peek as soon as hover-reveal is disabled (pinned, focus exited, mobile).
+  useEffect(() => {
+    if (!peekEnabled && peeking) {
+      clearEnterTimer();
+      clearLeaveTimer();
+      onClosePeek();
+    }
+  }, [peekEnabled, peeking, clearEnterTimer, clearLeaveTimer, onClosePeek]);
+
+  // Clear timers on unmount.
+  useEffect(() => () => {
+    clearEnterTimer();
+    clearLeaveTimer();
+  }, [clearEnterTimer, clearLeaveTimer]);
+
+  // Remove focus from any sidebar item before the off-screen overlay becomes inert.
+  const isOverlayDesktop = !isMobile && !dockedOpen;
+  useEffect(() => {
+    if (!isOverlayDesktop || peeking) return;
+    const aside = asideRef.current;
+    const active = document.activeElement;
+    if (aside && active instanceof HTMLElement && aside.contains(active)) {
+      active.blur();
+    }
+  }, [isOverlayDesktop, peeking]);
+
+  const scheduleEnter = useCallback(
+    (clientX: number, clientY: number, buttons: number) => {
+      lastPointerXRef.current = clientX;
+      const topOffset = asideRef.current?.getBoundingClientRect().top ?? 0;
+      if (!isPointerInEdgeZone({ clientX, clientY, topOffset })) {
+        requireEdgeExitRef.current = false;
+        clearEnterTimer();
+        return;
+      }
+      if (requireEdgeExitRef.current) return;
+      if (!shouldStartSidebarPeek({ buttons, isResizing: isResizingRef.current, hasBlockingOverlay: hasBlockingOverlay() })) {
+        clearEnterTimer();
+        return;
+      }
+      if (enterTimerRef.current !== null) return;
+      enterTimerRef.current = window.setTimeout(() => {
+        enterTimerRef.current = null;
+        if (
+          !requireEdgeExitRef.current &&
+          shouldStartSidebarPeek({ buttons: 0, isResizing: isResizingRef.current, hasBlockingOverlay: hasBlockingOverlay() })
+        ) {
+          onOpenPeek();
+        }
+      }, PEEK_ENTER_DELAY_MS);
+    },
+    [clearEnterTimer, onOpenPeek],
+  );
+
+  // Window-level left-edge detection while folded and hover-reveal is enabled.
+  useEffect(() => {
+    if (!peekEnabled || peeking) {
+      clearEnterTimer();
+      return;
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      scheduleEnter(e.clientX, e.clientY, e.buttons);
+    };
+    const onPointerDown = () => clearEnterTimer();
+    const onMouseLeaveDoc = () => {
+      requireEdgeExitRef.current = false;
+      clearEnterTimer();
+    };
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerdown", onPointerDown, true);
+    document.documentElement.addEventListener("mouseleave", onMouseLeaveDoc);
+    return () => {
+      clearEnterTimer();
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      document.documentElement.removeEventListener("mouseleave", onMouseLeaveDoc);
+    };
+  }, [peekEnabled, peeking, scheduleEnter, clearEnterTimer]);
+
+  // While peeking: stay open inside sidebar + buffer, close gracefully on leave, and dismiss
+  // immediately on Escape (before Focus Mode's Escape), outside click, Quick Open, or blur.
+  useEffect(() => {
+    if (!peeking) {
+      clearLeaveTimer();
+      return;
+    }
+    const scheduleLeave = () => {
+      if (leaveTimerRef.current !== null) return;
+      leaveTimerRef.current = window.setTimeout(() => {
+        leaveTimerRef.current = null;
+        onClosePeek();
+      }, PEEK_LEAVE_DELAY_MS);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      lastPointerXRef.current = e.clientX;
+      const topOffset = asideRef.current?.getBoundingClientRect().top ?? 0;
+      if (
+        isPointerInPeekBounds({
+          clientX: e.clientX,
+          clientY: e.clientY,
+          sidebarWidth: widthRef.current,
+          topOffset,
+        })
+      ) {
+        clearLeaveTimer();
+      } else {
+        scheduleLeave();
+      }
+    };
+    const onMouseLeaveDoc = () => scheduleLeave();
+    const onPointerDown = (e: PointerEvent) => {
+      if (asideRef.current && !asideRef.current.contains(e.target as Node)) {
+        clearLeaveTimer();
+        onClosePeek();
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
-      stopPeek();
+      requireEdgeExitRef.current = true;
+      clearLeaveTimer();
+      onClosePeek();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [isPeeking, stopPeek]);
+    const onDismissNow = () => {
+      clearLeaveTimer();
+      onClosePeek();
+    };
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    document.documentElement.addEventListener("mouseleave", onMouseLeaveDoc);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("blur", onDismissNow);
+    window.addEventListener("open-quick-search", onDismissNow);
+    return () => {
+      clearLeaveTimer();
+      window.removeEventListener("pointermove", onPointerMove);
+      document.documentElement.removeEventListener("mouseleave", onMouseLeaveDoc);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("blur", onDismissNow);
+      window.removeEventListener("open-quick-search", onDismissNow);
+    };
+  }, [peeking, clearLeaveTimer, onClosePeek]);
 
-  if (!peekable || open || isPeeking || !finePointer) return null;
+  // Only pass overlay overrides while collapsed on desktop — passing `{ style: undefined }`
+  // would clobber kumo's own inline `style={{ width }}` because kumo spreads `...rest` after it.
+  const overlayProps = isOverlayDesktop
+    ? {
+        style: { width: 0 } as React.CSSProperties,
+        inert: !peeking,
+        contentClassName: peeking
+          ? "sidebar-peek-panel sidebar-peek-open border-r-0! ring-1 ring-kumo-line shadow-xl"
+          : "sidebar-peek-panel sidebar-peek-closed",
+      }
+    : {};
 
   return (
-    <div
-      aria-hidden="true"
-      className="fixed left-0 z-30 w-1.5"
-      style={{ top: "var(--update-banner-h, 0px)", bottom: 0 }}
-      onMouseEnter={(e) => {
-        // A held mouse button means a drag (text selection, resize, file): never hijack it.
-        if (e.buttons !== 0) return;
-        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-        startPeek();
-      }}
-    >
-      <span className="pointer-events-none absolute left-0 top-1/2 h-14 w-0.5 -translate-y-1/2 rounded-r-full bg-kumo-line/80 transition-colors" />
-    </div>
+    <>
+      {peekEnabled && !peeking && (
+        <div
+          aria-hidden="true"
+          data-sidebar-edge-trigger=""
+          className="group/edge absolute inset-y-0 left-0 z-[45] w-3"
+          onPointerEnter={(e) => {
+            if (e.pointerType === "touch") return;
+            scheduleEnter(e.clientX, e.clientY, e.buttons);
+          }}
+          onClick={() => {
+            if (!shouldStartSidebarPeek({ buttons: 0, isResizing: isResizingRef.current, hasBlockingOverlay: hasBlockingOverlay() })) return;
+            requireEdgeExitRef.current = false;
+            clearEnterTimer();
+            onOpenPeek();
+          }}
+        >
+          <span className="pointer-events-none absolute left-0 top-1/2 h-14 w-1 -translate-y-1/2 rounded-r-full bg-kumo-line/80 group-hover/edge:w-1.5 group-hover/edge:bg-kumo-brand/70" />
+        </div>
+      )}
+      <Sidebar ref={asideRef} {...overlayProps}>
+        {children}
+      </Sidebar>
+    </>
   );
 }
 
@@ -262,21 +546,101 @@ function RootComponent() {
     };
   }, []);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  // Controlled, so the project's chat can fold it on a narrow window (P3.2).
+  // Controlled, so the project's chat and auto-hide can fold it cleanly.
   const choiceOpen = useSidebarOpen();
-  // Focus mode owns the sidebar while it is on: folded unless pinned, and never written to the
-  // remembered choice, so leaving the mode gives the workspace back exactly as it was.
+  const autoHide = useSidebarAutoHide();
+  // Focus mode owns the sidebar while it is on: folded (auto-hide) unless pinned, and never
+  // written to the remembered choices, so leaving the mode restores the workspace as it was.
   const focusActive = useFocusMode();
   const focusPinned = useFocusSidebarPinned();
-  const sidebarOpen = focusActive ? focusPinned : choiceOpen;
+  const dockedOpen = focusActive ? focusPinned : choiceOpen;
+  const isSidebarPinned = focusActive ? focusPinned : !autoHide;
+
+  const [finePointer, setFinePointer] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(any-pointer: fine)");
+    const sync = () => setFinePointer(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const [peeking, setPeeking] = useState(false);
+  const [exitingPeek, setExitingPeek] = useState(false);
+  const exitAnimTimerRef = useRef<number | null>(null);
+  const prevVisibleRef = useRef(dockedOpen || peeking);
+
+  // Keep kumo's expanded internal layout intact while the overlay slides off-screen so labels
+  // and header items do not collapse mid-animation.
+  useEffect(() => {
+    const nowVisible = dockedOpen || peeking;
+    const wasVisible = prevVisibleRef.current;
+    prevVisibleRef.current = nowVisible;
+
+    if (exitAnimTimerRef.current !== null) {
+      window.clearTimeout(exitAnimTimerRef.current);
+      exitAnimTimerRef.current = null;
+    }
+
+    if (nowVisible) {
+      setExitingPeek(false);
+      return;
+    }
+
+    if (wasVisible && typeof window !== "undefined") {
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const isDesktopWidth = window.innerWidth >= 768;
+      if (!reducedMotion && isDesktopWidth) {
+        setExitingPeek(true);
+        exitAnimTimerRef.current = window.setTimeout(() => {
+          exitAnimTimerRef.current = null;
+          setExitingPeek(false);
+        }, PEEK_EXIT_ANIM_MS);
+      }
+    }
+  }, [dockedOpen, peeking]);
+
+  useEffect(() => () => {
+    if (exitAnimTimerRef.current !== null) window.clearTimeout(exitAnimTimerRef.current);
+  }, []);
+
+  const openPeek = useCallback(() => setPeeking(true), []);
+  const closePeek = useCallback(() => setPeeking(false), []);
+
   const setSidebar = useCallback((next: boolean) => {
+    if (!next && peeking) {
+      setPeeking(false);
+      return;
+    }
     if (isFocusMode()) setFocusSidebarPinned(next);
     else setSidebarOpen(next);
-  }, []);
+    if (next) setPeeking(false);
+  }, [peeking]);
+
   const toggleSidebar = useCallback(() => {
-    if (isFocusMode()) setFocusSidebarPinned(!isFocusSidebarPinned());
-    else setSidebarOpen(!getSidebarChoice());
+    if (isFocusMode()) {
+      setFocusSidebarPinned(!isFocusSidebarPinned());
+      setPeeking(false);
+      return;
+    }
+    // Docked open -> switch to auto-hide (hover left edge to reveal);
+    // hidden/auto-hide -> pin and dock open. Matches web header toggle on macOS desktop too.
+    if (getSidebarOpen()) setSidebarAutoHide(true);
+    else setSidebarAutoHide(false);
+    setPeeking(false);
   }, []);
+
+  const handleHeaderCollapse = useCallback(() => {
+    if (peeking) {
+      setPeeking(false);
+      return;
+    }
+    if (isFocusMode()) setFocusSidebarPinned(false);
+    else setSidebarAutoHide(true);
+  }, [peeking]);
+
+  const sidebarProviderOpen = dockedOpen || peeking || exitingPeek;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -358,57 +722,75 @@ function RootComponent() {
         <InstanceWatch />
         <QuickOpenModal />
         {/* The overlay title bar strip (macOS main window): dragging moves the window,
-            double-clicking zooms it. One slot next to the traffic lights switches content:
-            the toggle while the sidebar shows, the Onesist logo while it is hidden — so the
-            logo never disappears, and clicks pin or collapse; nothing closes on hover. */}
-        {IS_MAC_MAIN && !focusActive && (
+            double-clicking zooms it. One slot next to the traffic lights switches between
+            Pin (docked open) and Auto-hide (hover left edge to reveal), matching the web toggle. */}
+        {IS_MAC_MAIN && (
           <div data-tauri-drag-region className="fixed inset-x-0 top-0 z-[70]" style={{ height: TITLEBAR_H }}>
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              title={sidebarOpen ? "Sembunyikan sidebar (Ctrl/⌘B)" : "Tampilkan sidebar (Ctrl/⌘B)"}
-              aria-label={sidebarOpen ? "Sembunyikan sidebar" : "Tampilkan sidebar"}
-              className="group/logo absolute left-[76px] top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-md text-kumo-subtle hover:bg-kumo-elevated/60 hover:text-kumo-default transition-colors cursor-pointer"
-            >
-              {sidebarOpen ? (
-                <SidebarSimple size={15} />
-              ) : (
-                <>
-                  <img
-                    src="/logo-icon.png"
-                    alt="Onesist"
-                    className="h-5 w-5 object-contain transition-opacity group-hover/logo:opacity-0"
-                  />
-                  <SidebarSimple
-                    size={15}
-                    className="absolute opacity-0 transition-opacity group-hover/logo:opacity-100"
-                  />
-                </>
-              )}
-            </button>
+            {!focusActive && (
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                title={
+                  dockedOpen
+                    ? "Auto-hide sidebar (Ctrl/⌘B): sembunyi otomatis dan muncul saat kursor di tepi kiri"
+                    : "Pin sidebar (Ctrl/⌘B): tampilkan sidebar tetap terbuka"
+                }
+                aria-label="Pin sidebar"
+                aria-pressed={dockedOpen}
+                className="group/logo absolute left-[76px] top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-md text-kumo-subtle hover:bg-kumo-elevated/60 hover:text-kumo-default cursor-pointer"
+              >
+                {dockedOpen ? (
+                  <SidebarPanelIcon pinned />
+                ) : (
+                  <>
+                    <img
+                      src="/logo-icon.png"
+                      alt="Onesist"
+                      className="h-5 w-5 object-contain transition-opacity group-hover/logo:opacity-0"
+                    />
+                    <span className="absolute flex items-center justify-center opacity-0 transition-opacity group-hover/logo:opacity-100">
+                      <SidebarPanelIcon pinned={false} />
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         )}
-        {/* Floating logo, non-overlay windows only (web, Windows, secondary windows): the
-            overlay build keeps its toggle in the title bar strip instead. Click opens the
-            sidebar for good — no hover peek, the sidebar never depends on the pointer. */}
-        {!sidebarOpen && !IS_MAC_MAIN && !focusActive && (
+        {/* Floating logo, non-overlay windows only (web, Windows, secondary windows): hidden
+            while auto-hide edge reveal is active on a fine pointer so it does not cover the
+            top-left edge, and kept on touch/coarse pointers or manual collapse. */}
+        {!dockedOpen && !IS_MAC_MAIN && !focusActive && !(autoHide && finePointer) && (
           <button
             type="button"
             onClick={() => setSidebar(true)}
             title="Tampilkan sidebar (Ctrl/⌘B)"
             aria-label="Tampilkan sidebar"
-            className="fixed left-2 z-50 flex items-center justify-center size-8 rounded bg-kumo-elevated/80 border border-kumo-line hover:bg-kumo-elevated transition-colors cursor-pointer"
+            className="fixed left-2 z-50 flex items-center justify-center size-8 rounded bg-kumo-elevated/80 border border-kumo-line hover:bg-kumo-elevated cursor-pointer"
             style={{ top: "calc(var(--update-banner-h, 0px) + 8px)" }}
           >
             <img src="/logo-icon.png" alt="" className="h-5 w-5 object-contain" />
           </button>
         )}
         <div className="flex flex-1 min-h-0">
-          <Sidebar.Provider contained open={sidebarOpen} onOpenChange={setSidebar} collapsible="offcanvas" resizable defaultWidth={220} minWidth={48} maxWidth={320} peekable={focusActive && !focusPinned} className="min-h-0 h-full w-full">
+          <Sidebar.Provider contained open={sidebarProviderOpen} onOpenChange={setSidebar} collapsible="offcanvas" resizable defaultWidth={220} minWidth={48} maxWidth={320} peekable={false} className="min-h-0 h-full w-full">
             <SidebarPersistence />
-            <FocusSidebarPeek />
-            <Sidebar>
-              <AppSidebarHeader overlay={IS_MAC_MAIN} />
+            <AppSidebarShell
+              dockedOpen={dockedOpen}
+              autoHide={autoHide}
+              focusActive={focusActive}
+              focusPinned={focusPinned}
+              finePointer={finePointer}
+              peeking={peeking}
+              onOpenPeek={openPeek}
+              onClosePeek={closePeek}
+            >
+              <AppSidebarHeader
+                overlay={IS_MAC_MAIN}
+                isPinned={isSidebarPinned}
+                onPinToggle={toggleSidebar}
+                onCollapseClick={handleHeaderCollapse}
+              />
               <Sidebar.Content className="overflow-y-auto scrollbar-thin">
                 <Sidebar.Group>
                   <Sidebar.GroupLabel>Navigation</Sidebar.GroupLabel>
@@ -418,6 +800,7 @@ function RootComponent() {
                       icon={House}
                       tooltip="Dashboard"
                       onClick={(e) => {
+                        if (peeking) closePeek();
                         if (e.ctrlKey || e.metaKey || e.button === 1) {
                           e.preventDefault();
                           void openProjectWindow("/");
@@ -428,6 +811,7 @@ function RootComponent() {
                       onAuxClick={(e) => {
                         if (e.button === 1) {
                           e.preventDefault();
+                          if (peeking) closePeek();
                           void openProjectWindow("/");
                         }
                       }}
@@ -435,7 +819,10 @@ function RootComponent() {
                       Dashboard
                     </Sidebar.MenuButton>
                     <Sidebar.MenuButton
-                      onClick={() => window.dispatchEvent(new CustomEvent("open-quick-search"))}
+                      onClick={() => {
+                        if (peeking) closePeek();
+                        window.dispatchEvent(new CustomEvent("open-quick-search"));
+                      }}
                       icon={MagnifyingGlass}
                       tooltip="Quick Open (⌘P)"
                     >
@@ -449,6 +836,7 @@ function RootComponent() {
                       icon={Gear}
                       tooltip="Settings"
                       onClick={(e) => {
+                        if (peeking) closePeek();
                         if (e.ctrlKey || e.metaKey || e.button === 1) {
                           e.preventDefault();
                           void openProjectWindow("/settings");
@@ -459,6 +847,7 @@ function RootComponent() {
                       onAuxClick={(e) => {
                         if (e.button === 1) {
                           e.preventDefault();
+                          if (peeking) closePeek();
                           void openProjectWindow("/settings");
                         }
                       }}
@@ -479,6 +868,7 @@ function RootComponent() {
                         icon={Folder}
                         tooltip={p.name}
                         onClick={(e) => {
+                          if (peeking) closePeek();
                           if (e.ctrlKey || e.metaKey || e.button === 1) {
                             e.preventDefault();
                             void openProjectWindow(`/projects/${p.id}`);
@@ -494,6 +884,7 @@ function RootComponent() {
                         onAuxClick={(e) => {
                           if (e.button === 1) {
                             e.preventDefault();
+                            if (peeking) closePeek();
                             void openProjectWindow(`/projects/${p.id}`);
                           }
                         }}
@@ -505,7 +896,7 @@ function RootComponent() {
                 </Sidebar.Group>
               </Sidebar.Content>
               <AppSidebarFooter />
-            </Sidebar>
+            </AppSidebarShell>
             <main data-app-main className={`flex-1 overflow-y-auto min-w-0 ${focusActive ? "p-2" : "p-5"}`}><div className={`mx-auto h-full w-full ${focusActive ? "" : "max-w-[1600px]"}`}><Outlet /></div></main>
             {/* The right dock: chat and terminal panels portal in here (see RightDock), so they run the
                 full window height at the right edge, outside the page's padding and centred column. */}
