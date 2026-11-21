@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.9 — Mode fokus + auto-hide sidebar, dan output task Monday yang konsisten
+
+Rilis untuk kenyamanan membaca dan mengedit `.md` tanpa gangguan chrome, serta satu format kartu task Monday yang bersih dan seragam di Copy HTML, Monday CSV, dan agen MCP.
+
+### Feat — Mode Fokus & Auto-Hide Sidebar (#70)
+- **Mode Fokus untuk baca & edit `.md`.** Chip **Focus** di header project, `Ctrl/Cmd+Shift+F`, atau `Esc` menyembunyikan header project, strip 11 tab, kartu statistik, strip tab file, dan file explorer agar area dokumen maksimal. Bar mengambang di bawah menyediakan switcher **Edit / Split / Preview**, indikator **Unsaved** + tombol **Save**, serta tombol **Files** (Quick Open); toolbar `MDXEditor` tidak bertabrakan dengan chip keluar dan `Esc` tetap aman saat dropdown editor terbuka.
+- **Auto-hide sidebar dengan reveal dari tepi kiri.** `AppSidebarShell` (dengan state persist di `src/lib/sidebar-state.ts`) menampilkan sidebar sebagai overlay dengan animasi slide-in dari kiri ke kanan saat kursor menyentuh hot zone 12 px tepi kiri (dwell 50 ms, grace keluar 220 ms + histeresis, dan latch re-arm `Esc`), serta pengaman terhadap drag, dialog modal, menu konteks, dan pointer kasar.
+- **Kontrol sidebar lebih rapi (web & macOS desktop).** Toggle panel sidebar dipindahkan ke header sejajar (space-between) dengan logo Onesist dan tombol duplikat di footer dihapus; tombol titlebar overlay macOS dan `Ctrl/Cmd+B` diselaraskan dengan mode auto-hide. Pengaturan **Pin / Auto-hide** juga tersedia di `Settings → Tampilan & Terminal`.
+
+### Fix — Output Task Monday & Skill `monday-task` (#69)
+- **Satu formatter kartu task eksternal.** `src/lib/external-task-card.ts` (`formatExternalTaskCard`) dipakai bersama oleh tombol **Copy** di detail task, **Export Monday CSV** (`GET /api/projects/:id/handoff?format=monday-csv` dan `monday-import.csv` dalam ZIP), serta agen MCP — menghasilkan judul `{code}: {title}` sekali saja tanpa backtick literal, hanya field terisi (`Assignee`, `Status`, `Story Points`, `Depends On`, `Blocks` tanpa placeholder `—`/`Unassigned`), dan plain-text fallback (`htmlToPlainText`) yang mempertahankan checklist `[ ]` / `[x]`.
+- **Bebas kebocoran path internal Onesist.** Tabel ringkasan planner, heading ganda `## Task ...`, garis pemisah `<hr/>` di akhir kartu, field `Files Scope` / `Spec Ref` / `ERD Ref` / `RTM Ref` / `Source`, serta path/file internal (`output/`, `input/`, `.agents/`, `data.db`, `MASTER_*.md`, `task_*.md`, `spec_*.md`, `erd_*.dbml`, `../spec/*.md`, `tasks.json`, `*.prompt.md`) otomatis dibersihkan; gambar lokal dikonversi menjadi `*[Gambar: alt]*`. **Copy Agent Prompt** dan bundel handoff agent (`tasks.json`, `prompts/*.prompt.md`, `context/MASTER_*`) tetap utuh.
+- **Tool agen + aturan MCP + skill bawaan `monday-task`.** Menambahkan tool read-only `task_external_card` (chat native) dan `onesist_task_card` (Onesist MCP server), injeksi otomatis aturan Monday MCP saat server Monday terhubung, serta skill bawaan `vendor/skills/monday-task/SKILL.md` (`$monday-task`, masuk `REQUIRED_SKILLS`) untuk alur **Item → Update** maupun **Parent Item → Subitem → Update**.
+
+### Verifikasi
+- `bun run typecheck` bersih; `bun test src`: **932 tes di 178 berkas** lulus; `bun run build:server` sukses (termasuk bundling `vendor/skills/monday-task`).
+- Sidebar auto-hide, animasi slide-in, toggle header, macOS desktop titlebar, dan edit `.md` di mode fokus diuji langsung di browser dan desktop macOS.
+- Audit end-to-end 163 task nyata di `data.db` dan live endpoint Monday CSV (142 task, 879.117 karakter): **0 kebocoran** path internal; output `task_external_card` dan `onesist_task_card` identik byte-per-byte dengan Copy HTML.
+- Catatan: push live ke board Monday.com lewat server MCP Monday eksternal dan build desktop Windows belum diuji langsung dari mesin pengembang.
+
+### Catatan teknis
+- Skill bawaan baru: `vendor/skills/monday-task/SKILL.md` (terdaftar di `REQUIRED_SKILLS`).
+- Tidak ada migrasi database baru dan tidak ada dependency baru.
+
 ## v0.5.8 — Edit task tidak lagi dikembalikan oleh import, dan pencarian file lebih ringan
 
 Rilis patch untuk dua hal: perubahan task yang hilang setelah import, dan pencarian file yang berat saat mengetik.
